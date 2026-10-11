@@ -1,0 +1,2 @@
+- {"keyid":1,"name":"lc","gender":False,"age":18,"party":1,"level":1,"equipment":[["Head",1]],"weapon":[]}
+- {"keyid":2,"name":"yyx","gender":True,"age":18,"party":1,"level":1,"equipment":[["Head",1]],"weapon":[["MeleeWeapon",1001]]}
