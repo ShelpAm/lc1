@@ -146,6 +146,12 @@ template <typename Map> auto sorted_records(Map const &map)
     return records;
 }
 
+std::string path_utf8(std::filesystem::path const &path)
+{
+    auto const utf8 = path.u8string();
+    return {utf8.begin(), utf8.end()};
+}
+
 } // namespace
 
 std::filesystem::path Save::slot_directory(std::filesystem::path const &root, std::string_view name)
@@ -254,19 +260,19 @@ void Save::write(std::filesystem::path const &directory, SerializedWorld const &
     std::error_code error;
     std::filesystem::create_directories(directory, error);
     if (error)
-        fail("cannot create save directory {}: {}", directory.string(), error.message());
+        fail("cannot create save directory {}: {}", path_utf8(directory), error.message());
     auto const staging = directory / "checkpoint.yaml.tmp";
     auto stream = std::ofstream{staging, std::ios::binary | std::ios::trunc};
     if (!stream)
-        fail("cannot open checkpoint staging file {}", staging.string());
+        fail("cannot open checkpoint staging file {}", path_utf8(staging));
     rfl::yaml::write(checked.data(), stream);
     stream.close();
     if (!stream)
-        fail("cannot write checkpoint staging file {}", staging.string());
+        fail("cannot write checkpoint staging file {}", path_utf8(staging));
     std::filesystem::rename(staging, directory / "checkpoint.yaml", error);
     if (error)
-        fail("cannot commit checkpoint in {}: {}", directory.string(), error.message());
-    spdlog::info("[save] checkpoint saved to {}", directory.string());
+        fail("cannot commit checkpoint in {}: {}", path_utf8(directory), error.message());
+    spdlog::info("[save] checkpoint saved to {}", path_utf8(directory));
 }
 
 SerializedCharacterConfig serialize_character(Character const &character)
