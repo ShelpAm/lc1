@@ -157,7 +157,7 @@ jobs:
         run: |
           call build\windows-x86_64\Debug\generators\conanrun.bat
           if errorlevel 1 exit /b 1
-          ctest --test-dir build/windows-x86_64/Debug --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml
+          ctest -C Debug --test-dir build/windows-x86_64/Debug --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
