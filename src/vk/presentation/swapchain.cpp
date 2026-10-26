@@ -154,3 +154,27 @@ void Swapchain::recreate(SwapchainConfig const &config, vk::Extent2D extent)
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::Format Swapchain::format() const
+{
+    return format_;
+}
+
+vk::Extent2D Swapchain::extent() const
+{
+    return extent_;
+}
+
+std::vector<SwapchainImage> const &Swapchain::images() const
+{
+    return images_;
+}
+
+vk::raii::SwapchainKHR const &Swapchain::raii() const
+{
+    return swapchain_;
+}
+
+} // namespace lc1

@@ -72,7 +72,7 @@ class DialogCatalog {
     std::string_view select(Character const &talker, Character const &target,
                             DialogTrigger trigger) const;
 
-    DialogSettings const &settings() const { return settings_; }
+    DialogSettings const &settings() const;
 
   private:
     std::map<std::string, DialogScript, std::less<>> scripts_;
@@ -91,19 +91,19 @@ class Dialog {
     void respond(Character &character, int response_index);
     void update(float delta_seconds, Character const *player, float line_seconds);
 
-    Character *talker() const { return talker_; }
+    Character *talker() const;
 
-    Character *target() const { return target_; }
+    Character *target() const;
 
     Character *speaker() const;
     Character *respondent() const;
     bool contains(Character const &character) const;
 
-    bool displaying_response() const { return pending_choice_.has_value(); }
+    bool displaying_response() const;
 
-    std::string_view current_speech_text() const { return current_speech_text_; }
+    std::string_view current_speech_text() const;
 
-    std::vector<std::string> const &candidate_responses() const { return candidate_responses_; }
+    std::vector<std::string> const &candidate_responses() const;
 
     std::string_view current_node_id() const;
     std::string_view response_id(std::size_t index) const;

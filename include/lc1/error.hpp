@@ -14,18 +14,11 @@ namespace lc1 {
 class Error : public std::runtime_error {
   public:
     explicit Error(std::string const &message,
-                   std::source_location location = std::source_location::current())
-        : std::runtime_error(message), location_(location)
-    {
-    }
+                   std::source_location location = std::source_location::current());
 
-    std::source_location location() const noexcept { return location_; }
+    std::source_location location() const noexcept;
 
-    std::string diagnostic() const
-    {
-        return std::format("{}\n  at {}:{} in {}", what(), location_.file_name(), location_.line(),
-                           location_.function_name());
-    }
+    std::string diagnostic() const;
 
   private:
     std::source_location location_;

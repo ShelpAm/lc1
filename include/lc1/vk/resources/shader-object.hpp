@@ -22,7 +22,7 @@ class ShaderObject {
                  std::string const &entry, vk::ShaderStageFlagBits stage,
                  vk::ShaderStageFlags next_stages = {});
 
-    vk::raii::ShaderEXT const &raii() const { return handle_; }
+    vk::raii::ShaderEXT const &raii() const;
 
   private:
     vk::raii::ShaderEXT handle_;

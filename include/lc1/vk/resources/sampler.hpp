@@ -7,33 +7,13 @@ namespace lc1 {
 
 class Sampler {
   public:
-    static vk::SamplerCreateInfo default_create_info(Device const &device)
-    {
-        return vk::SamplerCreateInfo{
-            .magFilter = vk::Filter::eLinear,
-            .minFilter = vk::Filter::eLinear,
-            .mipmapMode = vk::SamplerMipmapMode::eLinear,
-            .addressModeU = vk::SamplerAddressMode::eRepeat,
-            .addressModeV = vk::SamplerAddressMode::eRepeat,
-            .addressModeW = vk::SamplerAddressMode::eRepeat,
-            .anisotropyEnable = vk::True,
-            .maxAnisotropy = device.raii_physical().getProperties().limits.maxSamplerAnisotropy,
-            .compareEnable = vk::False,
-            .compareOp = vk::CompareOp::eAlways,
-            .maxLod = vk::LodClampNone,
-            .borderColor = vk::BorderColor::eIntOpaqueBlack,
-            .unnormalizedCoordinates = vk::False,
-        };
-    }
+    static vk::SamplerCreateInfo default_create_info(Device const &device);
 
-    explicit Sampler(Device const &device)
-        : info_(default_create_info(device)), sampler_(device.raii().createSampler(info_))
-    {
-    }
+    explicit Sampler(Device const &device);
 
-    vk::SamplerCreateInfo const &create_info() const { return info_; }
+    vk::SamplerCreateInfo const &create_info() const;
 
-    vk::raii::Sampler const &raii() const { return sampler_; }
+    vk::raii::Sampler const &raii() const;
 
   private:
     vk::SamplerCreateInfo info_;

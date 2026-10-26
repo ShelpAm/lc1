@@ -1,6 +1,12 @@
 #include "render-device.hpp"
 
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/scene/lights/directional-light.hpp"
+#include "lc1/scene/lights/point-light.hpp"
+#include "lc1/scene/lights/sphere-light.hpp"
+#include "lc1/scene/lights/spot-light.hpp"
+#include "lc1/scene/model-instance.hpp"
+#include "lc1/scene/model.hpp"
 #include "lc1/vk/render/renderer.hpp"
 
 #include "lc1/game/camera/map-camera-controller.hpp"
@@ -20,6 +26,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 
 namespace {
 
@@ -86,8 +93,8 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
                                  vk::PipelineStageFlagBits2::eNone, {},
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                                  vk::AccessFlagBits2::eColorAttachmentWrite);
-        renderer.record(wrapped, frame, {&output.view(), extent}, camera, lights, draws, settings,
-                        text);
+        renderer.record(wrapped, frame, {&output.view(), extent},
+                        lc1::scene::Scene{camera, lights, draws}, settings, text);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
                                  vk::ImageLayout::eTransferSrcOptimal,
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -292,12 +299,12 @@ void mutable_material_tests(lc1::Device const &device)
     std::array draws{
         lc1::DrawItem{.mesh = &mesh,
                       .material = &left,
-                      .model = glm::translate(glm::mat4{1}, glm::vec3{-0.8F, 0, 0}),
+                      .model_matrix = glm::translate(glm::mat4{1}, glm::vec3{-0.8F, 0, 0}),
                       .casts_shadow = false,
                       .depth_bias = false},
         lc1::DrawItem{.mesh = &mesh,
                       .material = &right,
-                      .model = glm::translate(glm::mat4{1}, glm::vec3{0.8F, 0, 0}),
+                      .model_matrix = glm::translate(glm::mat4{1}, glm::vec3{0.8F, 0, 0}),
                       .casts_shadow = false,
                       .depth_bias = false},
     };
@@ -362,8 +369,10 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
     auto render = [&](lc1::GpuMesh const &geometry, lc1::MaterialInfo const &parameters,
                       glm::mat4 transform = glm::mat4{1}) {
         auto material = parameters;
-        std::array draws{lc1::DrawItem{
-            .mesh = &geometry, .material = &material, .model = transform, .depth_bias = false}};
+        std::array draws{lc1::DrawItem{.mesh = &geometry,
+                                       .material = &material,
+                                       .model_matrix = transform,
+                                       .depth_bias = false}};
         return capture(device, renderer, frame, camera, lights, draws);
     };
     auto const baseline = render(no_tangents, info).center();
@@ -438,6 +447,53 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
     lights[0].direction = glm::normalize(glm::vec3{-1, 0, 0.1F});
     near(render(mesh, info).center().r, 0,
          "normal map must not light the geometric back hemisphere");
+}
+
+void model_animation_test(lc1::Device const &device)
+{
+    auto [definition, mesh] = [&device] {
+        std::vector<lc1::Vertex> vertices{
+            {.position = {-0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 0}},
+            {.position = {0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 0}},
+            {.position = {0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
+            {.position = {-0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
+        lc1::scene::Model model{
+            std::vector<lc1::scene::Mesh>{
+                lc1::scene::Mesh{std::move(vertices), {0, 1, 2, 0, 2, 3}}},
+            {{.mesh = 0}, {.parent = 0, .transform = {.translation = {-1, 0, 0}}, .mesh = 0}},
+            {{.name = "Move",
+              .channels = {
+                  {.times = {0, 1}, .values = std::vector<glm::vec3>{{0, 0, 0}, {2, 0, 0}}}}}}};
+        auto mesh = model.gen_mesh(device);
+        return std::pair{std::move(model).definition(), std::move(mesh)};
+    }();
+    lc1::scene::ModelInstance instance{definition};
+    lc1::scene::ModelInstance other{definition};
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(definition.draw_count()));
+    lc1::scene::FpsCamera camera;
+    camera.set_position({0, 0, 4});
+    camera.look_at({0, 0, 0});
+    lc1::MaterialInfo material;
+    material.parameters.base_color_factor = {0, 0, 0, 1};
+    material.parameters.emissive_factor = {2, 0, 0};
+    auto render = [&](lc1::scene::ModelInstance const &current) {
+        std::vector<lc1::DrawItem> draws;
+        for (auto const &part : current.mesh_instances(glm::mat4{1}))
+            draws.push_back(
+                {.mesh = &mesh, .material = &material, .model_matrix = part.model_matrix});
+        check(draws.size() == 2 && draws[0].mesh == draws[1].mesh,
+              "model nodes must share uploaded geometry while retaining independent transforms");
+        return capture(device, renderer, frame, camera, {}, draws);
+    };
+    instance.play_animation(0, false);
+    other.play_animation(0, false);
+    near(render(instance).center().r, 2, "animated node initially covers the center");
+    instance.update_animation(1);
+    near(render(instance).center().r, 0.24F, "animated hierarchy leaves the center uncovered");
+    near(render(other).center().r, 2, "shared model instance keeps its own pose on the GPU");
+    instance.play_animation(0, false);
+    near(render(instance).center().r, 2, "restarting animation restores rendered geometry");
 }
 
 void showcase_test(lc1::Device const &device)
@@ -521,9 +577,11 @@ void showcase_test(lc1::Device const &device)
 
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
     try {
+        bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
+        check(argc == 1 || animation_only, "usage: lc1_pbr_tests [--model-animation]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -533,16 +591,23 @@ int main()
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (animation_only) {
+            model_animation_test(device);
+            device.wait_idle();
+            std::cout << "Model node animation GPU tests passed\n";
+            return 0;
+        }
         mutable_material_tests(device);
         material_tests(device, vk::SampleCountFlagBits::e1);
         material_tests(device, vk::SampleCountFlagBits::e4);
         normal_map_tests(device, vk::SampleCountFlagBits::e1);
         normal_map_tests(device, vk::SampleCountFlagBits::e4);
+        model_animation_test(device);
         showcase_test(device);
         device.wait_idle();
-        std::cout
-            << "PBR factors, BRDF, textures, HDR, tone mapping, MSAA, resize and mutable materials "
-               "lifetime passed\n";
+        std::cout << "PBR factors, BRDF, textures, HDR, tone mapping, MSAA, resize, node animation "
+                     "and mutable materials "
+                     "lifetime passed\n";
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

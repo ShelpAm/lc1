@@ -50,3 +50,24 @@ void GpuBuffer::flush(vk::DeviceSize offset, vk::DeviceSize size) const
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::DeviceAddress GpuBuffer::device_address() const
+{
+    // getDevice() returns a non-owning vk::Device; reuse the buffer's RAII dispatcher.
+    return buffer_.getDevice().getBufferAddress(vk::BufferDeviceAddressInfo{.buffer = *buffer_},
+                                                *buffer_.getDispatcher());
+}
+
+vk::raii::Buffer const &GpuBuffer::raii() const
+{
+    return buffer_;
+}
+
+vk::DeviceSize GpuBuffer::size() const
+{
+    return size_;
+}
+
+} // namespace lc1

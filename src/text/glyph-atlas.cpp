@@ -223,3 +223,42 @@ TextMetrics GlyphAtlas::measure(std::string_view text, float line_height) const
 }
 
 } // namespace lc1::text
+
+namespace lc1::text {
+
+float GlyphAtlas::em_size() const
+{
+    return em_size_;
+}
+
+float GlyphAtlas::line_height() const
+{
+    return line_height_;
+}
+
+float GlyphAtlas::line_height_for_em(float em) const
+{
+    return em * line_height_ / em_size_;
+}
+
+float GlyphAtlas::ascent() const
+{
+    return ascent_;
+}
+
+float GlyphAtlas::descent() const
+{
+    return descent_;
+}
+
+glm::uvec2 GlyphAtlas::extent() const
+{
+    return extent_;
+}
+
+std::span<std::uint8_t const> GlyphAtlas::pixels() const
+{
+    return pixels_;
+}
+
+} // namespace lc1::text

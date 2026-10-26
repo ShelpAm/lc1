@@ -18,6 +18,7 @@ enum class GameAction : std::uint8_t {
     MoveRight,
     Sprint,
     Jump,
+    Nod,
     Interact,
     ToggleCameraView,
     CycleLighting,

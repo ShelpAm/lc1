@@ -11,19 +11,7 @@ enum class EquipmentType : std::uint8_t {
     Foot,
 };
 
-inline std::string_view to_string(EquipmentType type)
-{
-    switch (type) {
-    case EquipmentType::Head:
-        return "Head";
-    case EquipmentType::Body:
-        return "Body";
-    case EquipmentType::Foot:
-        return "Foot";
-    default:
-        return "Unknown";
-    }
-}
+std::string_view to_string(EquipmentType type);
 
 struct EquipmentProperty {
     float armor;
@@ -31,16 +19,13 @@ struct EquipmentProperty {
 
 class Equipment {
   public:
-    Equipment(std::uint32_t keyid, EquipmentType type, EquipmentProperty property)
-        : keyid_(keyid), type_(type), property_(property)
-    {
-    }
+    Equipment(std::uint32_t keyid, EquipmentType type, EquipmentProperty property);
 
-    auto keyid() const { return keyid_; }
+    std::uint32_t keyid() const;
 
-    EquipmentType type() const { return type_; }
+    EquipmentType type() const;
 
-    EquipmentProperty property() const { return property_; }
+    EquipmentProperty property() const;
 
   private:
     std::uint32_t keyid_;

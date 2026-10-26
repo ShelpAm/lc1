@@ -1,15 +1,17 @@
-#include "lc1/game/world/world-view.hpp"
+#include "lc1/game/world/world-presentation.hpp"
+#include "lc1/game/character/character-model.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/image.hpp"
-#include "lc1/model.hpp"
 #include "lc1/scene/lights/directional-light.hpp"
 #include "lc1/scene/lights/sphere-light.hpp"
 #include "lc1/scene/lights/spot-light.hpp"
+#include "lc1/scene/model.hpp"
 #include "lc1/text/utf8.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <format>
+#include <limits>
 
 namespace lc1 {
 namespace {
@@ -28,36 +30,13 @@ float volume_to_gain(float volume_percent)
 // same numbers, so the two cannot silently disagree.
 constexpr CharacterBody player_body{};
 
-// A visible, body-sized placeholder for the player now that the camera is above them.
-Model make_player_model(CharacterBody const &body)
+std::vector<GpuMesh> upload_model(Device const &device, scene::Model const &model)
 {
-    std::vector<Vertex> vertices;
-    std::vector<std::uint32_t> indices;
-    auto box = [&](float radius, float bottom, float top, glm::vec3 color) {
-        // Separate vertices at hard edges so each box face has its own normal.
-        std::array const points{
-            glm::vec3{-radius, bottom, -radius}, glm::vec3{radius, bottom, -radius},
-            glm::vec3{radius, top, -radius},     glm::vec3{-radius, top, -radius},
-            glm::vec3{-radius, bottom, radius},  glm::vec3{radius, bottom, radius},
-            glm::vec3{radius, top, radius},      glm::vec3{-radius, top, radius}};
-        for (auto const face : std::array{std::array{4U, 5U, 6U, 7U}, std::array{1U, 0U, 3U, 2U},
-                                          std::array{0U, 4U, 7U, 3U}, std::array{5U, 1U, 2U, 6U},
-                                          std::array{3U, 7U, 6U, 2U}, std::array{0U, 1U, 5U, 4U}}) {
-            auto const base = static_cast<std::uint32_t>(vertices.size());
-            auto const normal = glm::normalize(
-                glm::cross(points[face[1]] - points[face[0]], points[face[2]] - points[face[0]]));
-            for (auto const index : face)
-                vertices.push_back({.position = points[index],
-                                    .normal = normal,
-                                    .color = color,
-                                    .uv = {0.5F, 0.5F}});
-            for (auto const index : {0U, 1U, 2U, 0U, 2U, 3U})
-                indices.push_back(base + index);
-        }
-    };
-    box(body.half_width, 0.0F, 1.2F, {0.06F, 0.25F, 0.8F});
-    box(0.22F, 1.2F, body.height, {0.95F, 0.65F, 0.15F});
-    return Model{std::move(vertices), std::move(indices)};
+    std::vector<GpuMesh> meshes;
+    meshes.reserve(model.mesh_count());
+    for (std::size_t i = 0; i < model.mesh_count(); ++i)
+        meshes.push_back(model.gen_mesh(device, i));
+    return meshes;
 }
 
 // One font per frame, and its atlas is fixed once constructed: the face has to cover every
@@ -85,19 +64,54 @@ std::u32string font_codepoints(GameWorld const &world)
 
 } // namespace
 
-WorldView::WorldView(Device const &device, std::filesystem::path const &asset_root,
-                     GameWorld const &world, OutputSettings output)
+WorldPresentation::CharacterResources
+WorldPresentation::make_character_resources(Device const &device)
+{
+    auto model = make_character_model(player_body);
+    auto meshes = upload_model(device, model);
+    return {.definition = std::move(model).definition(), .meshes = std::move(meshes)};
+}
+
+WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
+                                     GameWorld const &world, OutputSettings output)
     : world_(&world), font_{device, text::GlyphAtlas{asset_root / font_file,
                                                      {.codepoints = font_codepoints(world)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
       continent_view_{device, white_, world.continent()},
       showcase_{device, world.continent().spawn()},
-      player_mesh_{make_player_model(player_body).gen_mesh(device)},
+      character_resources_{make_character_resources(device)},
       player_material_{
           MaterialInfo{.parameters = {.metallic_factor = 0.0F, .roughness_factor = 0.8F},
                        .base_color = {.texture = &white_}}},
       output_(output)
 {
+    character_models_.reserve(world.characters().size());
+    for (std::size_t i = 0; i < world.characters().size(); ++i) {
+        auto &instance = character_models_.emplace_back(character_resources_.definition);
+        bool const player = world.characters()[i] == &world.player();
+        std::string_view const clip_name = player ? "Nod" : "Idle";
+        auto const clips = character_resources_.definition.animations();
+        auto const clip = std::ranges::find(clips, clip_name, &scene::AnimationClip::name);
+        if (clip == clips.end())
+            fail("character model is missing animation {}", clip_name);
+        auto const animation = static_cast<std::size_t>(clip - clips.begin());
+        if (player)
+            nod_animation_index_ = animation;
+        else {
+            instance.play_animation(animation);
+            instance.update_animation(static_cast<float>(i % 11) * clip->duration() / 11.0F);
+        }
+    }
+
+    auto const player = std::ranges::find(world.characters(), &world.player());
+    if (player == world.characters().end())
+        fail("player presentation is missing");
+    player_model_index_ = static_cast<std::size_t>(player - world.characters().begin());
+    auto const eyes = character_resources_.definition.find_node("Eyes");
+    if (!eyes)
+        fail("character model is missing the Eyes mount");
+    eyes_node_index_ = *eyes;
+
     scene::DirectionalLight const sun{
         .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.3F},
         .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
@@ -121,21 +135,25 @@ WorldView::WorldView(Device const &device, std::filesystem::path const &asset_ro
     set_volume(50.0F);
 }
 
-std::vector<DrawItem> WorldView::draws() const
+std::vector<DrawItem> WorldPresentation::draws() const
 {
     std::vector<DrawItem> items;
     items.reserve(object_capacity());
     items.append_range(continent_view_.draw_items());
     items.append_range(showcase_.draws());
-    for (auto const *character : world_->characters())
-        items.push_back({.mesh = &player_mesh_,
-                         .material = &player_material_,
-                         .model = character->transform().model_matrix(),
-                         .casts_shadow = true});
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto const *character = world_->characters()[i];
+        for (auto const &mesh :
+             character_models_[i].mesh_instances(character->transform().model_matrix()))
+            items.push_back({.mesh = &character_resources_.meshes[mesh.mesh],
+                             .material = &player_material_,
+                             .model_matrix = mesh.model_matrix,
+                             .casts_shadow = true});
+    }
     return items;
 }
 
-std::vector<WorldTextItem> WorldView::world_labels(scene::FpsCamera const &camera) const
+std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
 {
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
@@ -172,13 +190,21 @@ std::vector<WorldTextItem> WorldView::world_labels(scene::FpsCamera const &camer
     return labels;
 }
 
-std::uint32_t WorldView::object_capacity() const
+std::uint32_t WorldPresentation::object_capacity() const
 {
-    return static_cast<std::uint32_t>(continent_view_.draw_items().size() +
-                                      showcase_.draws().size() + world_->characters().size());
+    std::size_t const maximum = std::numeric_limits<std::uint32_t>::max();
+    std::size_t const terrain = continent_view_.draw_items().size();
+    std::size_t const showcase = showcase_.draws().size();
+    if (terrain > maximum || showcase > maximum - terrain)
+        fail("world draw capacity exceeds the supported range");
+    std::size_t const fixed = terrain + showcase;
+    std::size_t const per_character = character_resources_.definition.draw_count();
+    if (per_character != 0 && character_models_.size() > (maximum - fixed) / per_character)
+        fail("character draw capacity exceeds the supported range");
+    return static_cast<std::uint32_t>(fixed + character_models_.size() * per_character);
 }
 
-void WorldView::update_lighting()
+void WorldPresentation::update_lighting()
 {
     // Hold the flashlight above ground and outside the mesh, on the aiming side.
     lights_[flashlight_index_].position =
@@ -191,7 +217,7 @@ void WorldView::update_lighting()
             active_lights_.push_back(light);
 }
 
-GameLocation WorldView::location() const
+GameLocation WorldPresentation::location() const
 {
     // Location follows the character even while the camera is panned elsewhere.
     glm::vec2 const position{world_->player().position().x, world_->player().position().z};
@@ -207,14 +233,19 @@ GameLocation WorldView::location() const
                                  : "Wilderness"};
 }
 
-std::string_view WorldView::lighting_name() const
+std::string_view WorldPresentation::lighting_name() const
 {
     return lighting_names[lighting_mode_];
 }
 
-void WorldView::update(WorldViewInput const &input, scene::FpsCamera const &camera,
-                       float delta_seconds)
+void WorldPresentation::update(WorldPresentationInput const &input, float delta_seconds)
 {
+    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
+        fail("presentation delta must be finite and nonnegative");
+    if (input.nod)
+        character_models_[player_model_index_].play_animation(nod_animation_index_, false);
+    for (auto &instance : character_models_)
+        instance.update_animation(std::min(delta_seconds, 0.1F));
     if (input.cycle_lighting)
         lighting_mode_ = (lighting_mode_ + 1) % lighting_names.size();
     if (input.toggle_showcase_motion)
@@ -226,6 +257,10 @@ void WorldView::update(WorldViewInput const &input, scene::FpsCamera const &came
         showcase_time_ += std::clamp(delta_seconds, 0.0F, 0.1F);
     showcase_.update(showcase_time_);
     update_lighting();
+}
+
+void WorldPresentation::update_listener(scene::FpsCamera const &camera)
+{
     auto const position = camera.position();
     auto const forward = camera.forward();
     auto const up = camera.up();
@@ -233,9 +268,45 @@ void WorldView::update(WorldViewInput const &input, scene::FpsCamera const &came
     audio_listener_.set_orientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
 }
 
-void WorldView::set_volume(float volume_percent)
+glm::mat4 WorldPresentation::player_eye_transform() const
+{
+    auto const matrix = character_models_[player_model_index_].node_world_matrix(
+        eyes_node_index_, world_->player().transform().model_matrix());
+    return matrix;
+}
+
+void WorldPresentation::set_volume(float volume_percent)
 {
     audio_listener_.set_gain(volume_to_gain(volume_percent));
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+std::span<scene::Light const> WorldPresentation::lights() const
+{
+    return active_lights_;
+}
+
+OutputSettings const &WorldPresentation::output() const
+{
+    return output_;
+}
+
+GpuFont const &WorldPresentation::font() const
+{
+    return font_;
+}
+
+bool WorldPresentation::showcase_animated() const
+{
+    return showcase_animated_;
+}
+
+audio::AudioContext const &WorldPresentation::audio_context() const
+{
+    return audio_context_;
 }
 
 } // namespace lc1

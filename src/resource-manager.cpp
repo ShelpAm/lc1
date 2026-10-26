@@ -1,6 +1,6 @@
 #include "lc1/resource-manager.hpp"
 
-#include "lc1/model.hpp"
+#include "lc1/scene/model.hpp"
 
 namespace lc1 {
 std::filesystem::path ResourceManager::to_resource_key(std::filesystem::path const &id)
@@ -23,7 +23,7 @@ GpuMesh const &ResourceManager::load_mesh(std::filesystem::path const &path)
     if (auto const found = meshes_.find(key); found != meshes_.end()) {
         return *found->second;
     }
-    auto const model = Model::load_from_file(asset_root_ / key);
+    auto const model = scene::Model::load_from_file(asset_root_ / key);
     auto mesh = std::make_unique<GpuMesh>(model.gen_mesh(*device_));
     // Only cache completed resources; a failed load leaves no empty entry.
     auto const [entry, inserted] = meshes_.emplace(key, std::move(mesh));
@@ -31,3 +31,7 @@ GpuMesh const &ResourceManager::load_mesh(std::filesystem::path const &path)
 }
 
 } // namespace lc1
+
+namespace lc1 {
+Resource::~Resource() = default;
+}

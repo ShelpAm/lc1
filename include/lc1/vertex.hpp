@@ -1,7 +1,7 @@
 #pragma once
 
+#include <functional>
 #include <glm/glm.hpp>
-#include <glm/gtx/hash.hpp>
 
 namespace lc1 {
 
@@ -20,12 +20,6 @@ struct Vertex {
 
 namespace std {
 template <> struct hash<lc1::Vertex> {
-    size_t operator()(lc1::Vertex const &vertex) const
-    {
-        return std::hash<glm::vec3>{}(vertex.position) ^ (std::hash<glm::vec2>{}(vertex.uv) << 1) ^
-               (std::hash<glm::vec3>{}(vertex.color) << 2) ^
-               (std::hash<glm::vec3>{}(vertex.normal) << 3) ^
-               (std::hash<glm::vec4>{}(vertex.tangent) << 4);
-    }
+    size_t operator()(lc1::Vertex const &vertex) const;
 };
 } // namespace std

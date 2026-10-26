@@ -16,6 +16,7 @@ std::vector<GameBinding> default_game_bindings()
         {GameInputContext::Gameplay, GameAction::MoveRight, Key::Right},
         {GameInputContext::Gameplay, GameAction::Sprint, Key::LeftShift},
         {GameInputContext::Gameplay, GameAction::Jump, Key::Space},
+        {GameInputContext::Gameplay, GameAction::Nod, Key::F2},
         {GameInputContext::Gameplay, GameAction::Interact, Key::F},
         {GameInputContext::Gameplay, GameAction::DialogResponse0, Key::Digit1},
         {GameInputContext::Gameplay, GameAction::DialogResponse1, Key::Digit2},

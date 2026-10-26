@@ -53,7 +53,7 @@ std::vector<std::uint8_t> render(lc1::Device const &device, lc1::Renderer &rende
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                                  vk::AccessFlagBits2::eColorAttachmentWrite);
         lc1::RenderTarget const target{&output.view(), extent};
-        renderer.record(wrapped, frame, target, camera, lights, draws);
+        renderer.record(wrapped, frame, target, lc1::scene::Scene{camera, lights, draws});
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
                                  vk::ImageLayout::eTransferSrcOptimal,
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -155,7 +155,7 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
           "restoring the second frame slot changed a static hard-lit scene");
 
     // Reflect the symmetric ground plane to exercise winding and BLAS transforms.
-    draws[0].model = glm::scale(glm::mat4{1}, glm::vec3{-1, 1, 1});
+    draws[0].model_matrix = glm::scale(glm::mat4{1}, glm::vec3{-1, 1, 1});
     render(device, renderer, normal_frame, camera, lights, draws);
 
     // An elevated patch casts a visible shadow on the ground. Toggling only its
@@ -163,12 +163,12 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     auto occlusion_frame = renderer.make_frame_resources(2);
     std::array occlusion_draws{
         lc1::DrawItem{.mesh = &mesh, .material = &material, .depth_bias = false},
-        lc1::DrawItem{
-            .mesh = &mesh,
-            .material = &material,
-            .model = glm::scale(glm::translate(glm::mat4{1}, glm::vec3{0, 1, 0}), glm::vec3{0.3F}),
-            .casts_shadow = false,
-            .depth_bias = false},
+        lc1::DrawItem{.mesh = &mesh,
+                      .material = &material,
+                      .model_matrix = glm::scale(glm::translate(glm::mat4{1}, glm::vec3{0, 1, 0}),
+                                                 glm::vec3{0.3F}),
+                      .casts_shadow = false,
+                      .depth_bias = false},
     };
     auto const unshadowed =
         render(device, renderer, occlusion_frame, camera, lights, occlusion_draws);

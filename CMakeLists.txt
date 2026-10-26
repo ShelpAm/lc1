@@ -105,8 +105,27 @@ add_subdirectory(shaders)
 add_library(lc1_engine STATIC
     src/window.cpp
     src/input.cpp
+    src/error.cpp
+    src/image.cpp
+    src/vertex.cpp
     src/tangent-space.cpp
     src/resource-manager.cpp
+
+    # Scene data, model loading and per-instance poses.
+    src/scene/animation.cpp
+    src/scene/camera.cpp
+    src/scene/lights/directional-light.cpp
+    src/scene/lights/point-light.cpp
+    src/scene/lights/sphere-light.cpp
+    src/scene/lights/spot-light.cpp
+    src/scene/mesh.cpp
+    src/scene/model-definition.cpp
+    src/scene/model-instance.cpp
+    src/scene/model-node.cpp
+    src/scene/model.cpp
+    src/scene/object.cpp
+    src/scene/scene.cpp
+    src/scene/transform.cpp
 
     # Text rasterization and layout; FreeType only, no Vulkan.
     src/text/glyph-atlas.cpp
@@ -122,9 +141,11 @@ add_library(lc1_engine STATIC
     src/vk/core/instance.cpp
     src/vk/core/loader.cpp
     src/vk/core/memory.cpp
+    src/vk/core/physical-device.cpp
 
     # GPU storage, uploads and binding primitives.
     src/vk/resources/acceleration-structure.cpp
+    src/vk/resources/command-buffer.cpp
     src/vk/resources/descriptor-heap.cpp
     src/vk/resources/descriptor-heap-cache.cpp
     src/vk/resources/gpu-buffer.cpp
@@ -134,6 +155,7 @@ add_library(lc1_engine STATIC
     src/vk/resources/gpu-texture.cpp
     src/vk/resources/image-barrier.cpp
     src/vk/resources/shader-object.cpp
+    src/vk/resources/sampler.cpp
 
     # Window surfaces, swapchains and presentation policy.
     src/vk/presentation/surface.cpp
@@ -141,6 +163,9 @@ add_library(lc1_engine STATIC
     src/vk/presentation/swapchain.cpp
 
     # Concrete lighting, shadow and output passes.
+    src/vk/render/draw-validation.cpp
+    src/vk/render/frame-resources.cpp
+    src/vk/render/render-graph.cpp
     src/vk/render/graphics-shaders.cpp
     src/vk/render/graphics-state.cpp
     src/vk/render/material.cpp
@@ -151,6 +176,7 @@ add_library(lc1_engine STATIC
     src/vk/render/tone-mapping.cpp
 
     src/stb-image.cpp
+    src/tiny-gltf.cpp
     src/game-clock.cpp
 )
 
@@ -213,7 +239,12 @@ endif()
 add_library(lc1_game STATIC
     src/game/actions.cpp
 
+    src/game/character/character-model.cpp
     src/game/character/character.cpp
+    src/game/character/character-controller.cpp
+    src/game/character/bag.cpp
+    src/game/character/equipment.cpp
+    src/game/character/weapon.cpp
     src/game/character/ai-character-controller.cpp
     src/game/player/player-controller.cpp
     src/game/player/player-view.cpp
@@ -227,10 +258,15 @@ add_library(lc1_game STATIC
     src/game/continent/view.cpp
 
     src/game/party/party.cpp
+    src/game/party/faction.cpp
+
+    src/game/resources/crafting.cpp
+    src/game/resources/recipe.cpp
+    src/game/resources/resource.cpp
     src/game/dialog/dialog.cpp
 
     src/game/world/game-world.cpp
-    src/game/world/world-view.cpp
+    src/game/world/world-presentation.cpp
     src/game/world/interactable.cpp
 
     src/game/session/game-session.cpp
@@ -310,7 +346,7 @@ if(BUILD_TESTING)
         COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_seed_saves.py"
                 --cmake "${CMAKE_COMMAND}"
                 --script "${PROJECT_SOURCE_DIR}/scripts/seed-saves.cmake")
-    add_executable(lc1_error_tests tests/error.cpp)
+    add_executable(lc1_error_tests tests/error.cpp src/error.cpp)
     target_include_directories(lc1_error_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
     lc1_enable_warnings(lc1_error_tests)
     add_test(NAME error_diagnostics COMMAND lc1_error_tests)
@@ -346,6 +382,20 @@ if(BUILD_TESTING)
         COMMAND lc1_save_tests runtime/saves/01
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     add_dependencies(lc1_save_tests copy_saves)
+    add_executable(lc1_model_animation_tests tests/model-animation.cpp)
+    target_link_libraries(lc1_model_animation_tests PRIVATE lc1_game)
+    lc1_enable_warnings(lc1_model_animation_tests)
+    if(MINGW)
+        target_link_options(lc1_model_animation_tests PRIVATE -static)
+    endif()
+    add_test(NAME model_animation COMMAND lc1_model_animation_tests)
+    add_executable(lc1_model_tests tests/model.cpp)
+    target_link_libraries(lc1_model_tests PRIVATE lc1_engine)
+    lc1_enable_warnings(lc1_model_tests)
+    if(MINGW)
+        target_link_options(lc1_model_tests PRIVATE -static)
+    endif()
+    add_test(NAME model COMMAND lc1_model_tests)
     add_executable(lc1_tangent_tests tests/tangent-space.cpp)
     target_link_libraries(lc1_tangent_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_tangent_tests)

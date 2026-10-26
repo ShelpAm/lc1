@@ -22,9 +22,9 @@ std::string slot_name(std::filesystem::path const &directory)
 GameSession::GameSession(Device const &device, std::filesystem::path const &asset_root,
                          Save const &save, OutputSettings output, Window *window)
     : window_(window), input_router_(default_game_bindings(), GameInputContext::Gameplay),
-      world_(save), world_view_(device, asset_root, world_, output),
+      world_(save), world_presentation_(device, asset_root, world_, output),
       player_view_(world_.continent(), world_.player().position()),
-      music_(world_view_.audio_context()),
+      music_(world_presentation_.audio_context()),
       save_directory_(std::filesystem::weakly_canonical(save.directory())),
       saves_root_(save_directory_.parent_path())
 {
@@ -89,9 +89,9 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
     if (mouse_enabled)
         player_view_.update_pointer(input_state, window_->content_size(),
                                     window_->hovered() && !window_->cursor_captured(), elapsed);
-    player_view_.update_camera(world_.player(), elapsed);
-    world_view_.update(
+    world_presentation_.update(
         {
+            .nod = keyboard_enabled && input_router_.pressed(GameAction::Nod),
             .cycle_lighting = keyboard_enabled && input_router_.pressed(GameAction::CycleLighting),
             .toggle_showcase_motion =
                 keyboard_enabled && input_router_.pressed(GameAction::ToggleShowcaseMotion),
@@ -101,7 +101,12 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
                           static_cast<int>(input_router_.pressed(GameAction::DecreaseExposure))
                     : 0,
         },
-        player_view_.camera(), elapsed);
+        elapsed);
+    std::optional<glm::mat4> eye_transform;
+    if (!player_view_.oblique())
+        eye_transform = world_presentation_.player_eye_transform();
+    player_view_.update_camera(world_.player(), elapsed, eye_transform);
+    world_presentation_.update_listener(player_view_.camera());
 
     auto const *target = world_.interaction_target();
     if (keyboard_save_requested) {
@@ -114,12 +119,13 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
     }
     auto const ui_actions = ui_.update(
         {
+            .bag = world_.player().bag(),
             .saves = saves_,
             .current_save = slot_name(save_directory_),
             .extent = window_->framebuffer_extent(),
-            .lighting_name = world_view_.lighting_name(),
-            .exposure = world_view_.output().exposure,
-            .showcase_animated = world_view_.showcase_animated(),
+            .lighting_name = world_presentation_.lighting_name(),
+            .exposure = world_presentation_.output().exposure,
+            .showcase_animated = world_presentation_.showcase_animated(),
             .interaction_target =
                 target ? std::string_view{target->config().name} : std::string_view{},
         },
@@ -128,7 +134,7 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
         ui_.start_game();
     quit_requested_ |= ui_actions.quit;
     if (ui_actions.volume)
-        world_view_.set_volume(*ui_actions.volume);
+        world_presentation_.set_volume(*ui_actions.volume);
 
     window_->set_cursor_captured(should_captures_cursor());
 
@@ -151,10 +157,10 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
 
 void GameSession::update_title()
 {
-    auto const location = world_view_.location();
-    auto const title =
-        std::format("lc1 | {} | {} | Lighting: {} | Exposure: {:.2f}", location.region,
-                    location.place, world_view_.lighting_name(), world_view_.output().exposure);
+    auto const location = world_presentation_.location();
+    auto const title = std::format(
+        "lc1 | {} | {} | Lighting: {} | Exposure: {:.2f}", location.region, location.place,
+        world_presentation_.lighting_name(), world_presentation_.output().exposure);
     if (window_->set_title(title))
         spdlog::info("[world] {}", title);
 }
@@ -188,6 +194,60 @@ void GameSession::save(std::string_view name)
         spdlog::error("[save] {}", error.what());
         ui_.set_save_status(std::format("Save failed: {}", error.what()));
     }
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+void GameSession::set_aspect_ratio(float aspect_ratio)
+{
+    player_view_.set_aspect_ratio(aspect_ratio);
+}
+
+std::optional<std::filesystem::path> GameSession::take_load_request()
+{
+    return std::exchange(load_request_, std::nullopt);
+}
+
+void GameSession::resume_loaded()
+{
+    ui_.start_game();
+}
+
+void GameSession::load_failed(std::string message)
+{
+    ui_.set_save_status(std::move(message));
+}
+
+bool GameSession::quit_requested() const
+{
+    return quit_requested_;
+}
+
+GameWorld const &GameSession::world() const
+{
+    return world_;
+}
+
+WorldPresentation const &GameSession::world_presentation() const
+{
+    return world_presentation_;
+}
+
+PlayerView const &GameSession::player_view() const
+{
+    return player_view_;
+}
+
+GameUi const &GameSession::ui() const
+{
+    return ui_;
+}
+
+bool GameSession::should_captures_cursor() const
+{
+    return ui_.gameplay_enabled() && !player_view_.oblique();
 }
 
 } // namespace lc1

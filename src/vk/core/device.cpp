@@ -74,3 +74,32 @@ vk::SampleCountFlagBits Device::max_sample_count() const
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+std::uint32_t Device::queue_family() const
+{
+    return queue_family_;
+}
+
+vk::raii::PhysicalDevice const &Device::raii_physical() const
+{
+    return physical_;
+}
+
+vk::raii::Device const &Device::raii() const
+{
+    return device_;
+}
+
+MemoryAllocator const &Device::allocator() const
+{
+    return alloc_;
+}
+
+vk::raii::Queue const &Device::raii_queue() const
+{
+    return queue_;
+}
+
+} // namespace lc1

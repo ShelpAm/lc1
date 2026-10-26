@@ -52,14 +52,14 @@ class Swapchain {
     // Validates the supplied choices before releasing existing resources.
     void recreate(SwapchainConfig const &config, vk::Extent2D extent);
 
-    vk::Format format() const { return format_; }
+    vk::Format format() const;
 
-    vk::Extent2D extent() const { return extent_; }
+    vk::Extent2D extent() const;
 
-    std::vector<SwapchainImage> const &images() const { return images_; }
+    std::vector<SwapchainImage> const &images() const;
 
     // For FrameLoop: acquireNextImage is a SwapchainKHR method.
-    vk::raii::SwapchainKHR const &raii() const { return swapchain_; }
+    vk::raii::SwapchainKHR const &raii() const;
 
   private:
     Device const *device_; // Non-owning, non-null; the device outlives this object.

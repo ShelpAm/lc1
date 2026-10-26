@@ -21,8 +21,8 @@ class AccelerationStructure {
     void build(vk::raii::CommandBuffer const &commands,
                vk::AccelerationStructureGeometryKHR const &geometry,
                std::uint32_t primitive_count) const;
-    vk::raii::AccelerationStructureKHR const &raii() const { return handle_; }
-    vk::DeviceAddress address() const { return address_; }
+    vk::raii::AccelerationStructureKHR const &raii() const;
+    vk::DeviceAddress address() const;
 
   private:
     vk::AccelerationStructureTypeKHR type_;

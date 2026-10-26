@@ -23,7 +23,7 @@ class SamplerHeap {
     // The caller must wait for every GPU use of this slot before overwriting it.
     void write_sampler(HeapIndex index, vk::SamplerCreateInfo const &info);
 
-    void deallocate_sampler(HeapIndex index) { (void)index; } // TODO: implement
+    void deallocate_sampler(HeapIndex index); // TODO: implement
 
   private:
     Device const *device_;
@@ -59,9 +59,9 @@ class ResourceHeap {
     // Borrows a live address returned by getAccelerationStructureAddressKHR.
     HeapIndex allocate_acceleration_structure(vk::DeviceAddress address);
 
-    void deallocate_image(HeapIndex index) { (void)index; } // TODO: implement
+    void deallocate_image(HeapIndex index); // TODO: implement
 
-    void deallocate_buffer(HeapIndex index) { (void)index; } // TODO: implement
+    void deallocate_buffer(HeapIndex index); // TODO: implement
 
   private:
     Device const *device_;

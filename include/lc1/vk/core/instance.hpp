@@ -15,11 +15,11 @@ class Instance {
              std::vector<char const *> layers = {});
 
     // For glfwCreateWindowSurface, which takes a VkInstance.
-    vk::Instance handle() const { return *handle_; }
+    vk::Instance handle() const;
 
     // For Device: a vk::raii::SurfaceKHR cannot be built from a bare
     // VkInstance.
-    vk::raii::Instance const &raii() const { return handle_; }
+    vk::raii::Instance const &raii() const;
 
     void setup_debug_messenger();
 

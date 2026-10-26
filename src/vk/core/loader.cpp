@@ -28,3 +28,12 @@ VulkanLoader::~VulkanLoader()
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::raii::Context const &VulkanLoader::raii() const
+{
+    return context_;
+}
+
+} // namespace lc1

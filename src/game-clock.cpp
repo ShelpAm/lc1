@@ -38,3 +38,27 @@ float Stopwatch::tick()
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+float Stopwatch::delta_time() const
+{
+    return std::chrono::duration<float>(delta_time_).count();
+}
+
+float Stopwatch::total_time() const
+{
+    return std::chrono::duration<float>(total_time_).count();
+}
+
+int Stopwatch::frame_count() const
+{
+    return frame_count_;
+}
+
+float Stopwatch::fps() const
+{
+    return fps_;
+}
+
+} // namespace lc1

@@ -26,7 +26,7 @@ class VulkanLoader {
     VulkanLoader(VulkanLoader &&) = delete;
     VulkanLoader &operator=(VulkanLoader &&) = delete;
 
-    vk::raii::Context const &raii() const { return context_; }
+    vk::raii::Context const &raii() const;
 
   private:
     vk::raii::Context context_;

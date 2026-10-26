@@ -12,43 +12,23 @@ namespace lc1 {
 // The allocating command pool and Device must outlive this object.
 class CommandBuffer {
   public:
-    CommandBuffer(vk::raii::CommandBuffer &&handle) : handle_(std::move(handle)) {}
+    CommandBuffer(vk::raii::CommandBuffer &&handle);
 
     // Use the wrapper for heap binding and reset. After external heap binding
     // through this handle, invalidate_bindings() before using cached bindings.
-    vk::raii::CommandBuffer &raii() { return handle_; }
+    vk::raii::CommandBuffer &raii();
 
-    void begin(vk::CommandBufferUsageFlags usage)
-    {
-        handle_.begin(vk::CommandBufferBeginInfo{
-            .flags = usage,
-        });
-    }
+    void begin(vk::CommandBufferUsageFlags usage);
 
-    void end() { handle_.end(); }
+    void end();
 
     // The caller must wait for completion before resetting this command buffer.
-    void reset()
-    {
-        handle_.reset({});
-        bound_heap_ = nullptr;
-    }
+    void reset();
 
-    void bind_descriptor_heap(DescriptorHeap const &heap)
-    {
-        if (bound_heap_ != &heap) {
-            heap.bind_to_command_buffer(*this);
-            bound_heap_ = &heap;
-        }
-    }
+    void bind_descriptor_heap(DescriptorHeap const &heap);
 
     void bind_shaders(std::span<vk::ShaderStageFlagBits const> stages,
-                      std::span<vk::ShaderEXT const> shaders)
-    {
-        if (stages.size() != shaders.size())
-            fail("CommandBuffer::bind_shaders: stage and shader counts differ");
-        handle_.bindShadersEXT(stages, shaders);
-    }
+                      std::span<vk::ShaderEXT const> shaders);
 
     template <typename T> void push_data(std::span<T> data);
 

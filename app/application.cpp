@@ -202,7 +202,7 @@ Application::Application(ApplicationConfig const &config)
       game_(std::make_unique<GameSession>(device_, asset_root_, Save{config.save_root},
                                           output_settings(surface_format_.format), &window_)),
       frame_loop_(std::make_unique<FrameLoop<FrameResources>>(device_, [this] {
-          return renderer_.make_frame_resources(game_->world_view().object_capacity());
+          return renderer_.make_frame_resources(game_->world_presentation().object_capacity());
       }))
 {
     spdlog::info("[world] WASD: walk, wheel: zoom, Shift: run, Y: camera lock, Space: "
@@ -327,9 +327,9 @@ void Application::load_game(std::filesystem::path const &directory)
     device_.wait_idle();
     try {
         auto next = std::make_unique<GameSession>(device_, asset_root_, Save{directory},
-                                                  game_->world_view().output(), &window_);
+                                                  game_->world_presentation().output(), &window_);
         auto frames = std::make_unique<FrameLoop<FrameResources>>(device_, [&] {
-            return renderer_.make_frame_resources(next->world_view().object_capacity());
+            return renderer_.make_frame_resources(next->world_presentation().object_capacity());
         });
         auto const extent = window_.framebuffer_extent();
         if (extent.height != 0)
@@ -361,7 +361,7 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
     FrameLoop<FrameResources>::RecordCallback const record = [this](CommandBuffer &command_buffer,
                                                                     FrameResources &resources,
                                                                     RenderTarget const &target) {
-        auto const &view = game_->world_view();
+        auto const &view = game_->world_presentation();
         auto const &camera = game_->player_view().camera();
         // Text items own their strings and remain alive until graph.execute() returns.
         TextFrameInput const text{
@@ -371,8 +371,9 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
                                                 window_.framebuffer_extent(), view.location()),
         };
         RenderGraph graph;
-        renderer_.add_passes(graph, resources, target, camera, view.lights(), view.draws(),
-                             view.output(), text);
+        auto const draws = view.draws();
+        scene::Scene const scene{camera, view.lights(), draws};
+        renderer_.add_passes(graph, resources, target, scene, view.output(), text);
         graph.add_pass(
             "ImGui overlay", {"output.ui_text"}, {"output.ui"}, [target](CommandBuffer &commands) {
                 // Make the UI text's writes visible to this attachment load and blending.

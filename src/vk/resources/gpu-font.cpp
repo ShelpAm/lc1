@@ -32,3 +32,22 @@ GpuFont::GpuFont(Device const &device, text::GlyphAtlas atlas)
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+text::GlyphAtlas const &GpuFont::atlas() const
+{
+    return atlas_;
+}
+
+GpuTexture const &GpuFont::texture() const
+{
+    return texture_;
+}
+
+vk::SamplerCreateInfo const &GpuFont::sampler_info() const
+{
+    return sampler_info_;
+}
+
+} // namespace lc1

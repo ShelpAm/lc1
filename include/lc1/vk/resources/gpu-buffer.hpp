@@ -22,20 +22,15 @@ class GpuBuffer {
     // vma::AllocationCreateFlagBits::eHostAccessSequentialWrite.
     void upload(std::span<std::byte const> data);
 
-    vk::DeviceAddress device_address() const
-    {
-        // getDevice() returns a non-owning vk::Device; reuse the buffer's RAII dispatcher.
-        return buffer_.getDevice().getBufferAddress(vk::BufferDeviceAddressInfo{.buffer = *buffer_},
-                                                    *buffer_.getDispatcher());
-    }
+    vk::DeviceAddress device_address() const;
 
     // Requires eMapped at allocation time; VMA owns the persistent mapping.
     void *mapped_address() const;
     void flush(vk::DeviceSize offset, vk::DeviceSize size) const;
 
-    vk::raii::Buffer const &raii() const { return buffer_; }
+    vk::raii::Buffer const &raii() const;
 
-    vk::DeviceSize size() const { return size_; }
+    vk::DeviceSize size() const;
 
   private:
     // Owns both the VkBuffer and the VmaAllocation, and frees them together.

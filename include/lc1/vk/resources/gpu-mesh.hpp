@@ -39,12 +39,9 @@ class GpuMesh {
     // Binds the vertex buffer and draws. The pipeline must already be bound.
     void draw(vk::raii::CommandBuffer const &command_buffer) const;
 
-    bool has_tangents() const { return has_tangents_; }
+    bool has_tangents() const;
 
-    vk::DeviceAddress acceleration_structure_address() const
-    {
-        return acceleration_structure_->address();
-    }
+    vk::DeviceAddress acceleration_structure_address() const;
 
   private:
     void build_acceleration_structure(Device const &device);

@@ -292,10 +292,19 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
     for (auto const &entry : pending) {
         draws_.push_back({.mesh = &meshes_[entry.mesh_index],
                           .material = &material_,
-                          .model = glm::translate(glm::mat4{1.0F}, entry.origin),
+                          .model_matrix = glm::translate(glm::mat4{1.0F}, entry.origin),
                           .casts_shadow = !entry.depth_bias,
                           .depth_bias = entry.depth_bias});
     }
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+std::span<DrawItem const> ContinentView::draw_items() const
+{
+    return draws_;
 }
 
 } // namespace lc1

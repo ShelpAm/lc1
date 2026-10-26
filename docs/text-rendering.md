@@ -25,7 +25,7 @@
 
 `GlyphAtlasOptions::codepoints` 为空时用 `text::ascii_codepoints()`（可打印 ASCII，U+0020..U+007E）。
 图集一旦构造就固定，而布局会**静默跳过**图集里没有的码位，所以"画什么就必须请求什么"是调用方的
-责任，不是靠字体覆盖自动兜底：`WorldView` 传入的是 `ascii_codepoints()` 加上存档里会画出来的
+责任，不是靠字体覆盖自动兜底：`WorldPresentation` 传入的是 `ascii_codepoints()` 加上存档里会画出来的
 角色名和势力名码位（`font_codepoints(world)`）。重复的码位在光栅化前排序去重，不会占两份图集空间。
 
 - 采样固定在 mip 0：`GpuTexture` 总会生成 mipmap，图集一旦降到 mip 0 以上，相邻字形就会互相
@@ -100,12 +100,12 @@
 ## 字体文件
 
 运行时的字体放在 `runtime/assets/fonts/`，和其余素材一样不入库，`copy_assets` 会把它复制进构建树。
-`WorldView` 用 `asset_root / font_file` 构造 `GlyphAtlas`，换字体只需改 `font_file` 这个常量。
+`WorldPresentation` 用 `asset_root / font_file` 构造 `GlyphAtlas`，换字体只需改 `font_file` 这个常量。
 当前是 `SourceHanSansCN-Regular.otf`（思源黑体 CN Regular，OFL 许可，Latin + 中文覆盖）；
 只覆盖 Latin 的字体会让中文名字整段消失（图集里没有对应字形，布局直接跳过），换字体时必须同时
 确认它覆盖存档数据可能出现的文字。
 
-字符集在 `WorldView` 构造时定下，所以**之后新增的可绘制文本来源必须加进 `font_codepoints()`**：
+字符集在 `WorldPresentation` 构造时定下，所以**之后新增的可绘制文本来源必须加进 `font_codepoints()`**：
 目前是存档里的角色名与势力名，其余绘制文本（地图名称、HUD、调试 UI）都是 ASCII 字面量。
 将来做读档/换存档功能时，图集要跟着目标存档重建。
 

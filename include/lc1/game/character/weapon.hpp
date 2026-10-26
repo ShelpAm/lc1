@@ -10,17 +10,7 @@ enum class WeaponType : std::uint8_t {
     RangedWeapon,
 };
 
-inline std::string_view to_string(WeaponType type)
-{
-    switch (type) {
-    case WeaponType::MeleeWeapon:
-        return "MeleeWeapon";
-    case WeaponType::RangedWeapon:
-        return "RangedWeapon";
-    default:
-        return "Unknown";
-    }
-}
+std::string_view to_string(WeaponType type);
 
 struct WeaponProperty {
     float attack;
@@ -29,16 +19,13 @@ struct WeaponProperty {
 
 class Weapon {
   public:
-    Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property)
-        : keyid_(keyid), type_(type), property_(property)
-    {
-    }
+    Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property);
 
-    auto keyid() const { return keyid_; }
+    std::uint32_t keyid() const;
 
-    WeaponType type() const { return type_; }
+    WeaponType type() const;
 
-    WeaponProperty property() const { return property_; }
+    WeaponProperty property() const;
 
   private:
     std::uint32_t keyid_;

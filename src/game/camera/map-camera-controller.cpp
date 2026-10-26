@@ -68,3 +68,27 @@ void MapCameraController::update(scene::FpsCamera &camera, glm::vec3 player_posi
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+void MapCameraController::toggle_lock()
+{
+    locked_ = !locked_;
+}
+
+bool MapCameraController::locked() const
+{
+    return locked_;
+}
+
+glm::vec3 MapCameraController::center() const
+{
+    return center_;
+}
+
+float MapCameraController::view_height() const
+{
+    return view_height_;
+}
+
+} // namespace lc1

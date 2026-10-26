@@ -14,11 +14,11 @@ class Stopwatch {
     float tick();
 
     // In seconds
-    float delta_time() const { return std::chrono::duration<float>(delta_time_).count(); }
+    float delta_time() const;
     // In seconds
-    float total_time() const { return std::chrono::duration<float>(total_time_).count(); }
-    int frame_count() const { return frame_count_; }
-    float fps() const { return fps_; }
+    float total_time() const;
+    int frame_count() const;
+    float fps() const;
 
   private:
     using Clock = std::chrono::steady_clock;

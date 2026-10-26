@@ -1,10 +1,10 @@
 # Character：角色状态、模型与控制
 
-当前实现是站立、沿地面移动的静态角色实例。主角、士兵和 NPC 都可以使用
+当前角色支持站立和沿地面移动，表现层的身体/头部节点已有待机动画。主角、士兵和 NPC 都可以使用
 `lc1::Character`；由玩家还是 AI 控制，不改变角色自身的类型。
 
 角色属于游戏层，声明在 `include/lc1/game/character/character.hpp`，实现在 `src/game/character/character.cpp`，
-与 `Continent` 和角色控制器一样使用 `lc1` 命名空间。角色持有唯一的 `scene::Transform`，外观资源和绘制由 `WorldView` 负责，
+与 `Continent` 和角色控制器一样使用 `lc1` 命名空间。角色持有唯一的 `scene::Transform`，外观资源和绘制由 `WorldPresentation` 负责，
 场景层不负责角色的出生、行走或碰撞规则。
 
 ## 数据归属
@@ -16,8 +16,8 @@
 | 身体宽高、眼睛高度、行走和奔跑速度 | 每个角色的 `CharacterBody` |
 | 模型原点、单位、坐标轴的校正 | `Model`，在上传 GPU 前统一处理 |
 | CPU 顶点和索引 | `Model` |
-| GPU 顶点、索引和 BLAS | `WorldView` 拥有的 `GpuMesh`，当前角色共享占位资源 |
-| 绘制资源引用 | `WorldView` 生成的 `DrawItem`，借用资源 |
+| GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有的 `GpuMesh`，当前角色共享占位资源 |
+| 绘制资源引用 | `WorldPresentation` 生成的 `DrawItem`，借用资源 |
 | 玩家输入和控制决策 | `PlayerController` 解释输入并产生 `CharacterIntent`；角色不包含 `GameInputRouter`、`Window` 或相机 |
 | 动作是否允许、最终速度、朝向与跳跃结果 | `Character::update(delta, intent)` 及其 gameplay 规则 |
 | AI 巡逻目标与等待 | `AiCharacterController` 的巡逻模式，只通过 `CharacterIntent` 影响角色 |
@@ -49,7 +49,7 @@ character.move(continent, {0.0F, 0.0F, -0.5F});
 
 构造时校验出生点、身体参数和世界变换。世界变换保持直立、单位缩放；
 模型尺寸通过资源校正处理，实际碰撞尺寸通过 `CharacterBody` 设置。
-`WorldView` 读取 `character.transform().model_matrix()` 生成绘制项；角色不提供绘制接口。
+`WorldPresentation` 读取 `character.transform().model_matrix()` 生成绘制项；角色不提供绘制接口。
 默认身体参数同时用于当前世界角色和占位网格；未来支持不同体型时，表现资源也需要匹配相应体型。
 
 `move(continent, displacement)` 接受以米为单位的 `vec3` 世界位移，当前要求 y 为零。
@@ -141,14 +141,22 @@ M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的
 会话按菜单状态、Gameplay/UI context、窗口焦点和 ImGui capture 决定是否提供控制输入。
 鼠标捕获由 Application 执行，菜单打开时释放，不用于反推是否启用鼠标观察。
 
-## 后续动画边界
+## 动画与后续蒙皮边界
 
-当前没有骨骼、蒙皮、动画播放、死亡或布娃娃系统。眼睛位置暂时是脚底加眼睛高度，
-观察角度只表达观察目标，不会单独变形头部网格。
+`WorldPresentation` 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段，
+NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 播放一次 `Nod`（再次按下从头播放）：
+前 1.2 秒向下点头两次（25°），随后保持直立，片段总长 3 秒且不循环。均为刚性节点动画；角色世界姿态仍只属于 `Character`。
+这不是骨骼蒙皮，尚未实现行走/攻击动画选择、动画混合、root motion、死亡或布娃娃。
+占位模型的 `Eyes` 是 `Head` 下的无网格挂点，默认世界位置等于脚底加身体配置的眼睛高度。
+第一人称相机读取本帧动画后的挂点世界变换；位置和观察方向都跟随挂点，鼠标观察角在身体局部空间叠加到挂点旋转。
+斜视角忽略眼睛挂点。`Character::eye_position()` 仍是玩法层的配置高度查询，未被动画改写；
+不提供挂点的 `PlayerView` 调用方继续使用这一回退值。
+占位几何由 `make_character_model(CharacterBody)` 构造，默认姿态尺寸与身体配置一致。
 
-接入动画后，由角色实例拥有播放进度和当前骨骼姿态，借用共享的骨骼定义、网格和动画片段。
-眼睛位置可以从最终头部挂点计算；相机如何跟随挂点由视角控制决定。
+后续蒙皮继续由模型实例拥有当前骨骼姿态和播放进度，借用共享骨骼和片段，通过网格索引关联 GPU 资源。
+眼睛位置和观察方向已跟随头部挂点；后续平滑策略仍由视角控制决定。
 骨骼、逆绑定矩阵和动画轨道必须采用一致的坐标校正，不能只套用当前静态顶点的处理步骤。
+模型播放和资源生命周期详见[模型资源与实例](resources.md#模型资源与实例)。
 
 ## 验证
 
@@ -157,3 +165,20 @@ M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的
 环境请求规则、AI 决策不改角色、跟随控制器的停止距离，以及模型校正后的顶点、法线和镜像绕序。
 原有 `lc1_continent_tests` 已使用 `Character`，继续检查速度、世界边界和城市穿行。
 `lc1_player_view_tests` 和 `lc1_game_world_tests` 覆盖玩家输入门控、intent 到物理的时序。
+
+## 背包负重
+
+`Resource::weight` 定义单件重量，使用 `uint32_t` 整数克；相同资源 ID 的定义必须一致。
+当前初始值为钱币 10 g、木材 1000 g、生铁 2000 g、铁盔 2500 g，属于可调整的玩法参数。
+`Bag` 构造时显式指定上限，角色配置为 10000 g（10 kg），通过 `total_weight()` 和 `max_weight()` 查询。
+添加按数量乘单件重量检查负重，同时检查数量溢出；乘法使用 64 位中间值。
+移除按实际存储的资源定义扣除重量。制作在候选背包先消耗再添加，成功才提交数量和重量，
+失败保持原状，因此满载时也可以制作减轻负重的配方。配方输入／输出重量以克记录。
+现有铁盔配方原料总重 12.2 kg，超过默认背包上限，默认背包无法凑齐该配方。
+UI 可以换算 kg 显示；列表只读真实背包。
+
+资源定义为普通 `struct Resource { keyid, name, category, weight }`，不使用资源子类或
+`ResourceType` 枚举。内置定义集中在 `game/resources/catalog.hpp`，新增普通资源只需增加记录。
+世界按 `keyid` 保存资源值，背包按 ID 索引数量与只读定义借用；资源定义必须比借用活得久，
+入包后不能修改重量。名称由 `Resource` 的 `std::string` 拥有，内置定义使用 `inline const`，配方借用静态定义，世界定义在角色之前创建、之后销毁。
+资源分类仍为枚举，配方用对应定义构造；列表显示定义名称，按 ID 排序。未引入 YAML 资源加载或新存档格式。

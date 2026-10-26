@@ -24,3 +24,12 @@ Surface::Surface(Instance const &instance, Window const &window)
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::raii::SurfaceKHR const &Surface::raii() const
+{
+    return surface_;
+}
+
+} // namespace lc1

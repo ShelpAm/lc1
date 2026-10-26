@@ -12,14 +12,7 @@ struct Object {
     MaterialInfo const *material = nullptr;
     bool casts_shadow = true;
 
-    DrawItem draw_item() const
-    {
-        return {.mesh = mesh,
-                .material = material,
-                .model = transform.model_matrix(),
-                .casts_shadow = casts_shadow,
-                .depth_bias = false};
-    }
+    DrawItem draw_item() const;
 };
 
 } // namespace lc1::scene

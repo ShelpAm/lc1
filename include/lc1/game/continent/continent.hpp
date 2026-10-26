@@ -30,7 +30,7 @@ struct Region {
     std::string name;
     RegionType type = RegionType::Plain;
 
-    bool walkable() const { return type != RegionType::Sea && type != RegionType::Mountain; }
+    bool walkable() const;
 };
 
 struct TileData {
@@ -123,29 +123,29 @@ class Continent {
     static Continent load(ContinentIdentity const &identity,
                           std::span<ContinentBlock const> spawn_blocks = {});
 
-    ContinentIdentity const &identity() const { return data_.identity; }
+    ContinentIdentity const &identity() const;
 
     GroundBounds bounds() const;
 
-    float tile_size() const { return data_.tile_size; }
+    float tile_size() const;
 
-    std::size_t columns() const { return data_.tiles.front().size(); }
+    std::size_t columns() const;
 
-    std::size_t rows() const { return data_.tiles.size(); }
+    std::size_t rows() const;
 
     std::optional<TileData> tile_at(glm::vec2 position) const;
 
-    glm::vec3 spawn() const { return data_.spawn; }
+    glm::vec3 spawn() const;
 
-    std::span<GroundPatch const> patches() const { return data_.patches; }
+    std::span<GroundPatch const> patches() const;
 
-    std::span<ContinentBlock const> blocks() const { return data_.blocks; }
+    std::span<ContinentBlock const> blocks() const;
 
-    std::span<Region const> regions() const { return data_.regions; }
+    std::span<Region const> regions() const;
 
-    std::span<Location const> locations() const { return data_.locations; }
+    std::span<Location const> locations() const;
 
-    std::span<Road const> roads() const { return data_.roads; }
+    std::span<Road const> roads() const;
 
     // Nullable, non-owning queries. Results borrow this immutable continent's storage.
     Region const *region(RegionId id) const;

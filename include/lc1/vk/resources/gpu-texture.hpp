@@ -30,8 +30,8 @@ class GpuTexture {
     GpuTexture &operator=(GpuTexture &&) = default;
     ~GpuTexture() = default;
 
-    GpuImage const &image() const { return image_; }
-    TextureColorSpace color_space() const { return color_space_; }
+    GpuImage const &image() const;
+    TextureColorSpace color_space() const;
 
   private:
     GpuImage image_;

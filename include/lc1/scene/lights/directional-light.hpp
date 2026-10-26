@@ -15,12 +15,6 @@ struct DirectionalLight {
     // Linear RGB tint, nonnegative; white preserves the intensity's photometric value.
 };
 
-inline Light to_light(DirectionalLight const &light)
-{
-    return {.type = 0,
-            .direction = light.direction,
-            .color = light.base.color,
-            .intensity = light.base.intensity};
-}
+Light to_light(DirectionalLight const &light);
 
 } // namespace lc1::scene

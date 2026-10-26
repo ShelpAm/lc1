@@ -23,7 +23,7 @@ flowchart LR
 flowchart TD
     app[Application] --> session[GameSession]
     session --> world["GameWorld · 规则与快照"]
-    session --> view["WorldView · 世界表现"]
+    session --> view["WorldPresentation · 世界表现"]
     session --> player["PlayerView · 控制意图与相机"]
     session --> ui[GameUi]
     session --> music[MusicBrowser]
@@ -38,7 +38,7 @@ flowchart TD
     world --> continent[Continent]
     world --> dialog[DialogSystem]
     world --> save["Save / SerializedWorld"]
-    music --> audio["AudioContext · 由 WorldView 拥有"]
+    music --> audio["AudioContext · 由 WorldPresentation 拥有"]
 ```
 
 玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, intent)` 决定能否执行、速度和
@@ -74,8 +74,9 @@ flowchart TD
 - `Model` 同时包含 CPU 导入和 GPU 上传入口，不能视作纯 CPU 模块。
 - `scene::Transform` 与相机可以用于 CPU 逻辑；`scene::Object` 则借用 GPU 网格与材质并生成 `DrawItem`。
   因此整个 `scene/` 不是无渲染依赖的数据层。
-- 主游戏循环向 Renderer 传入相机、灯光和绘制列表。`Scene` 重载不是当前主路径，
-  `SceneGraph/SceneModel` 是未接入的草稿，不能据此认为场景图与动画系统已经完成。
+- 主游戏循环与离屏录制统一通过 `scene::Scene` 借用视图向 Renderer 提供相机、灯光和绘制列表。
+  `Model` 保存模型内部层级，`ModelInstance` 保存独立姿态；WorldPresentation 的占位角色已使用实例，
+  节点动画和多网格绘制已接通，世界场景图与骨骼蒙皮尚未实现，详见[模型资源与实例](resources.md#模型资源与实例)。
 - `ResourceManager` 已编入引擎，但当前游戏资源由表现对象直接构造；它不是现行统一加载入口。
 
 构建、生成 shader、复制运行数据和测试的操作见[构建指南](../BUILD.zh-cn.md)；

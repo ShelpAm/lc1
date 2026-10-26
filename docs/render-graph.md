@@ -6,6 +6,11 @@
 相机、draw span 或输出目标保存在 Renderer 成员中。离屏调用可继续使用
 `Renderer::record()`，它创建并执行只包含场景渲染的局部图。
 
+`record()` 和 `add_passes()` 统一接收 `scene::Scene`，不再提供相机、灯光和 draw 列表
+分开传入的入口；输出设置和文字输入仍作为独立参数。`Scene` 是当帧只读借用视图，
+不拥有或同步游戏变换，不管理模型资源。调用方须让相机、灯光和绘制列表存活到注册返回；
+注册时仍复制为下述 `FrameScene` 快照。未指定活动相机时，两个入口均显式失败。
+
 ## 当前通道
 
 `frame.inputs` 表示注册时复制的相机、灯光和 draw 记录；`output.target` 表示调用者
@@ -63,7 +68,7 @@ Renderer 接收和返回的目标布局均为 `COLOR_ATTACHMENT_OPTIMAL`；UI pa
 
 Renderer 在 `add_passes()` 注册时将相机、灯光和 draw 记录复制到一份不可变的
 `FrameScene` 快照，由阴影和光照回调共同持有；各 pass 不重复复制列表。
-调用方可以直接传入 `WorldView::draws()` 的临时列表，或在注册返回后修改原输入。
+调用方先保存 `WorldPresentation::draws()` 的结果，再用它构造 `scene::Scene`；注册返回后可以释放列表或修改原输入。
 快照复制 draw 记录中的变换和标记，但不复制 mesh/material 指向的 GPU 资源；
 这些资源及 Renderer、FrameResources、输出目标仍必须满足原有生命周期要求。
 文字输入按值捕获，字体资源仍为借用。

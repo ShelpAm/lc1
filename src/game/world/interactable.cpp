@@ -18,3 +18,12 @@ bool InteractableCharacter::can_interact(Character &talker) const
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+InteractableCharacter::InteractableCharacter(Character *character, DialogSystem *dialogs)
+    : me_(character), dialogs_(dialogs)
+{
+}
+
+} // namespace lc1

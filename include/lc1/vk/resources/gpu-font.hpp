@@ -23,13 +23,13 @@ class GpuFont {
     GpuFont &operator=(GpuFont &&) = default;
     ~GpuFont() = default;
 
-    text::GlyphAtlas const &atlas() const { return atlas_; }
+    text::GlyphAtlas const &atlas() const;
 
-    GpuTexture const &texture() const { return texture_; }
+    GpuTexture const &texture() const;
 
     // Clamped, with mip levels out of reach: the atlas cells only stay separate
     // while sampling stays at level 0, and one texel of padding separates them.
-    vk::SamplerCreateInfo const &sampler_info() const { return sampler_info_; }
+    vk::SamplerCreateInfo const &sampler_info() const;
 
   private:
     // The atlas owns the pixels the texture is uploaded from; declaration order

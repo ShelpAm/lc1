@@ -463,3 +463,22 @@ HeapIndex DescriptorHeap::allocate_acceleration_structure(vk::DeviceAddress addr
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+void SamplerHeap::deallocate_sampler(HeapIndex index)
+{
+    (void)index;
+}
+
+void ResourceHeap::deallocate_image(HeapIndex index)
+{
+    (void)index;
+}
+
+void ResourceHeap::deallocate_buffer(HeapIndex index)
+{
+    (void)index;
+}
+
+} // namespace lc1

@@ -44,7 +44,7 @@ inline Device make_render_device(Instance const &instance, vk::SurfaceKHR surfac
                 &vk::PhysicalDeviceShaderObjectFeaturesEXT::shaderObject,
             },
     };
-    auto devices = filter_physical_devices(instance, requirements);
+    auto [devices, unavailable_reasons] = filter_physical_devices(instance, requirements);
     auto const *requested = std::getenv("LC1_DEVICE");
     bool const filtered = requested != nullptr && *requested != '\0';
     vk::raii::PhysicalDevice *selected = nullptr;

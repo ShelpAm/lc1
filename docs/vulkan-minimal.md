@@ -91,7 +91,7 @@ Application 最后注册 ImGui overlay。图检查逻辑资源依赖并同步执
 
 | 修改目标 | 入口 |
 |---|---|
-| 世界中出现哪些物体、灯光和文字 | `WorldView`、`GameUi` |
+| 世界中出现哪些物体、灯光和文字 | `WorldPresentation`、`GameUi` |
 | 材质求值与 HDR 输出 | [光照](lighting.md) |
 | 阴影采样与历史 | [ray-query 阴影](ray-query-shadows.md) |
 | 新 pass 的注册和顺序 | [RenderGraph](render-graph.md) |

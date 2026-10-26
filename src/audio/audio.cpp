@@ -518,3 +518,12 @@ bool Source::is_playing() const
 }
 
 } // namespace lc1::audio
+
+namespace lc1::audio {
+
+[[nodiscard]] Sound::operator bool() const noexcept
+{
+    return static_cast<bool>(buffer_);
+}
+
+} // namespace lc1::audio

@@ -78,3 +78,17 @@ void AccelerationStructure::build(vk::raii::CommandBuffer const &commands,
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::raii::AccelerationStructureKHR const &AccelerationStructure::raii() const
+{
+    return handle_;
+}
+
+vk::DeviceAddress AccelerationStructure::address() const
+{
+    return address_;
+}
+
+} // namespace lc1

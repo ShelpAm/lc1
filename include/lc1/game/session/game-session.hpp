@@ -5,7 +5,7 @@
 #include "lc1/game/ui/game-ui.hpp"
 #include "lc1/game/ui/music-browser.hpp"
 #include "lc1/game/world/game-world.hpp"
-#include "lc1/game/world/world-view.hpp"
+#include "lc1/game/world/world-presentation.hpp"
 #include <utility>
 
 namespace lc1 {
@@ -27,43 +27,37 @@ class GameSession {
     // Application applies captures_cursor() after this returns.
     void update(InputState const &input_state, float delta_seconds);
 
-    void set_aspect_ratio(float aspect_ratio) { player_view_.set_aspect_ratio(aspect_ratio); }
+    void set_aspect_ratio(float aspect_ratio);
 
-    std::optional<std::filesystem::path> take_load_request()
-    {
-        return std::exchange(load_request_, std::nullopt);
-    }
+    std::optional<std::filesystem::path> take_load_request();
 
-    void resume_loaded() { ui_.start_game(); }
+    void resume_loaded();
 
-    void load_failed(std::string message) { ui_.set_save_status(std::move(message)); }
+    void load_failed(std::string message);
 
-    bool quit_requested() const { return quit_requested_; }
+    bool quit_requested() const;
 
     // Read-only borrows; valid for this session's lifetime. Mutations use session operations.
-    GameWorld const &world() const { return world_; }
+    GameWorld const &world() const;
 
-    WorldView const &world_view() const { return world_view_; }
+    WorldPresentation const &world_presentation() const;
 
-    PlayerView const &player_view() const { return player_view_; }
+    PlayerView const &player_view() const;
 
-    GameUi const &ui() const { return ui_; }
+    GameUi const &ui() const;
 
   private:
     void save(std::string_view name);
     void refresh_saves();
     void update_title();
 
-    bool should_captures_cursor() const
-    {
-        return ui_.gameplay_enabled() && !player_view_.oblique();
-    }
+    bool should_captures_cursor() const;
 
     Window *window_; // Required non-null borrow; Application's Window outlives this.
     GameInputRouter input_router_;
     // Owners precede borrowers: view/player view borrow world, music borrows view's audio context.
     GameWorld world_;
-    WorldView world_view_;
+    WorldPresentation world_presentation_;
     PlayerView player_view_;
     MusicBrowser music_;
     GameUi ui_;

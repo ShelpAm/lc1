@@ -93,3 +93,37 @@ void Party::recruit(Character &recruiter, Character &candidate)
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+std::uint32_t Party::keyid() const
+{
+    return keyid_;
+}
+
+Faction *Party::faction()
+{
+    return faction_;
+}
+
+Faction const *Party::faction() const
+{
+    return faction_;
+}
+
+Character *Party::leader() const
+{
+    return leader_;
+}
+
+std::vector<Character *> const &Party::members() const
+{
+    return members_;
+}
+
+std::vector<Character *> const &Party::captives() const
+{
+    return captives_;
+}
+
+} // namespace lc1

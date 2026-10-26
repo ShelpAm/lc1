@@ -61,25 +61,25 @@ class GlyphAtlas {
     float kerning(char32_t left, char32_t right) const;
 
     // Em size used when rasterizing the atlas, in atlas pixels.
-    float em_size() const { return em_size_; }
+    float em_size() const;
 
     // Line-box height in atlas pixels. The target line height is a caller unit;
     // layout scales atlas pixels by `target_line_height / line_height()`.
-    float line_height() const { return line_height_; }
+    float line_height() const;
 
     // Target line height, in caller units, for a requested em size. Callers that
     // think in font sizes use this instead of touching atlas metrics directly.
-    float line_height_for_em(float em) const { return em * line_height_ / em_size_; }
+    float line_height_for_em(float em) const;
 
     // Positive above and below the baseline respectively, in atlas pixels.
-    float ascent() const { return ascent_; }
+    float ascent() const;
 
-    float descent() const { return descent_; }
+    float descent() const;
 
-    glm::uvec2 extent() const { return extent_; }
+    glm::uvec2 extent() const;
 
     // Tightly packed RGBA8: white RGB, coverage in alpha.
-    std::span<std::uint8_t const> pixels() const { return pixels_; }
+    std::span<std::uint8_t const> pixels() const;
 
     TextMetrics measure(std::string_view text, float line_height) const;
 

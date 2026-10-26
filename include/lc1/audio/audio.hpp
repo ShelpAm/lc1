@@ -54,7 +54,7 @@ class Sound {
 
     Sound() = default;
 
-    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(buffer_); }
+    [[nodiscard]] explicit operator bool() const noexcept;
 
   private:
     explicit Sound(std::shared_ptr<detail::SoundBuffer> buffer) noexcept;

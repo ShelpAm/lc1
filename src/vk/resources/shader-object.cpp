@@ -53,3 +53,12 @@ ShaderObject::ShaderObject(Device const &device, std::span<std::uint32_t const> 
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::raii::ShaderEXT const &ShaderObject::raii() const
+{
+    return handle_;
+}
+
+} // namespace lc1

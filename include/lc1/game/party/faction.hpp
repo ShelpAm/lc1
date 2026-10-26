@@ -11,11 +11,11 @@ namespace lc1 {
 // the category is data, not a separate type.
 class Faction {
   public:
-    Faction(std::uint32_t keyid, std::string name) : keyid_(keyid), name_(std::move(name)) {}
+    Faction(std::uint32_t keyid, std::string name);
 
-    std::uint32_t keyid() const { return keyid_; }
+    std::uint32_t keyid() const;
 
-    std::string const &name() const { return name_; }
+    std::string const &name() const;
 
   private:
     std::uint32_t keyid_;

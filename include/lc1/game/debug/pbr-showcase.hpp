@@ -23,13 +23,13 @@ class PbrShowcase {
     PbrShowcase(PbrShowcase const &) = delete;
     PbrShowcase &operator=(PbrShowcase const &) = delete;
 
-    std::span<DrawItem const> draws() const { return draws_; }
+    std::span<DrawItem const> draws() const;
 
     // Panel text, laid out against the font each frame. The strings are owned
     // here; the items only borrow them.
-    std::span<WorldTextItem const> labels() const { return labels_; }
+    std::span<WorldTextItem const> labels() const;
 
-    std::span<scene::Light const> lights() const { return lights_; }
+    std::span<scene::Light const> lights() const;
 
     void update(float seconds);
 

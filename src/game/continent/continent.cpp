@@ -477,3 +477,62 @@ glm::vec3 Continent::move(glm::vec3 feet, glm::vec2 displacement, float half_wid
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+bool Region::walkable() const
+{
+    return type != RegionType::Sea && type != RegionType::Mountain;
+}
+
+ContinentIdentity const &Continent::identity() const
+{
+    return data_.identity;
+}
+
+float Continent::tile_size() const
+{
+    return data_.tile_size;
+}
+
+std::size_t Continent::columns() const
+{
+    return data_.tiles.front().size();
+}
+
+std::size_t Continent::rows() const
+{
+    return data_.tiles.size();
+}
+
+glm::vec3 Continent::spawn() const
+{
+    return data_.spawn;
+}
+
+std::span<GroundPatch const> Continent::patches() const
+{
+    return data_.patches;
+}
+
+std::span<ContinentBlock const> Continent::blocks() const
+{
+    return data_.blocks;
+}
+
+std::span<Region const> Continent::regions() const
+{
+    return data_.regions;
+}
+
+std::span<Location const> Continent::locations() const
+{
+    return data_.locations;
+}
+
+std::span<Road const> Continent::roads() const
+{
+    return data_.roads;
+}
+
+} // namespace lc1

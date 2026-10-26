@@ -13,7 +13,7 @@ namespace lc1 {
 // Separately wait for all GPU uses before destroying the resource itself.
 class DescriptorHeapCache {
   public:
-    explicit DescriptorHeapCache(DescriptorHeap &heap) : heap_(&heap) {}
+    explicit DescriptorHeapCache(DescriptorHeap &heap);
 
     DescriptorHeapCache(DescriptorHeapCache const &) = delete;
     DescriptorHeapCache(DescriptorHeapCache &&) = delete;

@@ -47,7 +47,8 @@ lc1::Device make_device(lc1::Instance const &instance)
                      &vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::shaderUntypedPointers,
                      &vk::PhysicalDeviceShaderObjectFeaturesEXT::shaderObject},
     };
-    for (auto &physical : lc1::filter_physical_devices(instance, requirements)) {
+    auto candidates = lc1::filter_physical_devices(instance, requirements);
+    for (auto &physical : candidates.available_devices) {
         if (physical.getProperties().deviceType == vk::PhysicalDeviceType::eCpu)
             continue;
         auto const families = physical.getQueueFamilyProperties();

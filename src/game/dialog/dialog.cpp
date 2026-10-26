@@ -606,3 +606,37 @@ void DialogSystem::update(std::span<Character *const> characters, Character cons
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+DialogSettings const &DialogCatalog::settings() const
+{
+    return settings_;
+}
+
+Character *Dialog::talker() const
+{
+    return talker_;
+}
+
+Character *Dialog::target() const
+{
+    return target_;
+}
+
+bool Dialog::displaying_response() const
+{
+    return pending_choice_.has_value();
+}
+
+std::string_view Dialog::current_speech_text() const
+{
+    return current_speech_text_;
+}
+
+std::vector<std::string> const &Dialog::candidate_responses() const
+{
+    return candidate_responses_;
+}
+
+} // namespace lc1

@@ -179,7 +179,7 @@ void RayQueryShadows::record_visibility(CommandBuffer &cmd, FrameResources &reso
     commands.setScissorWithCount(vk::Rect2D{.offset = {0, 0}, .extent = extent});
     for (std::size_t i = 0; i < draws.size(); ++i) {
         auto const &item = draws[i];
-        commands.setFrontFace(glm::determinant(glm::mat3{item.model}) < 0.0F
+        commands.setFrontFace(glm::determinant(glm::mat3{item.model_matrix}) < 0.0F
                                   ? vk::FrontFace::eClockwise
                                   : vk::FrontFace::eCounterClockwise);
         auto pass = resources.pass_data;
@@ -215,7 +215,7 @@ void RayQueryShadows::update_acceleration_structure(vk::raii::CommandBuffer cons
         // GLM is column-major; Vulkan instances store a row-major affine 3x4.
         for (int row = 0; row < 3; ++row)
             for (int column = 0; column < 4; ++column)
-                instance.transform.matrix[row][column] = draw.model[column][row];
+                instance.transform.matrix[row][column] = draw.model_matrix[column][row];
         instance.mask = 0xff;
         // Opaque two-sided occluders also handle mirrored instances and thin walls.
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
@@ -285,12 +285,12 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
     validate_draws(resources, extent, draws);
     for (std::size_t i = 0; i < draws.size(); ++i) {
         ObjectData const object_data{
-            .model = draws[i].model,
-            .normal_transform = glm::transpose(glm::inverse(draws[i].model)),
+            .model = draws[i].model_matrix,
+            .normal_transform = glm::transpose(glm::inverse(draws[i].model_matrix)),
             .shadow_identity = {static_cast<std::uint32_t>(i + 1),
                                 i >= previous_draws_.size() ||
                                         previous_draws_[i].mesh != draws[i].mesh ||
-                                        previous_draws_[i].model != draws[i].model
+                                        previous_draws_[i].model_matrix != draws[i].model_matrix
                                     ? 1U
                                     : 0U,
                                 0U, 0U},

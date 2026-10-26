@@ -29,7 +29,7 @@ class CharacterController {
 
     // Companion order is controller-owned behavior state. A patrol or other non-companion
     // controller reports std::nullopt; Character maps that to CompanionOrder::None.
-    virtual std::optional<CompanionOrder> companion_order() const { return std::nullopt; }
+    virtual std::optional<CompanionOrder> companion_order() const;
 };
 
 } // namespace lc1

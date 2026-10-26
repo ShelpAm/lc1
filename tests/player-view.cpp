@@ -1,8 +1,11 @@
 #include "lc1/game/player/player-view.hpp"
 
+#include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
+#include "lc1/scene/model-instance.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <initializer_list>
@@ -246,6 +249,67 @@ void pointer_pan_and_recenter_priority()
     check(!near(view.camera().position(), recentered), "releasing recenter restores edge pan");
 }
 
+void animated_eye_mount()
+{
+    auto const world = make_world();
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    auto const model = lc1::make_character_model(player.body());
+    auto const eyes = model.definition().find_node("Eyes");
+    check(eyes.has_value() && !model.definition().find_node("Missing"),
+          "named eye mount resolves and missing mount names do not");
+    check(!model.definition().nodes()[*eyes].mesh && model.definition().draw_count() == 2,
+          "eye mount adds no drawable geometry");
+    lc1::scene::ModelInstance instance{model.definition()};
+    auto const eye_transform = [&] {
+        return instance.node_world_matrix(*eyes, player.transform().model_matrix());
+    };
+    auto const eye_position = [&] { return glm::vec3{eye_transform()[3]}; };
+    check(near(eye_position(), player.eye_position()),
+          "default eye mount preserves the configured eye height");
+    lc1::PlayerView view{world, player.position()};
+    view.toggle(player);
+    auto const clips = model.definition().animations();
+    auto const nod = std::ranges::find(clips, "Nod", &lc1::scene::AnimationClip::name);
+    check(nod != clips.end(), "character has the nod animation");
+    instance.play_animation(static_cast<std::size_t>(nod - clips.begin()));
+    instance.update_animation(0.3F);
+    auto const animated_eye = eye_position();
+    check(animated_eye.y < player.eye_position().y && animated_eye.z < player.eye_position().z,
+          "nodding moves the eye mount down and forward through its head parent");
+    view.update_camera(player, 0, eye_transform());
+    check(near(view.camera().position(), animated_eye),
+          "first person follows the animated eye mount");
+    check(near(view.camera().forward(),
+               glm::normalize(glm::vec3{eye_transform() * glm::vec4{0, 0, -1, 0}})),
+          "first person inherits the animated eye mount direction");
+    player.set_body_yaw(90);
+    player.set_look_angles(15, 20);
+    player.move(world, {2, 0, 1});
+    view.update_camera(player, 0, eye_transform());
+    check(near(view.camera().position(), eye_position()),
+          "mount queries use the current character position and yaw");
+    auto const local_look =
+        glm::inverse(glm::mat3{player.transform().model_matrix()}) * player.look_direction();
+    check(near(view.camera().forward(), glm::normalize(glm::mat3{eye_transform()} * local_look)),
+          "mount rotation composes with mouse look without applying body yaw twice");
+    view.update_camera(player, 0);
+    check(near(view.camera().position(), player.eye_position()),
+          "callers without a mount retain the gameplay eye fallback");
+    view.toggle(player);
+    auto const oblique = view.camera().position();
+    view.update_camera(player, 0, eye_transform());
+    check(near(view.camera().position(), oblique),
+          "oblique view ignores the animated eye position");
+    bool rejected = false;
+    try {
+        instance.node_world_matrix(model.definition().nodes().size(), glm::mat4{1});
+    }
+    catch (lc1::Error const &) {
+        rejected = true;
+    }
+    check(rejected, "invalid mount indices are rejected");
+}
+
 } // namespace
 
 int main()
@@ -256,6 +320,7 @@ int main()
         disabled_input_preserves_pose();
         independent_capture_gates();
         pointer_pan_and_recenter_priority();
+        animated_eye_mount();
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

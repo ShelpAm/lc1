@@ -83,3 +83,37 @@ void InputState::release_all()
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+bool InputState::down(Key key) const
+{
+    return flag(down_, key);
+}
+
+bool InputState::pressed(Key key) const
+{
+    return flag(pressed_, key);
+}
+
+bool InputState::released(Key key) const
+{
+    return flag(released_, key);
+}
+
+glm::vec2 InputState::cursor() const
+{
+    return cursor_;
+}
+
+glm::vec2 InputState::cursor_delta() const
+{
+    return cursor_delta_;
+}
+
+glm::vec2 InputState::scroll() const
+{
+    return scroll_;
+}
+
+} // namespace lc1

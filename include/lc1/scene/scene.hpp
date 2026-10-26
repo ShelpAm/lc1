@@ -1,43 +1,31 @@
 #pragma once
 
 #include "lc1/scene/camera.hpp"
-#include "lc1/scene/lights/directional-light.hpp"
-#include "lc1/scene/lights/point-light.hpp"
-#include "lc1/scene/lights/sphere-light.hpp"
-#include "lc1/scene/lights/spot-light.hpp"
-#include "lc1/scene/object.hpp"
+#include "lc1/scene/lights/light.hpp"
+#include "lc1/vk/render/draw-item.hpp"
 
-#include <ranges>
-#include <variant>
+#include <span>
 
 namespace lc1::scene {
 
+// Frame-local scene input. Camera, lights and draws are borrowed until Renderer snapshots
+// them in record/add_passes. Referenced GPU resources must survive GPU execution.
 class Scene {
   public:
-    // Passive scene data; Renderer consumes it and remains owned/scheduled by the application.
-    FpsCamera const *active_camera() const { return active_camera_; }
+    Scene() = default;
 
-    std::vector<Light> lights() const
-    {
-        return lights_ | std::views::transform([](LightType const &light) {
-                   return std::visit([](auto const &l) { return to_light(l); }, light);
-               }) |
-               std::ranges::to<std::vector>();
-    }
+    Scene(FpsCamera const &camera, std::span<Light const> lights, std::span<DrawItem const> draws);
 
-    std::vector<DrawItem> draws() const
-    {
-        return objects_ | std::views::transform([](Object const &obj) { return obj.draw_item(); }) |
-               std::ranges::to<std::vector>();
-    }
+    FpsCamera const *active_camera() const;
+
+    std::span<Light const> lights() const;
+
+    std::span<DrawItem const> draws() const;
 
   private:
-    using LightType = std::variant<PointLight, SpotLight, SphereLight, DirectionalLight>;
-    std::vector<FpsCamera> cameras_;
-    std::vector<LightType> lights_;
-    std::vector<Object> objects_;
-
-    FpsCamera *active_camera_ = nullptr;
+    FpsCamera const *active_camera_ = nullptr;
+    std::span<Light const> lights_;
+    std::span<DrawItem const> draws_;
 };
 
 } // namespace lc1::scene

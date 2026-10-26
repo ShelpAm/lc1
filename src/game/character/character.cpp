@@ -33,7 +33,7 @@ glm::vec3 horizontal_direction(float degrees)
 
 Character::Character(Continent const &continent, scene::Transform transform, CharacterConfig config,
                      CharacterBody body)
-    : config_(std::move(config)), body_(body), bag_{}, on_ground_{}, velocity_{},
+    : config_(std::move(config)), body_(body), bag_{10000}, on_ground_{}, velocity_{},
       transform_(transform)
 {
     if (!std::isfinite(body_.half_width) || body_.half_width <= 0.0F ||
@@ -305,6 +305,100 @@ glm::vec3 Character::eye_position() const
 {
     // Character-space metres; independent of the source model's origin and units.
     return position() + glm::vec3{0.0F, body_.eye_height, 0.0F};
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+CharacterConfig &Character::config()
+{
+    return config_;
+}
+
+CharacterConfig const &Character::config() const
+{
+    return config_;
+}
+
+CharacterBody const &Character::body() const
+{
+    return body_;
+}
+
+float Character::half_width() const
+{
+    return body_.half_width;
+}
+
+float Character::height() const
+{
+    return body_.height;
+}
+
+glm::vec3 Character::position() const
+{
+    return transform_.position;
+}
+
+scene::Transform const &Character::transform() const
+{
+    return transform_;
+}
+
+float Character::body_yaw() const
+{
+    return transform_.rotation.y;
+}
+
+float Character::look_yaw() const
+{
+    return look_yaw_;
+}
+
+float Character::look_pitch() const
+{
+    return look_pitch_;
+}
+
+void Character::request_jump()
+{
+    jump_requested_ = true;
+}
+
+bool Character::on_ground() const
+{
+    return on_ground_;
+}
+
+CharacterController *Character::controller()
+{
+    return controller_.get();
+}
+
+CharacterController const *Character::controller() const
+{
+    return controller_.get();
+}
+
+void Character::set_controller(std::unique_ptr<CharacterController> controller)
+{
+    controller_ = std::move(controller);
+}
+
+Interactable *Character::interactable()
+{
+    return interactable_.get();
+}
+
+game::Bag const &Character::bag() const
+{
+    return bag_;
+}
+
+game::Bag &Character::bag()
+{
+    return bag_;
 }
 
 } // namespace lc1

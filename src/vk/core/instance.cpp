@@ -144,3 +144,17 @@ void Instance::setup_debug_messenger()
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::Instance Instance::handle() const
+{
+    return *handle_;
+}
+
+vk::raii::Instance const &Instance::raii() const
+{
+    return handle_;
+}
+
+} // namespace lc1

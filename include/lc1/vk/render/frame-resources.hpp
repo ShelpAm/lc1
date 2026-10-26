@@ -31,13 +31,7 @@ struct RayQueryShadowFrameResources {
 // Device and Renderer must outlive these resources.
 struct FrameResources {
     FrameResources(std::unique_ptr<DescriptorHeap> heap, GpuBuffer camera, GpuBuffer lights,
-                   GpuBuffer temporal, GpuBuffer tone_map)
-        : descriptor_heap(std::move(heap)),
-          descriptor_cache(std::make_unique<DescriptorHeapCache>(*descriptor_heap)),
-          camera_buffer(std::move(camera)), lights_buffer(std::move(lights)),
-          temporal_buffer(std::move(temporal)), tone_map_buffer(std::move(tone_map))
-    {
-    }
+                   GpuBuffer temporal, GpuBuffer tone_map);
 
     ~FrameResources() = default;
     FrameResources(FrameResources const &) = delete;
@@ -111,23 +105,9 @@ struct FrameResources {
     std::optional<HeapIndex> resolved_visibility_index;
     std::optional<HeapIndex> hdr_index;
 
-    HeapIndex image_index(std::optional<HeapIndex> &slot, GpuImage const &image)
-    {
-        if (slot)
-            descriptor_heap->write_image(*slot, image);
-        else
-            slot = descriptor_heap->allocate_image(image);
-        return *slot;
-    }
+    HeapIndex image_index(std::optional<HeapIndex> &slot, GpuImage const &image);
 
-    HeapIndex sampler_index(std::optional<HeapIndex> &slot, vk::SamplerCreateInfo const &info)
-    {
-        if (slot)
-            descriptor_heap->write_sampler(*slot, info);
-        else
-            slot = descriptor_heap->allocate_sampler(info);
-        return *slot;
-    }
+    HeapIndex sampler_index(std::optional<HeapIndex> &slot, vk::SamplerCreateInfo const &info);
 
     // Text geometry for this slot. Host-visible and rebuilt by the text pass
     // during recording; the two passes need separate buffers because the GPU

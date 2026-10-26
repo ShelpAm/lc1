@@ -1,4 +1,5 @@
 #include "lc1/game/player/player-view.hpp"
+#include "lc1/error.hpp"
 
 #include "lc1/game/character/character.hpp"
 
@@ -36,10 +37,13 @@ PlayerView::PlayerView(Continent const &continent, glm::vec3 player_position)
     map_camera_.apply(camera_);
 }
 
-void PlayerView::follow_first_person(Character const &player)
+void PlayerView::follow_first_person(glm::vec3 eye_position, glm::vec3 look_direction)
 {
-    camera_.set_position(player.eye_position());
-    camera_.look_at(player.eye_position() + player.look_direction());
+    if (!std::isfinite(eye_position.x) || !std::isfinite(eye_position.y) ||
+        !std::isfinite(eye_position.z))
+        fail("first-person eye position must be finite");
+    camera_.set_position(eye_position);
+    camera_.look_at(eye_position + look_direction);
 }
 
 void PlayerView::toggle(Character const &player)
@@ -54,7 +58,7 @@ void PlayerView::toggle(Character const &player)
         map_camera_.update(camera_, player.position(), 0.0F);
     }
     else {
-        follow_first_person(player);
+        follow_first_person(player.eye_position(), player.look_direction());
     }
     spdlog::info("[camera] {}",
                  oblique_ ? "update_player2: oblique" : "update_player: first-person");
@@ -101,15 +105,44 @@ void PlayerView::update_pointer(InputState const &devices, glm::vec2 viewport_si
                         delta_seconds);
 }
 
-void PlayerView::update_camera(Character const &player, float delta_seconds)
+void PlayerView::update_camera(Character const &player, float delta_seconds,
+                               std::optional<glm::mat4> eye_transform)
 {
     if (!oblique_) {
-        follow_first_person(player);
+        auto direction = player.look_direction();
+        auto position = player.eye_position();
+        if (eye_transform) {
+            position = glm::vec3{(*eye_transform)[3]};
+            // The mount already includes body yaw; apply gameplay look in body-local space.
+            auto const local_look =
+                glm::inverse(glm::mat3{player.transform().model_matrix()}) * direction;
+            direction = glm::normalize(glm::mat3{*eye_transform} * local_look);
+        }
+        follow_first_person(position, direction);
         return;
     }
     if (recenter_)
         map_camera_.recenter(player.position());
     map_camera_.update(camera_, player.position(), delta_seconds);
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+void PlayerView::set_aspect_ratio(float aspect_ratio)
+{
+    camera_.set_aspect_ratio(aspect_ratio);
+}
+
+bool PlayerView::oblique() const
+{
+    return oblique_;
+}
+
+scene::FpsCamera const &PlayerView::camera() const
+{
+    return camera_;
 }
 
 } // namespace lc1

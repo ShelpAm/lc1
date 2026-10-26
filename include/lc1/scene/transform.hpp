@@ -10,14 +10,7 @@ struct Transform {
     glm::vec3 rotation{0.0F}; // Degrees, counter-clockwise around each axis.
     glm::vec3 scale{1.0F};
 
-    glm::mat4 model_matrix() const
-    {
-        auto model = glm::translate(glm::mat4{1.0F}, position);
-        model = glm::rotate(model, glm::radians(rotation.x), glm::vec3{1.0F, 0.0F, 0.0F});
-        model = glm::rotate(model, glm::radians(rotation.y), glm::vec3{0.0F, 1.0F, 0.0F});
-        model = glm::rotate(model, glm::radians(rotation.z), glm::vec3{0.0F, 0.0F, 1.0F});
-        return glm::scale(model, scale);
-    }
+    glm::mat4 model_matrix() const;
 };
 
 } // namespace lc1::scene

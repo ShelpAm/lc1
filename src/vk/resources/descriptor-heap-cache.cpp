@@ -57,3 +57,11 @@ void DescriptorHeapCache::clear()
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+DescriptorHeapCache::DescriptorHeapCache(DescriptorHeap &heap) : heap_(&heap)
+{
+}
+
+} // namespace lc1

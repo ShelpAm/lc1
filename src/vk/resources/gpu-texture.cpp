@@ -97,3 +97,17 @@ GpuTexture::GpuTexture(Device const &device, vk::Extent2D extent,
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+GpuImage const &GpuTexture::image() const
+{
+    return image_;
+}
+
+TextureColorSpace GpuTexture::color_space() const
+{
+    return color_space_;
+}
+
+} // namespace lc1

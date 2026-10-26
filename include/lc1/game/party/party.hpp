@@ -18,17 +18,17 @@ class Party {
     Party(std::uint32_t keyid, Faction *faction, Character *leader = nullptr,
           std::vector<Character *> members = {}, std::vector<Character *> captives = {});
 
-    std::uint32_t keyid() const { return keyid_; }
+    std::uint32_t keyid() const;
 
-    Faction *faction() { return faction_; }
+    Faction *faction();
 
-    Faction const *faction() const { return faction_; }
+    Faction const *faction() const;
 
-    Character *leader() const { return leader_; }
+    Character *leader() const;
 
-    std::vector<Character *> const &members() const { return members_; }
+    std::vector<Character *> const &members() const;
 
-    std::vector<Character *> const &captives() const { return captives_; }
+    std::vector<Character *> const &captives() const;
 
     // Load-time wiring. A party record lists character keyids; the characters
     // themselves only exist after every party has been created.

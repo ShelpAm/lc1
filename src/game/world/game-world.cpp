@@ -5,10 +5,7 @@
 #include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/party/party.hpp"
-#include "lc1/game/resources/iron-helmet.hpp"
-#include "lc1/game/resources/moneta.hpp"
-#include "lc1/game/resources/pig-iron.hpp"
-#include "lc1/game/resources/wood.hpp"
+#include "lc1/game/resources/catalog.hpp"
 #include "lc1/game/world/interactable.hpp"
 
 #include <algorithm>
@@ -105,10 +102,8 @@ void GameWorld::load(Save const &save)
 
 void GameWorld::build_world(Save const &save)
 {
-    resources_.insert({game::ResourceType::IronHelmet, std::make_unique<game::IronHelmet>()});
-    resources_.insert({game::ResourceType::Moneta, std::make_unique<game::Moneta>()});
-    resources_.insert({game::ResourceType::Wood, std::make_unique<game::Wood>()});
-    resources_.insert({game::ResourceType::PigIron, std::make_unique<game::PigIron>()});
+    for (auto const &resource : game::resources)
+        insert_unique(resources_, resource.keyid, resource, "resource");
 
     // Save already proved every reference resolves, so the lookups below cannot miss: a
     // dangling keyid fails the load before this runs.
@@ -310,9 +305,9 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
     float const elapsed = std::min(delta_seconds, 0.1F);
 
     for (auto const [type, increment] :
-         {std::pair{game::ResourceType::Moneta, 10U}, std::pair{game::ResourceType::Wood, 2U},
-          std::pair{game::ResourceType::PigIron, 5U}}) {
-        player_->bag().add(*resources_.at(type), increment);
+         {std::pair{game::moneta.keyid, 10U}, std::pair{game::wood.keyid, 2U},
+          std::pair{game::pig_iron.keyid, 5U}}) {
+        player_->bag().add(resources_.at(type), increment);
     }
 
     auto update_character = [&](Character &character) {
@@ -358,6 +353,40 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
     dialogs_.update(dialog_participants_, player_, elapsed,
                     interaction.player_input_enabled &&
                         player_->accepts_ambient_requests(interaction.player_intent));
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+Continent const &GameWorld::continent() const
+{
+    return continent_;
+}
+
+Character &GameWorld::player()
+{
+    return *player_;
+}
+
+Character const &GameWorld::player() const
+{
+    return *player_;
+}
+
+std::vector<Character const *> const &GameWorld::characters() const
+{
+    return visible_characters_;
+}
+
+DialogSystem const &GameWorld::dialogs() const
+{
+    return dialogs_;
+}
+
+Character const *GameWorld::interaction_target() const
+{
+    return interaction_target_;
 }
 
 } // namespace lc1

@@ -13,6 +13,7 @@ class MusicBrowser;
 struct GameLocation;
 
 struct GameUiInfo {
+    game::Bag const &bag;
     std::span<std::string const> saves;
     std::string_view current_save;
     FrameExtent extent;
@@ -35,21 +36,17 @@ class GameUi {
   public:
     GameUiActions update(GameUiInfo const &info, MusicBrowser &music);
 
-    bool gameplay_enabled() const { return state_ == State::InGame && !save_open_ && !load_open_; }
+    bool gameplay_enabled() const;
 
     void open_save(std::string_view name);
 
-    void open_load()
-    {
-        load_open_ = true;
-        save_open_ = false;
-    }
+    void open_load();
 
-    void saved() { save_open_ = false; }
+    void saved();
 
-    void start_game() { state_ = State::InGame; }
+    void start_game();
 
-    void set_save_status(std::string status) { save_status_ = std::move(status); }
+    void set_save_status(std::string status);
 
     std::vector<ScreenTextItem> screen_labels(GameWorld const &world, GpuFont const &font,
                                               FrameExtent extent, GameLocation location) const;

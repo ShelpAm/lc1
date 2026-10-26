@@ -56,7 +56,7 @@ class Renderer {
     Renderer(Renderer &&) = delete;
     Renderer &operator=(Renderer &&) = delete;
 
-    vk::SampleCountFlagBits sample_count() const { return main_state_.samples; }
+    vk::SampleCountFlagBits sample_count() const;
 
     // Creates one frame slot with its own descriptor heap and buffer cache. The
     // caller decides how many sets to keep and when each is safe to reuse.
@@ -75,8 +75,7 @@ class Renderer {
     // The target is copied; its view and image remain borrowed through GPU completion.
     // The same frame-resource and target contracts as record() apply.
     void add_passes(RenderGraph &graph, FrameResources &resources, RenderTarget const &target,
-                    scene::FpsCamera const &camera, std::span<scene::Light const> lights,
-                    std::span<DrawItem const> draws, OutputSettings output = {},
+                    scene::Scene const &scene, OutputSettings output = {},
                     TextFrameInput text = {});
 
     // resources must have been made by this renderer, and its previous GPU use
@@ -87,12 +86,7 @@ class Renderer {
     // layout transitions; record leaves it in COLOR_ATTACHMENT_OPTIMAL.
     // `target.extent` must be nonzero and fit the attachment.
     void record(CommandBuffer &cmd, FrameResources &resources, RenderTarget const &target,
-                scene::FpsCamera const &camera, std::span<scene::Light const> lights,
-                std::span<DrawItem const> draws, OutputSettings output = {},
-                TextFrameInput text = {});
-
-    void record(CommandBuffer &cmd, FrameResources &resources, RenderTarget const &target,
-                scene::Scene const &scene, OutputSettings output = {});
+                scene::Scene const &scene, OutputSettings output = {}, TextFrameInput text = {});
 
   private:
     // The caller has waited for the resources' previous GPU use.

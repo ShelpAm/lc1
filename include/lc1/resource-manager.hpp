@@ -25,8 +25,6 @@ class Resource {
     virtual ~Resource() = 0;
 };
 
-inline Resource::~Resource() = default;
-
 template <typename T>
 concept HasLoadFromFile = requires(Device const &device, std::filesystem::path const &p) {
     { T::load_from_file(device, p) } -> std::same_as<T>;

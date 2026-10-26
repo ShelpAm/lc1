@@ -13,7 +13,7 @@ class Surface {
   public:
     Surface(Instance const &instance, Window const &window);
 
-    vk::raii::SurfaceKHR const &raii() const { return surface_; }
+    vk::raii::SurfaceKHR const &raii() const;
 
   private:
     vk::raii::SurfaceKHR surface_;

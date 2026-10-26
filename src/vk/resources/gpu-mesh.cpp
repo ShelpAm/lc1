@@ -40,3 +40,17 @@ void GpuMesh::draw(vk::raii::CommandBuffer const &command_buffer) const
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+bool GpuMesh::has_tangents() const
+{
+    return has_tangents_;
+}
+
+vk::DeviceAddress GpuMesh::acceleration_structure_address() const
+{
+    return acceleration_structure_->address();
+}
+
+} // namespace lc1

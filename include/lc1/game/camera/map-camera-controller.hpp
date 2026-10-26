@@ -13,7 +13,7 @@ class MapCameraController {
   public:
     explicit MapCameraController(glm::vec3 player_position);
 
-    void toggle_lock() { locked_ = !locked_; }
+    void toggle_lock();
 
     void zoom(float scroll);
     void recenter(glm::vec3 player_position);
@@ -21,14 +21,14 @@ class MapCameraController {
     void update(scene::FpsCamera &camera, glm::vec3 player_position, float delta_seconds);
     void apply(scene::FpsCamera &camera) const;
 
-    bool locked() const { return locked_; }
+    bool locked() const;
 
-    glm::vec3 center() const { return center_; }
+    glm::vec3 center() const;
 
     // Target vertical span on the plane through center(), perpendicular to the viewing direction.
     // The displayed span approaches this target with the same smoothing as recenter.
     // Perspective zoom changes camera distance; apparent size still varies with depth.
-    float view_height() const { return view_height_; }
+    float view_height() const;
 
   private:
     bool locked_ = true;

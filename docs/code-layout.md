@@ -22,7 +22,7 @@
 | `continent/` | 大陆数据、碰撞与查询、布局/原型/生成数据、地形绘制 |
 | `party/` | 队伍、阵营和队员命令 |
 | `dialog/` | 对话脚本、单场会话、入口规则与冷却 |
-| `world/` | `GameWorld` 装配与更新、`WorldView`、可交互对象 |
+| `world/` | `GameWorld` 装配与更新、`WorldPresentation`、可交互对象 |
 | `session/` | `GameSession` 协调以及 `Save`/序列化 |
 | `ui/` | 会话内 ImGui 界面与音乐浏览器 |
 | `debug/` | 嵌入世界的 PBR 展示，游戏与 GPU 测试共用 |
@@ -35,6 +35,14 @@
 `vk/` 内部分为 `core`、`resources`、`presentation`、`render`；呈现与渲染各自依赖底层
 资源，由应用组合。目录职责与依赖约定见 [Vulkan 代码分层](vulkan-layers.md)。
 
+## 声明与实现
+
+普通非模板函数（包括访问器、构造函数和辅助函数）的实现放在对应 `.cpp`，头文件保留声明、
+类型定义和必要依赖。模板及 `constexpr`/`consteval` 定义仍保留在头文件中；
+类内 `= default` 与 `= delete` 保持原位，避免改变平凡性和特殊成员语义。
+普通函数的推导返回类型在拆分时写为等价显式类型；默认参数和调用点默认 `source_location`
+保留在声明处。引擎和游戏新增源文件分别登记在原有 CMake 目标，不改变依赖方向和资源所有权。
+
 ## 本地会话的职责
 
 `GameSession` 是本地原型的协调者，不是服务器 `GameMode`，也不是网络复制状态。
@@ -43,24 +51,26 @@
 | 对象 | 职责与边界 |
 |---|---|
 | `GameWorld` | 按存档标识和内容版本加载并拥有大陆、势力、装备、武器、队伍、角色和 `DialogSystem`；装配世界、推进规则、生成存档快照；不依赖 Window、ImGui、音频或 Vulkan |
-| `WorldView` | 借用只读世界，拥有地形/角色 GPU 资源、字体、展示场景、灯光与音频 context/listener；生成绘制项和世界文字 |
+| `WorldPresentation` | 借用只读世界，拥有地形/角色 GPU 资源、字体、展示场景、灯光与音频 context/listener；生成绘制项和世界文字 |
 | `PlayerView` | 拥有视角模式、记忆观察角和相机；生成世界空间控制意图，世界更新后再更新相机 |
 | `GameUi` | 菜单、调试面板、保存反馈及屏幕文字；返回命名保存、读档请求和音量变化，由会话执行 |
-| `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldView` 的音频 context |
+| `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldPresentation` 的音频 context |
 | `GameSession` | 读取输入、按焦点/context/ImGui capture 门控、协调各阶段、执行命名保存、向 Application 提交读档请求、生成窗口标题，并向 Application 提供退出状态和表现数据 |
 
 `Character` 位于 `game/character/character.*`，内部唯一的 `scene::Transform` 保存脚底位置和身体朝向。
 它不持有网格或材质，也不生成 `DrawItem`；`Party` 同样只处理成员、招募和命令，不负责绘制。
-`WorldView::draws()` 从角色变换生成本帧绘制项，玩家是角色集合的一员，不重复追加。
-Application 通过 `GameSession::world()`、`world_view()`、`player_view()` 和 `ui()` 的只读引用
+`WorldPresentation::draws()` 从角色变换生成本帧绘制项，玩家是角色集合的一员，不重复追加。
+Application 通过 `GameSession::world()`、`world_presentation()`、`player_view()` 和 `ui()` 的只读引用
 查询各自的数据；引用有效期不超过会话。会话负责更新协调、保存及反馈，并提供宽高比设置入口，
 不为每个子对象查询重复提供转发方法。
 
-角色当前共用占位网格/材质。`scene::Object` 仍可用于其他渲染场景，不再是角色世界姿态的所有者。
+角色当前共用占位模型定义（节点与动画）、GPU 网格和材质，CPU 几何在上传后释放；`WorldPresentation` 为每个角色保存独立的 `ModelInstance`；
+绘制时直接读取角色世界变换并与各网格节点的动画累计矩阵组合，不复制角色位置到场景节点。
+模型与实例的索引及借用约定见[资源文档](resources.md#模型资源与实例)。`scene::Object` 仍可用于其他渲染场景，不再是角色世界姿态的所有者。
 
 `DialogCatalog` 拥有 YAML 内容和状态入口规则，`Dialog` 表示一场交流，`DialogSystem` 管理
 并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、控制器暂停及交互动作执行；
-`WorldView` 和 `GameUi` 只读这些状态来生成世界/屏幕文字。
+`WorldPresentation` 和 `GameUi` 只读这些状态来生成世界/屏幕文字。
 玩家名与区域/地点 HUD 也由 `GameUi::screen_labels()` 统一生成，Application 只负责提交文本绘制。
 `GameSession` 在构造及每帧更新后生成窗口标题；`Window::set_title()` 缓存标题，
 相同内容不调用 GLFW，返回是否发生变化供会话按需记录日志。详见[对话与招募](dialog.md)。
@@ -77,7 +87,9 @@ Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::u
    `CharacterController::update()`；随后统一调用 `Character::update(elapsed, intent)`，最后处理交互和对话。
    对话暂停控制器时传入空 intent，物理仍继续。
 6. `PlayerView::update_pointer()` 在鼠标门控允许时读取设备滚轮与逻辑光标坐标，
-   解析边缘平移；`update_camera()` 读取最终姿态；`WorldView::update()` 更新灯光、展示和监听位置。
+   解析边缘平移；`WorldPresentation::update()` 先推进模型动画、灯光与展示，随后
+   第一人称读取最终 `Eyes` 挂点，`PlayerView::update_camera()` 更新相机；最后
+   `WorldPresentation::update_listener()` 使用最终相机位置和方向更新音频监听器。
 7. `GameUi::update()` 构建 UI 并返回开始、退出、保存及音量请求；会话接通开始操作，
    会话把 F6/F9 转为打开保存/读档窗口，通过私有 `save(name)` 执行确认后的保存并反馈结果；Application 在下一帧开始处理读档并执行退出。主菜单/设置屏蔽玩法输入，世界继续模拟；返回主菜单会释放光标。
    菜单切换后的玩法门控在下一帧生效。
@@ -102,15 +114,15 @@ Application 负责窗口/Vulkan 生命周期、原始输入接入、光标捕获
 Application 通过 `unique_ptr` 拥有 `GameSession`，通过临时 `Save` 提供初始数据；`GameWorld` 构造和 `load()` 时消费 Save，不保留借用。
 世界可以只用 Save、大陆和对话目录构造、更新、生成快照，无需创建窗口或设备。
 
-会话成员按 `GameWorld → WorldView → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
+会话成员按 `GameWorld → WorldPresentation → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
 世界先于借用它的表现与控制器存在，音频 context 先于音源存在。角色名单在两次 `load()` 之间固定，
 不支持逐个添加/删除；`load()` 在销毁角色前清空活动对话并重建名单，旧对象借用全部失效。
 游戏内读档在 GPU 空闲后构造候选会话和帧资源，成功才替换，失败保留旧会话。
 世界层重新加载的失败语义及表现层协调要求见[存档与装配](save-data.md)。
-`GameSession`、`GameWorld`、`WorldView` 和 `MusicBrowser` 禁止复制/移动。
+`GameSession`、`GameWorld`、`WorldPresentation` 和 `MusicBrowser` 禁止复制/移动。
 
-Application 在正常/异常退出时先等 GPU 完成。`DrawItem` 借用 WorldView 的资源；渲染 pass 持有注册时复制的
-本帧相机、灯光与 draw 记录快照，直到图销毁；GPU 资源仍由 WorldView 持有。设备和 Renderer 比会话长寿，
+Application 在正常/异常退出时先等 GPU 完成。`DrawItem` 借用 WorldPresentation 的资源；渲染 pass 持有注册时复制的
+本帧相机、灯光与 draw 记录快照，直到图销毁；GPU 资源仍由 WorldPresentation 持有。设备和 Renderer 比会话长寿，
 FrameLoop 的帧资源在会话之后构造、之前销毁。`GameLocation` 的字符串视图借用世界或静态名称。
 
 ## 构建与验证
@@ -126,7 +138,7 @@ GPU 渲染和窗口交互需要单独验证。动作枚举、context、默认绑
 ## 修改功能时从哪里开始
 
 - 新增规则或世界状态：在 `GameWorld` 及相应领域对象中实现；需要存档时同步修改记录、校验和往返测试。
-- 新增表现：让 `WorldView` 或 `GameUi` 从世界读取所需数据。资源所有权留在表现层，角色不持有 GPU 对象。
+- 新增表现：让 `WorldPresentation` 或 `GameUi` 从世界读取所需数据。资源所有权留在表现层，角色不持有 GPU 对象。
 - 新增玩家操作：补 `game/actions.*` 的 `GameAction` 和绑定，由 `PlayerController` 解释为
   `CharacterIntent`，再由 `Character::update(delta, intent)` 决定能否执行；保留捕获、输入、物理和相机的顺序。
 - 新增角色规则（耐力、眩晕、攻击互斥等）：放在 `character/` 的 `Character` 或对应 gameplay
@@ -145,3 +157,10 @@ GPU 渲染和窗口交互需要单独验证。动作枚举、context、默认绑
 从副本生成 UI 与渲染数据，不直接与服务端通信。客户端发送动作请求，服务端校验后发布状态结果。
 当前 `GameWorld` 与 `GameSession` 不冒充上述网络对象；只有明确实施联网功能时才增加这些边界，
 不预先添加占位路由或空类。
+
+## 背包列表
+
+进入游戏后，`GameUi` 通过现有 ImGui overlay 显示背包列表，按物品名称、数量、
+占用重量分列，名称悬停显示说明及单件重量，单位为 kg。底部负重条显示背包实际总重量和负重上限。
+会话向 UI 借用只读背包，按资源类型排序显示非空条目，空背包显示提示。
+列表替代原有背包文字 HUD，不支持拖拽；角色背包显式配置 10 kg 上限。

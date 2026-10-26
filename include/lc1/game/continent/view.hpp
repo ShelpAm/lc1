@@ -26,7 +26,7 @@ class ContinentView {
     ContinentView(ContinentView &&) = delete;
     ContinentView &operator=(ContinentView &&) = delete;
 
-    std::span<DrawItem const> draw_items() const { return draws_; }
+    std::span<DrawItem const> draw_items() const;
 
   private:
     MaterialInfo material_;

@@ -424,3 +424,22 @@ FrameExtent Window::framebuffer_extent() const
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+GLFWwindow *Window::handle() const
+{
+    return handle_;
+}
+
+InputState const &Window::input() const
+{
+    return input_;
+}
+
+bool Window::cursor_captured() const
+{
+    return cursor_captured_;
+}
+
+} // namespace lc1

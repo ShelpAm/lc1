@@ -3,6 +3,7 @@
 #include "lc1/game/resources/resource-stack.hpp"
 
 #include <limits>
+#include <ranges>
 #include <unordered_map>
 
 namespace lc1::game {
@@ -13,51 +14,28 @@ class Bag {
     friend bool craft(Bag &bag, Recipe const &recipe);
 
   public:
-    explicit Bag(std::uint32_t max_volume = 100) : max_volume_(max_volume) {}
+    explicit Bag(std::uint32_t max_weight);
 
-    // Borrows a non-null definition that must outlive this bag. Each unit uses one volume.
+    // Borrows a non-null definition that must outlive this bag. Weights and capacity are in grams.
     // Returns false for insufficient capacity.
-    bool add(Resource const &resource, std::uint32_t quantity)
-    {
-        if (quantity > max_volume_ - volume_)
-            return false;
+    bool add(Resource const &resource, std::uint32_t quantity);
 
-        if (quantity == 0)
-            return true;
+    bool remove(Resource const &resource, std::uint32_t quantity);
 
-        auto [result, inserted] = stacks.try_emplace(
-            resource.type(), ResourceStack{.resource = &resource, .quantity = 0});
-        result->second.quantity += quantity;
-        volume_ += quantity;
-        return true;
-    }
+    std::uint32_t quantity_of(std::uint32_t keyid) const;
 
-    bool remove(Resource const &resource, std::uint32_t quantity)
-    {
-        if (quantity == 0)
-            return true;
+    std::ranges::values_view<
+        std::ranges::ref_view<std::unordered_map<std::uint32_t, ResourceStack> const>>
+    resource_stacks() const;
 
-        auto const found = stacks.find(resource.type());
-        if (found == stacks.end() || found->second.quantity < quantity)
-            return false;
+    std::uint32_t total_weight() const;
 
-        found->second.quantity -= quantity;
-        volume_ -= quantity;
-        if (found->second.quantity == 0)
-            stacks.erase(found);
-        return true;
-    }
-
-    std::uint32_t quantity_of(ResourceType type) const
-    {
-        auto const found = stacks.find(type);
-        return found == stacks.end() ? 0 : found->second.quantity;
-    }
+    std::uint32_t max_weight() const;
 
   private:
-    std::unordered_map<game::ResourceType, ResourceStack> stacks;
-    std::uint32_t volume_ = 0;
-    std::uint32_t max_volume_;
+    std::unordered_map<std::uint32_t, ResourceStack> stacks;
+    std::uint32_t total_weight_ = 0; // gram(s)
+    std::uint32_t max_weight_;
 };
 
 } // namespace lc1::game

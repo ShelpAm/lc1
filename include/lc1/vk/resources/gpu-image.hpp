@@ -23,13 +23,13 @@ class GpuImage {
              vk::SampleCountFlagBits samples, vk::ImageUsageFlags usage,
              vk::ImageAspectFlags aspect);
 
-    vk::raii::Image const &raii() const { return image_; }
+    vk::raii::Image const &raii() const;
 
-    vk::raii::ImageView const &view() const { return view_; }
+    vk::raii::ImageView const &view() const;
 
-    vk::Extent2D extent() const { return extent_; }
+    vk::Extent2D extent() const;
 
-    vk::Format format() const { return format_; }
+    vk::Format format() const;
 
     vk::ImageViewCreateInfo view_create_info() const;
 

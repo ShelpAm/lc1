@@ -6,16 +6,13 @@
 #include <utility>
 #include <vector>
 
-namespace lc1 {
+namespace lc1::scene {
 
 class Mesh {
     friend class Model;
 
   public:
-    Mesh(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices)
-        : vertices_(std::move(vertices)), indices_(std::move(indices))
-    {
-    }
+    Mesh(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices);
 
   private:
     Mesh() = default;
@@ -25,4 +22,4 @@ class Mesh {
     // Matetial material_;
 };
 
-} // namespace lc1
+} // namespace lc1::scene

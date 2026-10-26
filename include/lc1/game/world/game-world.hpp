@@ -35,18 +35,18 @@ class GameWorld {
     GameWorld &operator=(GameWorld &&) = delete;
     ~GameWorld() = default;
 
-    Continent const &continent() const { return continent_; }
+    Continent const &continent() const;
 
-    Character &player() { return *player_; }
+    Character &player();
 
-    Character const &player() const { return *player_; }
+    Character const &player() const;
 
     // Stable, keyid-ordered borrows; character borrows remain valid until load() or destruction.
-    std::vector<Character const *> const &characters() const { return visible_characters_; }
+    std::vector<Character const *> const &characters() const;
 
-    DialogSystem const &dialogs() const { return dialogs_; }
+    DialogSystem const &dialogs() const;
 
-    Character const *interaction_target() const { return interaction_target_; }
+    Character const *interaction_target() const;
 
     // Applies player controls, then physics and interactions; update presentation afterward.
     // Both physics and conversations advance by the same capped simulation time.
@@ -65,7 +65,7 @@ class GameWorld {
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
     Character *find_interaction_target(glm::vec3 forward) const;
 
-    std::unordered_map<game::ResourceType, std::unique_ptr<game::Resource>> resources_;
+    std::unordered_map<std::uint32_t, game::Resource> resources_;
 
     Continent continent_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Faction>> factions_;

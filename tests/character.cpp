@@ -7,12 +7,8 @@
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/player/player-controller.hpp"
 #include "lc1/game/resources/crafting.hpp"
-#include "lc1/game/resources/iron-helmet.hpp"
-#include "lc1/game/resources/moneta.hpp"
-#include "lc1/game/resources/pig-iron.hpp"
-#include "lc1/game/resources/wood.hpp"
 #include "lc1/game/session/save.hpp"
-#include "lc1/model.hpp"
+#include "lc1/scene/model.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -84,11 +80,11 @@ void blacksmith_forging()
         continent, {.position = continent.spawn()}, {.keyid = 101, .name = "Customer"}};
     lc1::Character smith{
         continent, {.position = continent.spawn()}, {.keyid = 4, .name = "Blacksmith"}};
-    Moneta moneta;
-    Wood wood;
-    PigIron iron;
-    IronHelmet helmet;
+    auto const &iron = pig_iron;
+    auto const &helmet = iron_helmet;
     auto &bag = player.bag();
+    // This recipe needs 12.2 kg of inputs; give the crafting fixture an explicit capacity.
+    bag = Bag{12200};
     check(bag.add(moneta, 20) && bag.add(wood, 2) && bag.add(iron, 5),
           "prepare exact crafting inputs through the public bag interface");
     lc1::DialogCatalog catalog{"runtime/dialogs/catalog.yaml"};
@@ -102,53 +98,71 @@ void blacksmith_forging()
     check(dialog.response_id(0) == "forge", "exact ingredients allow forging");
     check(bag.remove(moneta, 1), "remove one coin before choosing the stale response");
     dialog.respond(player, 0);
-    check(!dialog.displaying_response() && bag.quantity_of(ResourceType::PigIron) == 5 &&
-              bag.quantity_of(ResourceType::Wood) == 2 &&
-              bag.quantity_of(ResourceType::IronHelmet) == 0,
+    check(!dialog.displaying_response() && bag.quantity_of(pig_iron.keyid) == 5 &&
+              bag.quantity_of(wood.keyid) == 2 && bag.quantity_of(iron_helmet.keyid) == 0,
           "stale unaffordable choice consumes nothing");
     check(dialog.candidate_responses().size() == 1 && dialog.response_id(0) == "cancel",
           "unaffordable crafting still allows exiting");
     check(bag.add(moneta, 1), "restore the missing coin");
-    Bag limited{27};
+    Bag limited{12200};
     check(limited.add(moneta, 20) && limited.add(wood, 2) && limited.add(iron, 5),
-          "prepare a bag exactly at its volume limit");
+          "prepare a bag exactly at its weight limit");
     auto const &recipe = iron_helmet_recipe();
-    check(recipe.input_volume == 27 && recipe.output_volume == 1,
-          "helmet recipe reports the volume of its inputs and outputs");
+    check(recipe.input_weight == 12200 && recipe.output_weight == 2500,
+          "helmet recipe reports the weight of its inputs and outputs");
     Recipe too_large{recipe.inputs, {{&wood, 10}, {&iron, 18}}};
-    check(!craft(limited, too_large) && limited.quantity_of(ResourceType::Moneta) == 20 &&
-              limited.quantity_of(ResourceType::Wood) == 2 &&
-              limited.quantity_of(ResourceType::PigIron) == 5,
-          "failure on a later output preserves all materials and volume");
-    check(can_craft(limited, recipe) && limited.quantity_of(ResourceType::Moneta) == 20,
-          "a full bag can craft when consuming the ingredients frees enough volume");
+    check(!craft(limited, too_large) && limited.quantity_of(moneta.keyid) == 20 &&
+              limited.quantity_of(wood.keyid) == 2 && limited.quantity_of(pig_iron.keyid) == 5,
+          "failure on a later output preserves all materials and weight");
+    check(can_craft(limited, recipe) && limited.quantity_of(moneta.keyid) == 20,
+          "a full bag can craft when consuming the ingredients frees enough weight");
     dialog.clear();
     dialog.start(player, smith);
     dialog.respond(player, 0);
     dialog.update(1.5F, &player, 1.5F);
     dialog.respond(player, 0);
     dialog.respond(player, 0);
-    check(bag.quantity_of(ResourceType::IronHelmet) == 1 &&
-              bag.quantity_of(ResourceType::Moneta) == 0 &&
-              bag.quantity_of(ResourceType::Wood) == 0 &&
-              bag.quantity_of(ResourceType::PigIron) == 0,
+    check(bag.quantity_of(iron_helmet.keyid) == 1 && bag.quantity_of(moneta.keyid) == 0 &&
+              bag.quantity_of(wood.keyid) == 0 && bag.quantity_of(pig_iron.keyid) == 0,
           "forging consumes exactly one recipe and repeated input cannot duplicate the result");
     check(!craft(bag, iron_helmet_recipe()), "missing materials cannot forge a second helmet");
-    check(bag.remove(helmet, 1) && bag.add(wood, 100) && !bag.add(wood, 1),
-          "crafting commits the volume counter together with the stacks");
+    check(bag.remove(helmet, 1) && bag.add(wood, 12) && !bag.add(wood, 1),
+          "crafting commits the weight counter together with the stacks");
     Bag overflow{std::numeric_limits<std::uint32_t>::max()};
-    check(overflow.add(helmet, std::numeric_limits<std::uint32_t>::max()) &&
-              !overflow.add(helmet, 1),
-          "capacity checks cannot wrap around the volume counter");
+    auto const max_helmets = std::numeric_limits<std::uint32_t>::max() / helmet.weight;
+    check(overflow.add(helmet, max_helmets) && !overflow.add(helmet, 1),
+          "capacity checks cannot wrap around the weight counter");
     Recipe overflowing_output{{}, {{&helmet, 1}}};
-    check(!craft(overflow, overflowing_output) && overflow.quantity_of(ResourceType::IronHelmet) ==
-                                                      std::numeric_limits<std::uint32_t>::max(),
+    check(!craft(overflow, overflowing_output) &&
+              overflow.quantity_of(iron_helmet.keyid) == max_helmets,
           "output overflow preserves the existing inventory");
-    Bag duplicate_inputs{10};
+    Bag default_bag{10000};
+    check(default_bag.max_weight() == 10000 && default_bag.add(wood, 10) &&
+              !default_bag.add(moneta, 1),
+          "default bag holds ten kilograms and rejects excess weight");
+    Resource const crystal{9001, "Crystal", ResourceCategory::Material, 125};
+    Bag custom{500};
+    check(custom.add(crystal, 4) && custom.quantity_of(crystal.keyid) == 4 &&
+              custom.total_weight() == 500 && !custom.add(crystal, 1),
+          "new resource records work without an enum or subclass");
+    Recipe crystal_recipe{{{&crystal, 4}}, {{&moneta, 10}}};
+    check(craft(custom, crystal_recipe) && custom.quantity_of(crystal.keyid) == 0 &&
+              custom.quantity_of(moneta.keyid) == 10 && custom.total_weight() == 100,
+          "recipes consume and produce resources by their record identities");
+    Bag weighted{3000};
+    check(weighted.add(wood, 1) && weighted.add(iron, 1) && weighted.total_weight() == 3000 &&
+              weighted.max_weight() == 3000 && !weighted.add(moneta, 1),
+          "mixed resources use unit weights and reject excess weight without mutation");
+    check(weighted.remove(iron, 1) && weighted.total_weight() == 1000 &&
+              weighted.add(moneta, 200) && weighted.total_weight() == 3000,
+          "removing weighted resources releases exactly their weight");
+    check(!weighted.add(helmet, std::numeric_limits<std::uint32_t>::max()) &&
+              weighted.total_weight() == 3000,
+          "weight multiplication cannot wrap before the capacity check");
+    Bag duplicate_inputs{10000};
     check(duplicate_inputs.add(wood, 2), "prepare repeated recipe inputs");
     Recipe repeated{{{&wood, 2}, {&wood, 1}}, {{&helmet, 1}}};
-    check(!craft(duplicate_inputs, repeated) &&
-              duplicate_inputs.quantity_of(ResourceType::Wood) == 2,
+    check(!craft(duplicate_inputs, repeated) && duplicate_inputs.quantity_of(wood.keyid) == 2,
           "repeated inputs cannot consume the same resources twice");
 }
 
@@ -813,13 +827,13 @@ std::vector<lc1::Vertex> triangle()
 
 void model_correction()
 {
-    lc1::Model plain{triangle(), {0, 1, 2}};
+    lc1::scene::Model plain{triangle(), {0, 1, 2}};
     plain.generate_tangents();
     check(lc1::valid_tangent_frame(plain.vertices()[0]), "model exposes tangent preprocessing");
     auto with_tangents = triangle();
     std::vector<std::uint32_t> tangent_indices{0, 1, 2};
     lc1::generate_tangents(with_tangents, tangent_indices);
-    lc1::Model const tangent_model{
+    lc1::scene::Model const tangent_model{
         with_tangents, tangent_indices, {.rotation = {-90, 0, 0}, .scale = {-2, 3, 4}}};
     for (auto const &vertex : tangent_model.vertices()) {
         check(lc1::valid_tangent_frame(vertex), "baked tangent remains valid");
@@ -831,12 +845,12 @@ void model_correction()
     for (auto &vertex : diagonal_uv)
         vertex.uv = {vertex.position.x + vertex.position.y, vertex.position.y - vertex.position.x};
     lc1::generate_tangents(diagonal_uv, tangent_indices);
-    lc1::Model const diagonal_model{
+    lc1::scene::Model const diagonal_model{
         diagonal_uv, tangent_indices, {.rotation = {-90, 0, 0}, .scale = {-2, 3, 4}}};
     check(
         near(glm::vec3{diagonal_model.vertices()[0].tangent}, glm::normalize(glm::vec3{-2, 0, -3})),
         "non-axis-aligned tangents use the linear transform, not its inverse transpose");
-    lc1::Model const corrected{
+    lc1::scene::Model const corrected{
         triangle(),
         {0, 1, 2},
         {.position = {1, 2, 3}, .rotation = {-90, 0, 0}, .scale = {2, 3, 4}}};
@@ -851,7 +865,7 @@ void model_correction()
     tilted[2].position = {0, 1, 1};
     for (auto &vertex : tilted)
         vertex.normal = glm::normalize(glm::vec3{0, -1, 1});
-    lc1::Model const mirrored{tilted, {0, 1, 2}, {.scale = {-2, 3, 4}}};
+    lc1::scene::Model const mirrored{tilted, {0, 1, 2}, {.scale = {-2, 3, 4}}};
     auto const points = mirrored.vertices();
     auto const indices = mirrored.indices();
     auto const face_normal =
@@ -860,9 +874,9 @@ void model_correction()
     check(near(face_normal, points[0].normal),
           "nonuniform mirrored correction preserves winding and inverse-transpose normals");
     check(near(points[0].normal, {0, -0.8F, 0.6F}), "nonuniform scale keeps normals perpendicular");
-    rejects([] { lc1::Model invalid{triangle(), {0, 1, 2}, {.scale = {1, 0, 1}}}; },
+    rejects([] { lc1::scene::Model invalid{triangle(), {0, 1, 2}, {.scale = {1, 0, 1}}}; },
             "singular model correction is rejected");
-    rejects([] { lc1::Model invalid{triangle(), {0, 1, 9}}; },
+    rejects([] { lc1::scene::Model invalid{triangle(), {0, 1, 9}}; },
             "invalid model indices are rejected");
 }
 

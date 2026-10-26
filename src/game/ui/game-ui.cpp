@@ -2,7 +2,7 @@
 
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/ui/music-browser.hpp"
-#include "lc1/game/world/world-view.hpp"
+#include "lc1/game/world/world-presentation.hpp"
 #include "lc1/text/text-layout.hpp"
 #include <algorithm>
 #include <format>
@@ -10,6 +10,70 @@
 #include <ranges>
 
 namespace lc1 {
+namespace {
+void inventory_list(game::Bag const &bag)
+{
+    std::vector<game::ResourceStack> items;
+    for (auto const &stack : bag.resource_stacks())
+        items.push_back(stack);
+    std::ranges::sort(items, {}, [](auto const &item) { return item.resource->keyid; });
+    auto const *viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        {viewport->WorkPos.x + viewport->WorkSize.x - 24.0F, viewport->WorkPos.y + 180.0F},
+        ImGuiCond_FirstUseEver, {1.0F, 0.0F});
+    ImGui::SetNextWindowSize({420.0F, 0.0F}, ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {20.0F, 18.0F});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {10.0F, 12.0F});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(20, 25, 30, 242));
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(231, 226, 212, 255));
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, IM_COL32(191, 155, 88, 255));
+    if (ImGui::Begin("Inventory", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                         ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::TextColored({0.84F, 0.70F, 0.42F, 1.0F}, "INVENTORY");
+        ImGui::TextDisabled("Travel supplies");
+        ImGui::Spacing();
+        if (ImGui::BeginTable("items", 3,
+                              ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                                  ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Quantity", ImGuiTableColumnFlags_WidthFixed, 65.0F);
+            ImGui::TableSetupColumn("Weight (kg)", ImGuiTableColumnFlags_WidthFixed, 65.0F);
+            ImGui::TableHeadersRow();
+            for (auto const &item : items) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(item.resource->name.data(),
+                                       item.resource->name.data() + item.resource->name.size());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::TextDisabled("Weight per item: %.2f kg", item.resource->weight / 1000.0);
+                    ImGui::EndTooltip();
+                }
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", item.quantity);
+                ImGui::TableNextColumn();
+                ImGui::Text("%.2f",
+                            static_cast<double>(item.quantity) * item.resource->weight / 1000.0);
+            }
+            ImGui::EndTable();
+        }
+        auto const used_weight = bag.total_weight();
+        auto const capacity = bag.max_weight();
+        if (items.empty())
+            ImGui::TextDisabled("Your inventory is empty.");
+        ImGui::Spacing();
+        auto const label =
+            std::format("Weight: {:.2f} / {:.2f} kg", used_weight / 1000.0, capacity / 1000.0);
+        ImGui::ProgressBar(capacity == 0 ? 0.0F : static_cast<float>(used_weight) / capacity,
+                           {-1.0F, 18.0F}, label.c_str());
+    }
+    ImGui::End();
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(3);
+}
+} // namespace
 
 void GameUi::open_save(std::string_view name)
 {
@@ -76,6 +140,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         ImGui::End();
         break;
     case State::InGame:
+        inventory_list(info.bag);
         break;
     }
     if (save_open_) {
@@ -141,14 +206,6 @@ std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFon
     labels.push_back(
         ScreenTextItem{.text = save_status_, .position = {24.0F, 108.0F}, .line_height = 22.0F});
 
-    std::string bag_str;
-    for (auto const type : {game::ResourceType::Moneta, game::ResourceType::Wood,
-                            game::ResourceType::PigIron, game::ResourceType::IronHelmet})
-        bag_str += std::format("{} {}\n", type, world.player().bag().quantity_of(type));
-    auto bag_metric = font.atlas().measure(bag_str, 32);
-    labels.push_back(ScreenTextItem{
-        .text = bag_str, .position = {w - bag_metric.width - 10, 10}, .line_height = 32});
-
     auto const *dialog = world.dialogs().find(world.player());
     if (world.interaction_target() && !dialog) {
         ScreenTextItem interact_text{
@@ -191,6 +248,36 @@ std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFon
     }
 
     return labels;
+}
+
+} // namespace lc1
+
+namespace lc1 {
+
+bool GameUi::gameplay_enabled() const
+{
+    return state_ == State::InGame && !save_open_ && !load_open_;
+}
+
+void GameUi::open_load()
+{
+    load_open_ = true;
+    save_open_ = false;
+}
+
+void GameUi::saved()
+{
+    save_open_ = false;
+}
+
+void GameUi::start_game()
+{
+    state_ = State::InGame;
+}
+
+void GameUi::set_save_status(std::string status)
+{
+    save_status_ = std::move(status);
 }
 
 } // namespace lc1

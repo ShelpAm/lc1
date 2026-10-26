@@ -22,16 +22,16 @@ class Device {
     // be using: ~vk::raii::Device does not wait.
     void wait_idle() const;
 
-    std::uint32_t queue_family() const { return queue_family_; }
+    std::uint32_t queue_family() const;
 
     // Non-owning; valid only while this Device is.
-    vk::raii::PhysicalDevice const &raii_physical() const { return physical_; }
+    vk::raii::PhysicalDevice const &raii_physical() const;
 
-    vk::raii::Device const &raii() const { return device_; }
+    vk::raii::Device const &raii() const;
 
-    MemoryAllocator const &allocator() const { return alloc_; }
+    MemoryAllocator const &allocator() const;
 
-    vk::raii::Queue const &raii_queue() const { return queue_; }
+    vk::raii::Queue const &raii_queue() const;
 
     vk::SampleCountFlagBits max_sample_count() const;
 

@@ -5,6 +5,8 @@
 #include "lc1/game/player/player-controller.hpp"
 #include "lc1/scene/camera.hpp"
 
+#include <optional>
+
 namespace lc1 {
 
 // Both views share one character. GameSession supplies input gates; GameSession
@@ -23,16 +25,18 @@ class PlayerView {
     // Call only while mouse input is enabled; pointer_active additionally gates edge pan.
     void update_pointer(InputState const &devices, glm::vec2 viewport_size, bool pointer_active,
                         float delta_seconds);
-    void update_camera(Character const &player, float delta_seconds);
+    // Optional animated eye world transform adds mount rotation to gameplay look in first person.
+    void update_camera(Character const &player, float delta_seconds,
+                       std::optional<glm::mat4> eye_transform = {});
 
-    void set_aspect_ratio(float aspect_ratio) { camera_.set_aspect_ratio(aspect_ratio); }
+    void set_aspect_ratio(float aspect_ratio);
 
-    bool oblique() const { return oblique_; }
+    bool oblique() const;
 
-    scene::FpsCamera const &camera() const { return camera_; }
+    scene::FpsCamera const &camera() const;
 
   private:
-    void follow_first_person(Character const &player);
+    void follow_first_person(glm::vec3 eye_position, glm::vec3 look_direction);
 
     Continent const *continent_; // Borrowed; the game session owns the world.
     MapCameraController map_camera_;

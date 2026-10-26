@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace lc1 {
@@ -160,22 +161,24 @@ void Renderer::ensure_attachments(FrameResources &resources, vk::Extent2D extent
 }
 
 void Renderer::record(CommandBuffer &cmd, FrameResources &resources, RenderTarget const &target,
-                      scene::FpsCamera const &camera, std::span<scene::Light const> lights,
-                      std::span<DrawItem const> draws, OutputSettings output, TextFrameInput text)
+                      scene::Scene const &scene, OutputSettings output, TextFrameInput text)
 {
     // Callbacks borrow this invocation's inputs and are destroyed before it returns.
     RenderGraph graph;
-    add_passes(graph, resources, target, camera, lights, draws, output, text);
+    add_passes(graph, resources, target, scene, output, std::move(text));
     if (auto result = graph.compile(); !result)
         fail("Cannot compile render graph: {}", result.error());
     graph.execute(cmd);
 }
 
 void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderTarget const &target,
-                          scene::FpsCamera const &camera, std::span<scene::Light const> lights,
-                          std::span<DrawItem const> draws, OutputSettings output,
-                          TextFrameInput text)
+                          scene::Scene const &input, OutputSettings output, TextFrameInput text)
 {
+    auto const *camera = input.active_camera();
+    if (!camera)
+        fail("cannot render a scene without an active camera");
+    auto const lights = input.lights();
+    auto const draws = input.draws();
     validate_draws(resources, target.extent, draws);
     if (lights.size() > max_num_lights)
         fail("light count exceeds supported capacity {}", max_num_lights);
@@ -189,7 +192,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
     graph.import_resource("frame.inputs");
     graph.import_resource("output.target");
     auto const scene = std::make_shared<FrameScene const>(FrameScene{
-        .camera = camera,
+        .camera = *camera,
         .lights = {lights.begin(), lights.end()},
         .draws = {draws.begin(), draws.end()},
     });
@@ -376,7 +379,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         else
             command_buffer.setDepthBias(0.0F, 0.0F, 0.0F);
         // A reflected model reverses winding; callers never need to flip cull mode.
-        command_buffer.setFrontFace(glm::determinant(glm::mat3{item.model}) < 0.0F
+        command_buffer.setFrontFace(glm::determinant(glm::mat3{item.model_matrix}) < 0.0F
                                         ? vk::FrontFace::eClockwise
                                         : vk::FrontFace::eCounterClockwise);
         item.mesh->draw(command_buffer);
@@ -439,13 +442,13 @@ void Renderer::record_screen_text(CommandBuffer &cmd, FrameResources &resources,
     command_buffer.endRendering();
 }
 
-void Renderer::record(CommandBuffer &command_buffer, FrameResources &resources,
-                      RenderTarget const &target, scene::Scene const &scene, OutputSettings output)
+} // namespace lc1
+
+namespace lc1 {
+
+vk::SampleCountFlagBits Renderer::sample_count() const
 {
-    auto const *camera = scene.active_camera();
-    if (!camera)
-        fail("cannot render a scene without an active camera");
-    record(command_buffer, resources, target, *camera, scene.lights(), scene.draws(), output);
+    return main_state_.samples;
 }
 
 } // namespace lc1

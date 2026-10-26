@@ -74,26 +74,26 @@ class Character {
     Character &operator=(Character &&) noexcept;
     ~Character();
 
-    CharacterConfig &config() { return config_; }
+    CharacterConfig &config();
 
-    CharacterConfig const &config() const { return config_; }
+    CharacterConfig const &config() const;
 
-    CharacterBody const &body() const { return body_; }
+    CharacterBody const &body() const;
 
-    float half_width() const { return body_.half_width; }
+    float half_width() const;
 
-    float height() const { return body_.height; }
+    float height() const;
 
-    glm::vec3 position() const { return transform_.position; }
+    glm::vec3 position() const;
 
-    scene::Transform const &transform() const { return transform_; }
+    scene::Transform const &transform() const;
 
     void move(Continent const &continent, glm::vec3 displacement);
     void walk(Continent const &continent, glm::vec3 direction, float delta_seconds, bool running,
               bool face_movement = true);
 
     // Right-handed degrees about +Y. Zero faces -Z, independently of asset correction.
-    float body_yaw() const { return transform_.rotation.y; }
+    float body_yaw() const;
 
     void set_body_yaw(float degrees);
     void set_body_direction(glm::vec3 direction);
@@ -101,9 +101,9 @@ class Character {
 
     // Relative to the body: positive yaw turns left, positive pitch looks up.
     // These are look targets, not a skeleton pose. Yaw/pitch are limited to +/-85/89.
-    float look_yaw() const { return look_yaw_; }
+    float look_yaw() const;
 
-    float look_pitch() const { return look_pitch_; }
+    float look_pitch() const;
 
     void set_look_angles(float yaw_degrees, float pitch_degrees);
     glm::vec3 look_direction() const;
@@ -111,9 +111,9 @@ class Character {
     glm::vec3 right() const;
     glm::vec3 eye_position() const;
 
-    void request_jump() { jump_requested_ = true; }
+    void request_jump();
 
-    bool on_ground() const { return on_ground_; }
+    bool on_ground() const;
 
     // The single state-update entry point: applies the intent against this character's
     // own gameplay rules (body/look targets, locomotion speed, collision, delta cap and
@@ -130,24 +130,21 @@ class Character {
     // a patrol/non-companion controller.
     CompanionOrder companion_order() const;
 
-    CharacterController *controller() { return controller_.get(); }
+    CharacterController *controller();
 
-    CharacterController const *controller() const { return controller_.get(); }
+    CharacterController const *controller() const;
 
-    void set_controller(std::unique_ptr<CharacterController> controller)
-    {
-        controller_ = std::move(controller);
-    }
+    void set_controller(std::unique_ptr<CharacterController> controller);
 
-    Interactable *interactable() { return interactable_.get(); }
+    Interactable *interactable();
 
     void set_interactable(std::unique_ptr<Interactable> interactable);
 
     Faction const *faction() const;
 
-    game::Bag const &bag() const { return bag_; }
+    game::Bag const &bag() const;
 
-    game::Bag &bag() { return bag_; }
+    game::Bag &bag();
 
   private:
     // Resolves the requested actions before physics. Called only by update().

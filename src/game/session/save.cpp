@@ -482,3 +482,62 @@ SerializedCharacterConfig const &Save::character(std::uint32_t keyid, std::strin
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+std::filesystem::path const &Save::directory() const
+{
+    return directory_;
+}
+
+ContinentIdentity const &Save::continent() const
+{
+    return continent_;
+}
+
+std::uint32_t Save::player() const
+{
+    return session_.player;
+}
+
+std::uint32_t Save::example() const
+{
+    return session_.example;
+}
+
+bool Save::has_example() const
+{
+    return session_.example != 0;
+}
+
+std::unordered_map<std::uint32_t, SerializedFaction> const &Save::factions() const
+{
+    return factions_;
+}
+
+std::unordered_map<std::uint32_t, SerializedEquipment> const &Save::equipments() const
+{
+    return equipments_;
+}
+
+std::unordered_map<std::uint32_t, SerializedWeapon> const &Save::weapons() const
+{
+    return weapons_;
+}
+
+std::unordered_map<std::uint32_t, SerializedParty> const &Save::parties() const
+{
+    return parties_;
+}
+
+std::unordered_map<std::uint32_t, SerializedCharacterConfig> const &Save::characters() const
+{
+    return characters_;
+}
+
+std::unordered_map<std::uint32_t, SerializedCharacterState> const &Save::states() const
+{
+    return states_;
+}
+
+} // namespace lc1

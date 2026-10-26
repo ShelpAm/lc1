@@ -21,10 +21,7 @@ class Interactable {
 
 class InteractableCharacter : public Interactable {
   public:
-    InteractableCharacter(Character *character, DialogSystem *dialogs)
-        : me_(character), dialogs_(dialogs)
-    {
-    }
+    InteractableCharacter(Character *character, DialogSystem *dialogs);
 
     InteractableCharacter(InteractableCharacter const &) = delete;
     InteractableCharacter(InteractableCharacter &&) = delete;

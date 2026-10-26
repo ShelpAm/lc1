@@ -147,12 +147,12 @@ enum class Key : std::uint8_t {
     Count,
 };
 
-inline constexpr std::size_t key_count = static_cast<std::size_t>(Key::Count);
+constexpr std::size_t key_count = static_cast<std::size_t>(Key::Count);
 
 // Everything before MouseLeft is a keyboard key. src/window.cpp's table has exactly this
 // many rows, and the static_asserts beside it turn "forgot one" and "listed one twice"
 // into compile errors rather than a key that silently never fires.
-inline constexpr std::size_t keyboard_key_count = static_cast<std::size_t>(Key::MouseLeft);
+constexpr std::size_t keyboard_key_count = static_cast<std::size_t>(Key::MouseLeft);
 
 // The state of the physical devices during the frame the application is in.
 //
@@ -173,20 +173,20 @@ inline constexpr std::size_t keyboard_key_count = static_cast<std::size_t>(Key::
 // glfwGetWindowContentScale (exposed on the window, not here).
 class InputState {
   public:
-    bool down(Key key) const { return flag(down_, key); }
+    bool down(Key key) const;
 
-    bool pressed(Key key) const { return flag(pressed_, key); }
+    bool pressed(Key key) const;
 
-    bool released(Key key) const { return flag(released_, key); }
+    bool released(Key key) const;
 
-    glm::vec2 cursor() const { return cursor_; }
+    glm::vec2 cursor() const;
 
     // Movement accumulated since the last frame boundary. Zero when the pointer did not
     // move, and also zero on the frame that capture or focus changed -- see
     // invalidate_cursor().
-    glm::vec2 cursor_delta() const { return cursor_delta_; }
+    glm::vec2 cursor_delta() const;
 
-    glm::vec2 scroll() const { return scroll_; }
+    glm::vec2 scroll() const;
 
     // The frame boundary. Called by Window::poll_events() before pumping GLFW, and by
     // nothing else.

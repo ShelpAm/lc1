@@ -117,28 +117,28 @@ class Save {
     static void write(std::filesystem::path const &directory, SerializedWorld const &world);
     SerializedWorld data() const;
 
-    std::filesystem::path const &directory() const { return directory_; }
+    std::filesystem::path const &directory() const;
 
-    ContinentIdentity const &continent() const { return continent_; }
+    ContinentIdentity const &continent() const;
 
-    std::uint32_t player() const { return session_.player; }
+    std::uint32_t player() const;
 
     // 0 when the save has no AI demonstration; never a valid character keyid.
-    std::uint32_t example() const { return session_.example; }
+    std::uint32_t example() const;
 
-    bool has_example() const { return session_.example != 0; }
+    bool has_example() const;
 
-    auto const &factions() const { return factions_; }
+    std::unordered_map<std::uint32_t, SerializedFaction> const &factions() const;
 
-    auto const &equipments() const { return equipments_; }
+    std::unordered_map<std::uint32_t, SerializedEquipment> const &equipments() const;
 
-    auto const &weapons() const { return weapons_; }
+    std::unordered_map<std::uint32_t, SerializedWeapon> const &weapons() const;
 
-    auto const &parties() const { return parties_; }
+    std::unordered_map<std::uint32_t, SerializedParty> const &parties() const;
 
-    auto const &characters() const { return characters_; }
+    std::unordered_map<std::uint32_t, SerializedCharacterConfig> const &characters() const;
 
-    auto const &states() const { return states_; }
+    std::unordered_map<std::uint32_t, SerializedCharacterState> const &states() const;
 
   private:
     Save(std::filesystem::path directory, SerializedWorld const &world);

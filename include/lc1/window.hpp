@@ -41,7 +41,7 @@ class Window {
     std::vector<char const *> required_instance_extensions() const;
 
     // Borrowed, for glfwCreateWindowSurface in Device.
-    GLFWwindow *handle() const { return handle_; }
+    GLFWwindow *handle() const;
 
     bool should_close() const;
     // Returns true when the title changed and GLFW was called.
@@ -50,7 +50,7 @@ class Window {
     // Device state, valid for the frame poll_events() most recently opened. Always wired:
     // the callbacks are registered in the constructor, so there is no state where this
     // exists but receives nothing.
-    InputState const &input() const { return input_; }
+    InputState const &input() const;
 
     // Captured means the cursor is hidden, held inside the window and reported as
     // unaccelerated raw motion when supported. UI interaction needs a visible
@@ -61,7 +61,7 @@ class Window {
     // choice, which is why the delta baseline is reset either way.
     void set_cursor_captured(bool captured);
 
-    bool cursor_captured() const { return cursor_captured_; }
+    bool cursor_captured() const;
 
     // Reads and clears the flag the resize callback sets. The caller must
     // consume it unconditionally: `recreate_requested ||

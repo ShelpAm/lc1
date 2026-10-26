@@ -20,14 +20,6 @@ struct SpotLight {
     float outer_angle = glm::radians(30.0F);
 };
 
-inline Light to_light(SpotLight const &light)
-{
-    return {.position = light.position,
-            .type = 2,
-            .direction = light.direction,
-            .color = light.base.color,
-            .intensity = light.base.intensity,
-            .spot_angles = {light.inner_angle, light.outer_angle}};
-}
+Light to_light(SpotLight const &light);
 
 } // namespace lc1::scene

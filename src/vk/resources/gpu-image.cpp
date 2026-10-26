@@ -220,3 +220,27 @@ void GpuImage::generate_mipmaps(vk::raii::CommandBuffer const &command_buffer) c
 }
 
 } // namespace lc1
+
+namespace lc1 {
+
+vk::raii::Image const &GpuImage::raii() const
+{
+    return image_;
+}
+
+vk::raii::ImageView const &GpuImage::view() const
+{
+    return view_;
+}
+
+vk::Extent2D GpuImage::extent() const
+{
+    return extent_;
+}
+
+vk::Format GpuImage::format() const
+{
+    return format_;
+}
+
+} // namespace lc1

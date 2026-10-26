@@ -13,7 +13,7 @@ struct MaterialInfo;
 struct DrawItem {
     GpuMesh const *mesh = nullptr;
     MaterialInfo const *material = nullptr;
-    glm::mat4 model{1.0F};
+    glm::mat4 model_matrix{1.0F};
     // Content that renders without casting, such as flat ground decals. Text is
     // never a draw item: it is drawn by the text pass and casts nothing.
     bool casts_shadow = true;

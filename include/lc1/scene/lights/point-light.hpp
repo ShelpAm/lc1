@@ -13,12 +13,6 @@ struct PointLight {
     // Unbounded inverse-square distance attenuation.
 };
 
-inline Light to_light(PointLight const &light)
-{
-    return {.position = light.position,
-            .type = 1,
-            .color = light.base.color,
-            .intensity = light.base.intensity};
-}
+Light to_light(PointLight const &light);
 
 } // namespace lc1::scene
