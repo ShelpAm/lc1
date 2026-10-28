@@ -1,31 +1,61 @@
 #pragma once
 
-#include "lc1/scene/camera.hpp"
+#include "lc1/scene/gpu-model.hpp"
 #include "lc1/scene/lights/light.hpp"
+#include "lc1/scene/model-instance.hpp"
 #include "lc1/vk/render/draw-item.hpp"
 
-#include <span>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 namespace lc1::scene {
 
-// Frame-local scene input. Camera, lights and draws are borrowed until Renderer snapshots
-// them in record/add_passes. Referenced GPU resources must survive GPU execution.
-class Scene {
-  public:
-    Scene() = default;
+// Model and material are required borrows, alive and unmoved until removal.
+struct SceneModel {
+    GpuModel const *model = nullptr;
+    ModelInstance pose{definition(model)};
+    MaterialInfo const *material = nullptr;
+    glm::mat4 world_transform{1.0F};
+    bool casts_shadow = true;
+    bool depth_bias = false;
+    bool visible = true;
 
-    Scene(FpsCamera const &camera, std::span<Light const> lights, std::span<DrawItem const> draws);
-
-    FpsCamera const *active_camera() const;
-
-    std::span<Light const> lights() const;
-
-    std::span<DrawItem const> draws() const;
+    glm::mat4 node_world_matrix(std::size_t node) const;
 
   private:
-    FpsCamera const *active_camera_ = nullptr;
-    std::span<Light const> lights_;
-    std::span<DrawItem const> draws_;
+    static ModelDefinition const &definition(GpuModel const *model);
+};
+
+struct SceneLight {
+    Light parameters;
+    bool enabled = true;
+};
+
+// Persistent CPU presentation state, independent of any selected camera.
+// Owns placements, model poses/playback and light parameters, but never borrowed assets.
+// Returned pointers borrow scene-owned objects. Additions and removal of other entries
+// preserve them; removing the object or destroying the scene invalidates its pointer.
+class Scene {
+  public:
+    SceneLight *add_light(Light light);
+    void remove_light(SceneLight const *light);
+
+    SceneModel *add_model(SceneModel model);
+    void remove_model(SceneModel const *model);
+
+    void update_animations(float delta_seconds);
+
+    // Value snapshots, with unspecified collection order.
+    // Subsequent scene edits cannot change them.
+    std::vector<Light> lights() const;
+    std::vector<DrawItem> draws() const;
+    // Expanded mesh count, including hidden models.
+    std::size_t draw_count() const;
+
+  private:
+    std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
+    std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;
 };
 
 } // namespace lc1::scene

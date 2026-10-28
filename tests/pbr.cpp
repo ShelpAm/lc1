@@ -1,6 +1,8 @@
 #include "render-device.hpp"
 
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/scene/camera.hpp"
+#include "lc1/scene/gpu-model.hpp"
 #include "lc1/scene/lights/directional-light.hpp"
 #include "lc1/scene/lights/point-light.hpp"
 #include "lc1/scene/lights/sphere-light.hpp"
@@ -64,8 +66,7 @@ struct Capture {
 };
 
 Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
-                lc1::scene::FpsCamera &camera, std::span<lc1::scene::Light const> lights,
-                std::span<lc1::DrawItem const> draws,
+                lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
                 vk::Extent2D extent = {.width = 65, .height = 65},
                 lc1::OutputSettings settings = {}, vk::Format format = vk::Format::eR8G8B8A8Unorm,
                 lc1::TextFrameInput text = {})
@@ -93,8 +94,7 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
                                  vk::PipelineStageFlagBits2::eNone, {},
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                                  vk::AccessFlagBits2::eColorAttachmentWrite);
-        renderer.record(wrapped, frame, {&output.view(), extent},
-                        lc1::scene::Scene{camera, lights, draws}, settings, text);
+        renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, settings, text);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
                                  vk::ImageLayout::eTransferSrcOptimal,
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -139,6 +139,21 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
     return result;
 }
 
+Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
+                lc1::scene::FpsCamera &camera, std::span<lc1::scene::Light const> lights,
+                std::span<lc1::scene::SceneModel const> draws,
+                vk::Extent2D extent = {.width = 65, .height = 65},
+                lc1::OutputSettings settings = {}, vk::Format format = vk::Format::eR8G8B8A8Unorm,
+                lc1::TextFrameInput text = {})
+{
+    lc1::scene::Scene scene;
+    for (auto const &light : lights)
+        scene.add_light(light);
+    for (auto const &draw : draws)
+        scene.add_model(draw);
+    return capture(device, renderer, frame, camera, scene, extent, settings, format, text);
+}
+
 float srgb(float value)
 {
     return value <= 0.0031308F ? value * 12.92F : 1.055F * std::pow(value, 1.0F / 2.4F) - 0.055F;
@@ -171,8 +186,8 @@ void material_tests(lc1::Device const &device, vk::SampleCountFlagBits samples)
         lc1::Vertex{.position = {10, 10, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
         lc1::Vertex{.position = {-10, 10, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
     std::array<std::uint32_t, 6> const indices{0, 1, 2, 0, 2, 3};
-    lc1::GpuMesh mesh{device, std::span<lc1::Vertex const>{vertices},
-                      std::span<std::uint32_t const>{indices}};
+    lc1::scene::GpuModel mesh{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                           std::span<std::uint32_t const>{indices}}};
     auto const sun = lc1::scene::to_light(
         lc1::scene::DirectionalLight{.base = {.intensity = 1}, .direction = {0, 0, -1}});
     std::array lights{sun};
@@ -180,7 +195,8 @@ void material_tests(lc1::Device const &device, vk::SampleCountFlagBits samples)
                                std::span<lc1::scene::Light const> active_lights,
                                lc1::OutputSettings settings = {}) {
         auto material = info;
-        std::array draws{lc1::DrawItem{.mesh = &mesh, .material = &material, .depth_bias = false}};
+        std::array draws{
+            lc1::scene::SceneModel{.model = &mesh, .material = &material, .depth_bias = false}};
         return capture(device, renderer, frame, camera, active_lights, draws,
                        {.width = 65, .height = 65}, settings);
     };
@@ -292,21 +308,23 @@ void mutable_material_tests(lc1::Device const &device)
         lc1::Vertex{.position = {-0.5F, 0.5F, 0}, .normal = {0, 0, 1}, .uv = {0, 1}},
     };
     std::array<std::uint32_t, 6> const indices{0, 1, 2, 0, 2, 3};
-    lc1::GpuMesh mesh{device, std::span<lc1::Vertex const>{vertices},
-                      std::span<std::uint32_t const>{indices}};
+    lc1::scene::GpuModel mesh{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                           std::span<std::uint32_t const>{indices}}};
     lc1::MaterialInfo left{.parameters = {.emissive_factor = {1, 0, 0}}};
     lc1::MaterialInfo right{.parameters = {.emissive_factor = {0, 1, 0}}};
     std::array draws{
-        lc1::DrawItem{.mesh = &mesh,
-                      .material = &left,
-                      .model_matrix = glm::translate(glm::mat4{1}, glm::vec3{-0.8F, 0, 0}),
-                      .casts_shadow = false,
-                      .depth_bias = false},
-        lc1::DrawItem{.mesh = &mesh,
-                      .material = &right,
-                      .model_matrix = glm::translate(glm::mat4{1}, glm::vec3{0.8F, 0, 0}),
-                      .casts_shadow = false,
-                      .depth_bias = false},
+        lc1::scene::SceneModel{.model = &mesh,
+                               .material = &left,
+                               .world_transform =
+                                   glm::translate(glm::mat4{1}, glm::vec3{-0.8F, 0, 0}),
+                               .casts_shadow = false,
+                               .depth_bias = false},
+        lc1::scene::SceneModel{.model = &mesh,
+                               .material = &right,
+                               .world_transform =
+                                   glm::translate(glm::mat4{1}, glm::vec3{0.8F, 0, 0}),
+                               .casts_shadow = false,
+                               .depth_bias = false},
     };
     auto check_pair = [&](lc1::FrameResources &frame, glm::vec3 expected_left,
                           glm::vec3 expected_right) {
@@ -349,10 +367,11 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
         {.position = {10, 10, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
         {.position = {-10, 10, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
     std::vector<std::uint32_t> indices{0, 1, 2, 0, 2, 3};
-    lc1::GpuMesh no_tangents{device, vertices, indices};
+    lc1::scene::GpuModel no_tangents{lc1::GpuMesh{device, vertices, indices}};
     lc1::generate_tangents(vertices, indices);
-    lc1::GpuMesh mesh{device, vertices, indices};
-    check(mesh.has_tangents() && !no_tangents.has_tangents(), "mesh tangent availability");
+    lc1::scene::GpuModel mesh{lc1::GpuMesh{device, vertices, indices}};
+    check(mesh.meshes()[0].has_tangents() && !no_tangents.meshes()[0].has_tangents(),
+          "mesh tangent availability");
     std::array const tilt_pixel = std::array<std::uint8_t, 4>{204, 179, 229, 255};
     std::array<std::uint8_t, 4> const flat_pixel{128, 128, 255, 255};
     lc1::GpuTexture tilt{
@@ -366,13 +385,13 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
                        .roughness_factor = 0.7F};
     std::array lights{lc1::scene::to_light(lc1::scene::DirectionalLight{
         .base = {.intensity = 2}, .direction = glm::normalize(glm::vec3{-0.3F, -0.4F, -1})})};
-    auto render = [&](lc1::GpuMesh const &geometry, lc1::MaterialInfo const &parameters,
+    auto render = [&](lc1::scene::GpuModel const &geometry, lc1::MaterialInfo const &parameters,
                       glm::mat4 transform = glm::mat4{1}) {
         auto material = parameters;
-        std::array draws{lc1::DrawItem{.mesh = &geometry,
-                                       .material = &material,
-                                       .model_matrix = transform,
-                                       .depth_bias = false}};
+        std::array draws{lc1::scene::SceneModel{.model = &geometry,
+                                                .material = &material,
+                                                .world_transform = transform,
+                                                .depth_bias = false}};
         return capture(device, renderer, frame, camera, lights, draws);
     };
     auto const baseline = render(no_tangents, info).center();
@@ -394,7 +413,7 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
     auto reference_case = [&](std::vector<lc1::Vertex> source, glm::mat4 model, float scale) {
         auto source_indices = indices;
         lc1::generate_tangents(source, source_indices);
-        lc1::GpuMesh source_mesh{device, source, source_indices};
+        lc1::scene::GpuModel source_mesh{lc1::GpuMesh{device, source, source_indices}};
         auto const linear = glm::mat3{model};
         auto const n = glm::normalize(glm::transpose(glm::inverse(linear)) * source[0].normal);
         auto const raw_t = linear * glm::vec3{source[0].tangent};
@@ -418,7 +437,8 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
         if (glm::determinant(linear) < 0)
             for (std::size_t i = 0; i < reference_indices.size(); i += 3)
                 std::swap(reference_indices[i + 1], reference_indices[i + 2]);
-        lc1::GpuMesh reference_mesh{device, reference_vertices, reference_indices};
+        lc1::scene::GpuModel reference_mesh{
+            lc1::GpuMesh{device, reference_vertices, reference_indices}};
         info.parameters.normal_scale = scale;
         auto const actual = render(source_mesh, info, model).center();
         auto reference_info = info;
@@ -451,24 +471,26 @@ void normal_map_tests(lc1::Device const &device, vk::SampleCountFlagBits samples
 
 void model_animation_test(lc1::Device const &device)
 {
-    auto [definition, mesh] = [&device] {
-        std::vector<lc1::Vertex> vertices{
-            {.position = {-0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 0}},
-            {.position = {0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 0}},
-            {.position = {0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
-            {.position = {-0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
-        lc1::scene::Model model{
-            std::vector<lc1::scene::Mesh>{
-                lc1::scene::Mesh{std::move(vertices), {0, 1, 2, 0, 2, 3}}},
-            {{.mesh = 0}, {.parent = 0, .transform = {.translation = {-1, 0, 0}}, .mesh = 0}},
-            {{.name = "Move",
-              .channels = {
-                  {.times = {0, 1}, .values = std::vector<glm::vec3>{{0, 0, 0}, {2, 0, 0}}}}}}};
-        auto mesh = model.gen_mesh(device);
-        return std::pair{std::move(model).definition(), std::move(mesh)};
-    }();
-    lc1::scene::ModelInstance instance{definition};
-    lc1::scene::ModelInstance other{definition};
+    lc1::scene::GpuModel const model{
+        device, [] {
+            std::vector<lc1::Vertex> vertices{
+                {.position = {-0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 0}},
+                {.position = {0.3F, -0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 0}},
+                {.position = {0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
+                {.position = {-0.3F, 0.3F, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
+            std::vector<lc1::scene::Mesh> meshes;
+            meshes.emplace_back(vertices, std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
+            meshes.emplace_back(std::move(vertices), std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
+            return lc1::scene::Model{
+                std::move(meshes),
+                {{.mesh = 0},
+                 {.parent = 0, .transform = {.translation = {-1, 0, 0}}, .mesh = 0},
+                 {.transform = {.translation = {100, 0, 0}}, .mesh = 1}},
+                {{.name = "Move",
+                  .channels = {
+                      {.times = {0, 1}, .values = std::vector<glm::vec3>{{0, 0, 0}, {2, 0, 0}}}}}}};
+        }()};
+    auto const &definition = model.definition();
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
     auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(definition.draw_count()));
     lc1::scene::FpsCamera camera;
@@ -477,22 +499,42 @@ void model_animation_test(lc1::Device const &device)
     lc1::MaterialInfo material;
     material.parameters.base_color_factor = {0, 0, 0, 1};
     material.parameters.emissive_factor = {2, 0, 0};
-    auto render = [&](lc1::scene::ModelInstance const &current) {
-        std::vector<lc1::DrawItem> draws;
-        for (auto const &part : current.mesh_instances(glm::mat4{1}))
-            draws.push_back(
-                {.mesh = &mesh, .material = &material, .model_matrix = part.model_matrix});
-        check(draws.size() == 2 && draws[0].mesh == draws[1].mesh,
+    lc1::scene::Scene instance;
+    lc1::scene::Scene other;
+    auto *body = instance.add_model({.model = &model, .material = &material});
+    auto *other_body = other.add_model({.model = &model, .material = &material});
+    body->casts_shadow = false;
+    body->depth_bias = true;
+    auto const snapshot = instance.draws();
+    check(!snapshot[0].casts_shadow && snapshot[0].depth_bias,
+          "model draw extraction preserves shadow and depth bias flags");
+    body->world_transform[3].x = 5;
+    check(snapshot[0].model_matrix[3].x == 0 && instance.draws()[0].model_matrix[3].x == 5,
+          "draw snapshots retain their submitted world transforms");
+    body->visible = false;
+    check(instance.draws().empty() && instance.draw_count() == 3,
+          "hidden models retain their expanded draw capacity");
+    body->visible = true;
+    body->world_transform = glm::mat4{1};
+    body->casts_shadow = true;
+    body->depth_bias = false;
+    auto render = [&](lc1::scene::Scene const &current) {
+        auto const draws = current.draws();
+        check(current.draw_count() == 3, "scene capacity counts repeated mesh nodes");
+        check(draws.size() == 3 && draws[0].mesh == draws[1].mesh,
               "model nodes must share uploaded geometry while retaining independent transforms");
-        return capture(device, renderer, frame, camera, {}, draws);
+        check(model.meshes().size() == 2 && draws[0].mesh == &model.meshes()[0] &&
+                  draws[2].mesh == &model.meshes()[1],
+              "GPU model uploads every mesh and preserves definition mesh indices");
+        return capture(device, renderer, frame, camera, current);
     };
-    instance.play_animation(0, false);
-    other.play_animation(0, false);
+    body->pose.play_animation(0, false);
+    other_body->pose.play_animation(0, false);
     near(render(instance).center().r, 2, "animated node initially covers the center");
-    instance.update_animation(1);
+    instance.update_animations(1);
     near(render(instance).center().r, 0.24F, "animated hierarchy leaves the center uncovered");
     near(render(other).center().r, 2, "shared model instance keeps its own pose on the GPU");
-    instance.play_animation(0, false);
+    body->pose.play_animation(0, false);
     near(render(instance).center().r, 2, "restarting animation restores rendered geometry");
 }
 
@@ -515,7 +557,8 @@ void showcase_test(lc1::Device const &device)
                       lc1::text::GlyphAtlas{"runtime/assets/fonts/LiberationSans-Regular.ttf"}};
     lc1::TextFrameInput const text{
         .font = &font, .world = {scene.labels().begin(), scene.labels().end()}, .screen = {}};
-    std::vector<lc1::DrawItem> draws{terrain.draw_items().begin(), terrain.draw_items().end()};
+    std::vector<lc1::scene::SceneModel> draws{terrain.draw_items().begin(),
+                                              terrain.draw_items().end()};
     auto const offset = draws.size();
     draws.insert(draws.end(), scene.draws().begin(), scene.draws().end());
     auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(draws.size()));

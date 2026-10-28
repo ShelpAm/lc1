@@ -1,5 +1,7 @@
 # AGENTS.md
 
+现有代码架构不代表最终设计。允许修改不合理的架构。
+
 ## Scope and workflow
 
 - C++23, Vulkan 1.4 with vulkan-hpp / `vk::raii`, VMA-Hpp, GLFW and Slang.

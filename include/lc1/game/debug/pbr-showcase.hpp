@@ -3,7 +3,7 @@
 #include "lc1/scene/lights/light.hpp"
 
 #include "lc1/game/continent/continent.hpp"
-#include "lc1/vk/render/draw-item.hpp"
+#include "lc1/scene/scene.hpp"
 #include "lc1/vk/render/material.hpp"
 #include "lc1/vk/render/text-pass.hpp"
 #include "lc1/vk/resources/gpu-mesh.hpp"
@@ -23,7 +23,7 @@ class PbrShowcase {
     PbrShowcase(PbrShowcase const &) = delete;
     PbrShowcase &operator=(PbrShowcase const &) = delete;
 
-    std::span<DrawItem const> draws() const;
+    std::span<scene::SceneModel const> draws() const;
 
     // Panel text, laid out against the font each frame. The strings are owned
     // here; the items only borrow them.
@@ -37,19 +37,19 @@ class PbrShowcase {
     enum class TexturePattern { Checks, MetallicRoughness, Emission, Floor, Normal, FineNormal };
     MaterialInfo const &material(glm::vec3 color, float metallic, float roughness,
                                  glm::vec3 emission = {});
-    std::size_t place(GpuMesh const &mesh, MaterialInfo const &material, glm::vec3 position,
+    std::size_t place(scene::GpuModel const &mesh, MaterialInfo const &material, glm::vec3 position,
                       glm::vec3 scale = glm::vec3{1}, float yaw = 0.0F);
     GpuTexture const &texture(Device const &device, TexturePattern pattern,
                               TextureColorSpace color_space);
 
     glm::vec3 origin_;
-    GpuMesh sphere_;
-    GpuMesh cube_;
-    GpuMesh vertex_colors_;
+    scene::GpuModel sphere_;
+    scene::GpuModel cube_;
+    scene::GpuModel vertex_colors_;
     // Textures are declared before materials, which borrow them.
     std::vector<std::unique_ptr<GpuTexture>> textures_;
     std::deque<MaterialInfo> materials_;
-    std::vector<DrawItem> draws_;
+    std::vector<scene::SceneModel> draws_;
     // The strings live in a deque so the views below survive every insertion.
     std::deque<std::string> label_text_;
     std::vector<WorldTextItem> labels_;

@@ -75,8 +75,8 @@ class Renderer {
     // The target is copied; its view and image remain borrowed through GPU completion.
     // The same frame-resource and target contracts as record() apply.
     void add_passes(RenderGraph &graph, FrameResources &resources, RenderTarget const &target,
-                    scene::Scene const &scene, OutputSettings output = {},
-                    TextFrameInput text = {});
+                    scene::Scene const &scene, scene::FpsCamera const &camera,
+                    OutputSettings output = {}, TextFrameInput text = {});
 
     // resources must have been made by this renderer, and its previous GPU use
     // must have completed. The target format must match the constructor's output format.
@@ -86,7 +86,8 @@ class Renderer {
     // layout transitions; record leaves it in COLOR_ATTACHMENT_OPTIMAL.
     // `target.extent` must be nonzero and fit the attachment.
     void record(CommandBuffer &cmd, FrameResources &resources, RenderTarget const &target,
-                scene::Scene const &scene, OutputSettings output = {}, TextFrameInput text = {});
+                scene::Scene const &scene, scene::FpsCamera const &camera,
+                OutputSettings output = {}, TextFrameInput text = {});
 
   private:
     // The caller has waited for the resources' previous GPU use.

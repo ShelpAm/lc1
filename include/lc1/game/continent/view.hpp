@@ -1,10 +1,11 @@
 #pragma once
 
-#include "lc1/vk/render/draw-item.hpp"
+#include "lc1/scene/scene.hpp"
 
 #include "lc1/vk/render/material.hpp"
 #include "lc1/vk/resources/gpu-mesh.hpp"
 
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -26,13 +27,13 @@ class ContinentView {
     ContinentView(ContinentView &&) = delete;
     ContinentView &operator=(ContinentView &&) = delete;
 
-    std::span<DrawItem const> draw_items() const;
+    std::span<scene::SceneModel const> draw_items() const;
 
   private:
     MaterialInfo material_;
-    std::vector<GpuMesh> meshes_;
-    // Borrow the completed meshes_ array and material_; neither moves after construction.
-    std::vector<DrawItem> draws_;
+    std::vector<std::unique_ptr<scene::GpuModel>> models_;
+    // Placements borrow the owned models and material_ until this view is destroyed.
+    std::vector<scene::SceneModel> draws_;
 };
 
 } // namespace lc1

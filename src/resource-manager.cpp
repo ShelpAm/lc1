@@ -24,7 +24,7 @@ GpuMesh const &ResourceManager::load_mesh(std::filesystem::path const &path)
         return *found->second;
     }
     auto const model = scene::Model::load_from_file(asset_root_ / key);
-    auto mesh = std::make_unique<GpuMesh>(model.gen_mesh(*device_));
+    auto mesh = std::make_unique<GpuMesh>(*device_, model.vertices(), model.indices());
     // Only cache completed resources; a failed load leaves no empty entry.
     auto const [entry, inserted] = meshes_.emplace(key, std::move(mesh));
     return *entry->second;

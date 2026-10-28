@@ -10,17 +10,17 @@
 
 namespace lc1::scene {
 
-Model Model::load_from_file(std::filesystem::path const &path, Transform correction)
+Model Model::load_from_file(std::filesystem::path const &path)
 {
     auto extension = path.extension();
     if (extension == ".obj")
-        return load_from_obj(path, correction);
+        return load_from_obj(path);
     if (extension == ".gltf" || extension == ".glb")
-        return load_from_gltf(path, correction);
+        return load_from_gltf(path);
     fail("unsupported model file extension: {}", path.extension().string());
 }
 
-Model Model::load_from_obj(std::filesystem::path const &path, Transform correction)
+Model Model::load_from_obj(std::filesystem::path const &path)
 {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -32,13 +32,14 @@ Model Model::load_from_obj(std::filesystem::path const &path, Transform correcti
         throw std::runtime_error(warn + err);
     }
 
-    Model model;
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;
     std::unordered_map<Vertex, std::uint32_t> index_of_vertex;
 
     auto position_of = [&](tinyobj::index_t const &index) {
-        return glm::vec3{attrib.vertices[3 * index.vertex_index],
-                         attrib.vertices[3 * index.vertex_index + 1],
-                         attrib.vertices[3 * index.vertex_index + 2]};
+        auto idx = static_cast<std::size_t>(index.vertex_index);
+        return glm::vec3{attrib.vertices[3 * idx], attrib.vertices[3 * idx + 1],
+                         attrib.vertices[3 * idx + 2]};
     };
     // LoadObj triangulates by default. Missing normals use flat triangle normals;
     // including normals in Vertex equality preserves authored hard edges.
@@ -64,24 +65,21 @@ Model Model::load_from_obj(std::filesystem::path const &path, Transform correcti
                     if (length > 0.0F)
                         vertex.normal = normal / length;
                 }
-                auto [it, inserted] =
-                    index_of_vertex.insert({vertex, model.meshes_.front().vertices_.size()});
+                auto [it, inserted] = index_of_vertex.insert({vertex, vertices.size()});
                 if (inserted)
-                    model.meshes_.front().vertices_.push_back(vertex);
-                model.meshes_.front().indices_.push_back(it->second);
+                    vertices.push_back(vertex);
+                indices.push_back(it->second);
             }
         }
     }
 
-    model.apply_correction(correction);
-    return model;
+    return Model{std::move(vertices), std::move(indices)};
 }
 
-Model::Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices, Transform correction)
-    : definition_{1, {{.mesh = 0}}}
+Model::Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices)
+    : Model({Mesh(std::move(vertices), std::move(indices))},
+            {ModelNode{.name = "root (from raw mesh)", .mesh = 0}})
 {
-    meshes_.emplace_back(std::move(vertices), std::move(indices));
-    apply_correction(correction);
 }
 
 Model::Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
@@ -89,7 +87,6 @@ Model::Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
     : meshes_(std::move(meshes)),
       definition_{meshes_.size(), std::move(nodes), std::move(animations)}
 {
-    apply_correction({});
 }
 
 std::size_t Model::mesh_count() const
@@ -107,96 +104,24 @@ ModelDefinition Model::definition() &&
     return std::move(definition_);
 }
 
-Transform const &Model::correction() const
-{
-    return correction_;
-}
-
 std::span<Vertex const> Model::vertices(std::size_t mesh_index) const
 {
-    return mesh_at(mesh_index).vertices_;
+    if (mesh_index >= meshes_.size())
+        fail("model mesh index is out of range");
+    return meshes_[mesh_index].vertices_;
 }
 
 std::span<std::uint32_t const> Model::indices(std::size_t mesh_index) const
 {
-    return mesh_at(mesh_index).indices_;
+    if (mesh_index >= meshes_.size())
+        fail("model mesh index is out of range");
+    return meshes_[mesh_index].indices_;
 }
 
 void Model::generate_tangents()
 {
     for (auto &mesh : meshes_)
         lc1::generate_tangents(mesh.vertices_, mesh.indices_);
-}
-
-GpuMesh Model::gen_mesh(Device const &device, std::size_t mesh_index) const
-{
-    auto const &mesh = mesh_at(mesh_index);
-    return {device, mesh.vertices_, mesh.indices_};
-}
-
-Model::Model() : definition_{1, {{.mesh = 0}}}
-{
-    meshes_.push_back(Mesh{});
-}
-
-Mesh const &Model::mesh_at(std::size_t index) const
-{
-    if (index >= meshes_.size())
-        fail("model mesh index is out of range");
-    return meshes_[index];
-}
-
-void Model::apply_correction(Transform const &correction)
-{
-    for (auto &mesh : meshes_)
-        apply_mesh_correction(mesh, correction);
-    correction_ = correction;
-}
-
-void Model::apply_mesh_correction(Mesh &mesh, Transform const &correction)
-{
-    auto finite = [](glm::vec3 value) {
-        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-    };
-    if (!finite(correction.position) || !finite(correction.rotation) || !finite(correction.scale) ||
-        correction.scale.x == 0.0F || correction.scale.y == 0.0F || correction.scale.z == 0.0F)
-        fail("invalid model correction transform");
-    if (mesh.indices_.size() % 3 != 0)
-        fail("model indices must contain complete triangles");
-    for (auto const index : mesh.indices_)
-        if (index >= mesh.vertices_.size())
-            fail("model index is outside the vertex array");
-
-    auto const matrix = correction.model_matrix();
-    auto const linear = glm::mat3{matrix};
-    float const determinant = glm::determinant(linear);
-    if (!std::isfinite(determinant) || determinant == 0.0F)
-        fail("model correction must have an invertible finite transform");
-    auto const normal_matrix = glm::transpose(glm::inverse(linear));
-    for (auto &vertex : mesh.vertices_) {
-        bool const has_tangent = vertex.tangent.w != 0.0F;
-        if (has_tangent && !valid_tangent_frame(vertex))
-            fail("model correction requires a valid authored tangent frame");
-        vertex.position = glm::vec3{matrix * glm::vec4{vertex.position, 1.0F}};
-        auto const normal = normal_matrix * vertex.normal;
-        float const length = glm::length(normal);
-        if (!finite(vertex.position) || !finite(normal) || !std::isfinite(length) || length == 0.0F)
-            fail("model correction produced an invalid vertex");
-        vertex.normal = normal / length;
-        if (has_tangent) {
-            auto const transformed = linear * glm::vec3{vertex.tangent};
-            auto const tangent = transformed - vertex.normal * glm::dot(vertex.normal, transformed);
-            float const tangent_length = glm::length(tangent);
-            if (!finite(tangent) || !std::isfinite(tangent_length) || tangent_length == 0)
-                fail("model correction produced an invalid tangent");
-            vertex.tangent = glm::vec4{tangent / tangent_length,
-                                       vertex.tangent.w * (determinant < 0 ? -1.0F : 1.0F)};
-        }
-    }
-    // A baked reflection no longer appears in the per-draw determinant.
-    if (determinant < 0.0F)
-        for (std::size_t i = 0; i < mesh.indices_.size(); i += 3)
-            std::swap(mesh.indices_[i + 1], mesh.indices_[i + 2]);
 }
 
 } // namespace lc1::scene

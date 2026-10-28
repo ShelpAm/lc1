@@ -9,6 +9,7 @@ class FpsCamera;
 } // namespace scene
 
 // Camera lock is independent of cursor capture. All state belongs to this scene.
+// Inputs are finite; update/pan use nonnegative simulation time validated by GameWorld.
 class MapCameraController {
   public:
     explicit MapCameraController(glm::vec3 player_position);
@@ -17,8 +18,8 @@ class MapCameraController {
 
     void zoom(float scroll);
     void recenter(glm::vec3 player_position);
-    void pan(glm::vec2 direction, GroundBounds bounds, float delta_seconds);
-    void update(scene::FpsCamera &camera, glm::vec3 player_position, float delta_seconds);
+    void pan(float delta_seconds, glm::vec2 direction, GroundBounds bounds);
+    void update(float delta_seconds, scene::FpsCamera &camera, glm::vec3 player_position);
     void apply(scene::FpsCamera &camera) const;
 
     bool locked() const;

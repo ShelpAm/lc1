@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ranges>
 #include <vector>
 
 namespace lc1 {
@@ -38,6 +39,18 @@ enum class GameAction : std::uint8_t {
 };
 
 inline constexpr std::size_t game_action_count = static_cast<std::size_t>(GameAction::Count);
+
+template <typename ActionEnum, typename ContextEnum>
+inline int response_index(BasicInputRouter<ActionEnum, ContextEnum> const &input_router)
+{
+    constexpr std::array actions{GameAction::DialogResponse0, GameAction::DialogResponse1,
+                                 GameAction::DialogResponse2, GameAction::DialogResponse3};
+    for (auto const [index, action] : std::ranges::views::zip(std::views::iota(0), actions)) {
+        if (input_router.pressed(action))
+            return index;
+    }
+    return -1;
+}
 
 // Which set of gameplay bindings is live.
 //

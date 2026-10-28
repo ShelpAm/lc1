@@ -155,8 +155,8 @@ class DialogSystem {
     void reset() noexcept;
     // Non-null, unique registered participants. Player can be null for an NPC-only world.
     // Player requests can be deferred while moving, using UI, or otherwise occupied.
-    void update(std::span<Character *const> characters, Character const *player,
-                float delta_seconds, bool allow_player_requests);
+    void update(float delta_seconds, std::span<Character *const> characters,
+                Character const *player, bool allow_player_requests);
 
   private:
     struct Session {

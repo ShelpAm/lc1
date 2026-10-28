@@ -11,24 +11,51 @@
 - 资源 ID 相对于指定 asset root 词法规范化，拒绝绝对路径和目录逃逸；不合并符号链接别名。
 - 卸载会立即使该资源的借用失效，没有引用计数。卸载资源或销毁 manager 前，必须停止使用相关借用，
   并等待使用它的 GPU 工作完成。RAII 销毁本身不等待 GPU。
-- `DrawItem`、`scene::Object`、`RenderTarget` 借用资源；资源在成员声明顺序中先于使用者。
+- `scene::Scene` 中的实例、`DrawItem`、`scene::Object`、`RenderTarget` 借用资源；资源在成员声明顺序中先于使用者。
   材质所有者保持纹理存活到 GPU 使用结束，Device 比所有 GPU 资源长寿。
 - `GpuBuffer::upload` 必须执行所需 VMA flush；描述符使用前完整初始化，绘制容量溢出显式失败。
 
 坐标采用右手系、Y 向上；glTF 无需轴转换，Z-up 数据需要导入校正（教程房间绕 X 轴 −90°）。
-OBJ 和程序化单网格的校正只在 Model 烘焙一次；glTF 层级模型使用共享的导入根节点，
-在原始层级与动画之外应用一次校正，不改写顶点，也不逐实例额外应用；法线、镜像与绕序见[角色与模型校正](character.md#模型校正)，
+校正通过模型根节点变换表达，CPU 几何保持导入坐标；法线、镜像与绕序见[角色与模型校正](character.md#模型校正)，
 切线与法线贴图见[光照](lighting.md)。
+
+## 持久渲染场景
+
+`scene::Scene` 是引擎层的持久 CPU 表现状态，由 `WorldPresentation` 拥有；不再是每帧的借用包装。
+Scene 通过 `unordered_map<T const*, unique_ptr<T>>` 独占拥有灯光参数和模型实例，不使用字符串标识。
+`add_light()` 和 `add_model()` 返回非空借用指针；`remove_light()` 和 `remove_model()` 按指针删除，平均 O(1)，
+空指针或不属于当前 Scene 的有效指针显式失败。删除后不得继续使用对应指针。
+地形、展示物和角色统一使用模型实例；单网格使用只有一个网格节点、没有动画的模型定义。
+Scene 不拥有 GPU 资产，也不认识角色等玩法类型。
+返回的指针在对应条目删除或场景销毁时失效；添加、rehash 或删除其他条目不使其失效。
+
+`WorldPresentation` 在装配时注册地形、展示物和角色模型实例，保存角色与场景实例借用指针的关联，决定播放哪个动画。
+Scene 的 `SceneModel` 拥有 `ModelInstance`（节点姿态和播放状态），借用完整的 `GpuModel` 和材质，由同一资产初始化姿态并取得 GPU 网格，
+并保存游戏层提交的世界矩阵与可见性、阴影／深度偏移标记。上述借用在条目删除前必须存活且不移动。
+每次世界更新后，表现层提交角色最终世界矩阵，Scene 通过 `update_animations()` 推进所有模型动画，
+通过 `SceneModel::node_world_matrix()` 查询最终挂点，在 `draws()` 中展开模型节点。
+角色变换仍是 GameWorld 的权威状态，Scene 中的世界矩阵只是单向提交的表现副本，不能反向修改玩法位置。
+
+相机由 `PlayerView` 持有，渲染调用显式指定相机；Scene 没有全局 active camera。
+`lights()` 生成启用灯光的值快照，`draws()` 从可见实例生成 DrawItem，集合遍历顺序不作保证，模型内部按节点顺序展开；
+禁用／隐藏不会删除条目，`draw_count()` 按全部模型（含隐藏模型）的带网格节点总数计算帧容量。Renderer 在注册渲染图时生成这些列表，
+与相机值一起放进不可变帧快照；随后修改 Scene 不改变已生成的矩阵和灯光。
+材质和 GPU 资源仍按借用约束存活，Scene 的删除操作不等待 GPU，也不释放借用的资产。
 
 ## 模型资源与实例
 
-模型相关类型 `Model`、`ModelDefinition`、`ModelNode`、`NodeTransform`、`ModelInstance` 和 `Mesh`
+模型相关类型 `Model`、`GpuModel`、`ModelDefinition`、`ModelNode`、`NodeTransform`、`ModelInstance` 和 `Mesh`
 统一位于 `include/lc1/scene/`，使用 `lc1::scene` 命名空间。
 
-`Model` 是加载与预处理结果，拥有 CPU 网格数组及独立的 `ModelDefinition`。
+`Model` 是 CPU 加载与预处理结果，拥有网格数组及独立的 `ModelDefinition`；构造时一次提交完整的几何、节点和动画。
+OBJ 加载器先收集顶点与索引，再通过同一个单网格构造入口生成模型，不先创建空模型再修改其内部数组。
 `ModelDefinition` 只拥有运行时共享的节点层级、默认姿态、网格索引和动画片段，不包含 CPU 几何或 GPU 资源。
-上传完成后，通过 `std::move(model).definition()` 移出共享定义，再销毁局部 `Model`，释放 CPU 顶点和索引；
-有额外 CPU 几何用途的调用方可以自行延长加载结果的生命周期。
+表现层通过 `GpuModel{device, model}` 一次创建运行时资源：参数按值接收 Model，依网格索引上传全部几何，
+然后移入共享定义，构造结束释放参数中的 CPU 顶点和索引。临时模型直接传入，已完成预处理的局部模型可用 `std::move(model)` 转交；
+需要保留 CPU 几何时传入左值，显式承担模型复制成本。
+`GpuModel` 拥有共享定义和 GPU 网格数组，提供只读 `definition()` 与 `meshes()` 借用；
+它禁止复制和移动，以保持定义及网格借用稳定。Device 必须比它长寿，销毁前须等待相关 GPU 工作完成。
+CPU 测试可直接使用 `Model` / `ModelDefinition` / `ModelInstance`，无需构造 GpuModel。
 `model.definition()` 在左值上返回只读借用，右值上返回拥有数据的值；不得在实例借用期间移动共享定义。节点通过索引引用父节点和网格，允许多个节点
 复用同一网格，也允许没有网格的挂点和多个根节点。构造要求父节点先于子节点，
 因此自引用、环和越界父节点均被拒绝。节点数量和顺序在构造后固定，名称不要求唯一。
@@ -38,13 +65,15 @@ OBJ 和程序化单网格的校正只在 Model 烘焙一次；glTF 层级模型�
 实例的局部姿态数组与模型节点等长、同序，每个实例独立保存；重置恢复模型默认姿态。
 节点姿态使用平移、四元数和缩放，按 `T × R × S` 组合，要求有限且可逆。
 实例按父先子后的顺序计算模型空间累计矩阵，不缓存角色世界矩阵。
-最终绘制矩阵为 `Character 世界矩阵 × 节点模型空间矩阵`，读取角色最终状态时直接组合，
-不增加角色位置的场景副本或同步阶段。
+最终绘制矩阵为 `SceneModel 世界矩阵 × 节点模型空间矩阵`，Scene 在绘制展开与挂点查询时使用同一份已提交变换。
 
-原有 OBJ、程序化顶点/索引构造生成一个引用网格 0 的单位根节点，导入校正仍只烘焙一次。
-多网格构造保留调用者提供的节点变换，不接受额外导入校正；`vertices`、`indices` 和
-`gen_mesh` 接受网格索引，默认索引 0 保持旧调用方式。GPU 网格和材质继续由表现层持有，
-`Model` 目前仍包含 GPU 上传入口，不是独立的纯 CPU 模块。
+OBJ、程序化顶点/索引构造生成一个引用网格 0 的单位根节点，多网格构造保留调用者提供的节点变换。
+`vertices` 和 `indices` 接受网格索引，默认索引为 0；Model 不再提供 GPU 上传接口。
+单独上传几何时使用 `GpuMesh{device, model.vertices(index), model.indices(index)}`，
+需要完整模型资源时使用 GpuModel。GPU 模型和材质继续由表现层持有，Scene 只借用它们。
+单网格资产可通过 `GpuModel{GpuMesh{...}}` 接管已上传网格；已有网格数组与定义可一起转交构造，构造时检查节点网格索引。
+`SceneModel::model` 必须非空，默认姿态从其定义初始化；注册及绘制时检查姿态定义与资产一致，禁止拼接不同资产。
+地形和 PBR 展示同样持有 GpuModel，向场景提供模型实例，而非将裸网格重新包装。
 
 `ModelDefinition` 拥有只读 `AnimationClip` 和通道。通道按节点索引驱动平移、四元数旋转或缩放，
 当前支持 STEP 和 LINEAR；旋转 LINEAR 使用归一化四元数的最短弧球面插值。
@@ -62,14 +91,14 @@ OBJ 和程序化单网格的校正只在 Model 烘焙一次；glTF 层级模型�
 共享定义 `draw_count()` 统计带网格节点数，而不是唯一网格数。
 `find_node(name)` 返回首个同名节点索引，找不到时返回空；挂点使用稳定索引查询。
 `node_world_matrix(index, world_transform)` 同样支持无网格节点，显式拒绝越界索引或非法最终矩阵。
-占位角色的 `Eyes` 节点挂在头部下；表现层保存挂点索引，在动画更新后直接组合角色世界变换，
-把眼睛世界变换（位置与旋转）交给第一人称相机，不复制角色位置到模型实例中。
+占位角色的 `Eyes` 节点挂在头部下；表现层保存挂点索引，在动画更新后向 Scene 查询，
+把眼睛世界变换（位置与旋转）交给第一人称相机。
 
-当前 `WorldPresentation` 的角色资源只保留共享占位 `ModelDefinition` 及按网格索引上传的 `GpuMesh` 数组，
-加载用的 `Model` 在角色资源构造返回前销毁，不长期保留 CPU 几何；
-为每个角色持有独立 `ModelInstance`，按上述展开结果生成 DrawItem。
+当前 `WorldPresentation` 通过 `GpuModel{device, make_character_model(body)}` 创建共享角色资源，
+加载用的 CPU 几何在 GpuModel 构造返回前释放；
+在 Scene 中为每个角色创建独立 `ModelInstance`，游戏层只保存借用指针。
 占位内容由 `make_character_model()` 构造，身体和头部是两个网格节点，共享定义中有头部左右转动的 `Idle` 和双次点头的 `Nod`；
-表现层按玩家身份选择 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置始终直接读取 `Character`，没有增加同步阶段。
+表现层按玩家身份选择 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置从 `Character` 读取，更新末尾将角色世界矩阵提交给 Scene。
 帧容量按每个角色实际展开的绘制项数量计算并检查 uint32 上限。
 待机动画不是行走、攻击或 root motion；表现时间与会话一致，每帧最多推进 0.1 秒。
 
@@ -79,6 +108,8 @@ OBJ 和程序化单网格的校正只在 Model 烘焙一次；glTF 层级模型�
 支持 TRIANGLES、索引及非索引几何、交错缓冲、accessor/view 偏移、8/16/32 位无符号索引、
 浮点 POSITION/NORMAL/TANGENT、浮点或归一化无符号整数 UV0/颜色；缺少法线时生成平面法线。
 保留 TRS 以及可分解为 TRS 的 matrix；有剪切或透视的矩阵明确拒绝。
+导入器保留一个单位根节点；需要轴向或单位校正时，在文件层级中提供校正父节点，
+原始几何与动画通过同一层级变换，不使用额外 correction 参数。
 动画导入 translation/rotation/scale 的 STEP 和 LINEAR，继续使用运行时的完整校验与独立实例播放。
 缓冲范围、步长、属性数量、索引和节点拓扑均在返回模型前检查。
 

@@ -1,4 +1,5 @@
 #include "lc1/game/actions.hpp"
+#include <ranges>
 
 namespace lc1 {
 

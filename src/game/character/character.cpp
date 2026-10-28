@@ -46,8 +46,7 @@ Character::Character(Continent const &continent, scene::Transform transform, Cha
         fail("invalid character body");
 
     auto const &pose = transform_;
-    if (!finite(pose.position) || !finite(pose.rotation) || pose.rotation.x != 0.0F ||
-        pose.rotation.z != 0.0F || pose.scale != glm::vec3{1.0F})
+    if (pose.rotation.x != 0.0F || pose.rotation.z != 0.0F || pose.scale != glm::vec3{1.0F})
         fail("ground character needs an upright, unscaled world transform");
     if (!continent.can_stand(position(), body_.half_width, body_.height))
         fail("character spawn is obstructed or outside the continent");
@@ -81,11 +80,10 @@ Faction const *Character::faction() const
     return config_.party->faction();
 }
 
-void Character::apply_intent(Continent const &continent, CharacterIntent const &intent,
-                             float delta_seconds)
+void Character::apply_intent(float delta_seconds, Continent const &continent,
+                             CharacterIntent const &intent)
 {
-    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F || !finite(intent.move) ||
-        (intent.body_yaw && !std::isfinite(*intent.body_yaw)) ||
+    if (!finite(intent.move) || (intent.body_yaw && !std::isfinite(*intent.body_yaw)) ||
         (intent.body_direction && !finite(*intent.body_direction)) ||
         (intent.look && !finite(*intent.look)) ||
         (intent.interaction_direction && !finite(*intent.interaction_direction)))
@@ -102,7 +100,7 @@ void Character::apply_intent(Continent const &continent, CharacterIntent const &
 
     // Character owns speed, facing policy and collision. Sprint is only a request: a
     // future stamina/state gate belongs here, not in the player or AI controller.
-    walk(continent, {intent.move.x, 0.0F, intent.move.y}, delta_seconds, intent.sprint,
+    walk(delta_seconds, continent, {intent.move.x, 0.0F, intent.move.y}, intent.sprint,
          intent.face_movement);
 
     // The jump stays a request; update() grants it only while grounded, so an airborne
@@ -125,14 +123,14 @@ bool Character::accepts_ambient_requests(CharacterIntent const &intent) const
     return on_ground_ && !intent.jump && !intent.sprint && intent.move == glm::vec2{};
 }
 
-void Character::update(Continent const &continent, float delta_seconds,
+void Character::update(float delta_seconds, Continent const &continent,
                        CharacterIntent const &intent)
 {
     if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
         fail("invalid character update time");
     // Match the horizontal movement cap after a resize or debugger stall.
     float const elapsed = std::min(delta_seconds, 0.1F);
-    apply_intent(continent, intent, elapsed);
+    apply_intent(elapsed, continent, intent);
     if (elapsed == 0.0F)
         return;
 
@@ -234,7 +232,7 @@ void Character::move(Continent const &continent, glm::vec3 displacement)
     transform_.position = normal;
 }
 
-void Character::walk(Continent const &continent, glm::vec3 direction, float delta_seconds,
+void Character::walk(float delta_seconds, Continent const &continent, glm::vec3 direction,
                      bool running, bool face_movement)
 {
     if (!finite(direction) || !std::isfinite(delta_seconds) || delta_seconds < 0.0F)

@@ -24,8 +24,8 @@ class GameSession {
     ~GameSession() = default;
 
     // Resolves actions once, then updates view mode, simulation and presentation.
-    // Application applies captures_cursor() after this returns.
-    void update(InputState const &input_state, float delta_seconds);
+    // Applies cursor capture directly through the borrowed Window after UI actions.
+    void update(float delta_seconds, InputState const &input_state);
 
     void set_aspect_ratio(float aspect_ratio);
 

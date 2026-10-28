@@ -1,6 +1,7 @@
 #include "lc1/error.hpp"
 #include "lc1/scene/model.hpp"
 
+#include <spdlog/spdlog.h>
 #include <tiny_gltf.h>
 
 #include <algorithm>
@@ -270,7 +271,7 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
 }
 } // namespace
 
-Model Model::load_from_gltf(std::filesystem::path const &path, Transform correction)
+Model Model::load_from_gltf(std::filesystem::path const &path)
 {
     auto const extension = path.extension();
     if (extension != ".gltf" && extension != ".glb")
@@ -307,10 +308,8 @@ Model Model::load_from_gltf(std::filesystem::path const &path, Transform correct
             meshes.push_back(import_primitive(source, primitive));
         }
     }
-    // An immutable import root applies correction once to geometry and animation alike.
-    // Baking it into shared vertices would change the order of authored node transforms.
-    std::vector<ModelNode> nodes{
-        {.name = "Import correction", .transform = matrix_transform(correction.model_matrix())}};
+    // Keep a common identity root outside authored hierarchy and animation targets.
+    std::vector<ModelNode> nodes{{.name = "Import root"}};
     std::vector<std::optional<std::size_t>> mapping(source.nodes.size());
     std::vector<int> roots;
     if (!source.scenes.empty()) {
@@ -406,8 +405,6 @@ Model Model::load_from_gltf(std::filesystem::path const &path, Transform correct
         if (!clip.channels.empty())
             animations.push_back(std::move(clip));
     }
-    Model result{std::move(meshes), std::move(nodes), std::move(animations)};
-    result.correction_ = correction;
-    return result;
+    return Model{std::move(meshes), std::move(nodes), std::move(animations)};
 }
 } // namespace lc1::scene

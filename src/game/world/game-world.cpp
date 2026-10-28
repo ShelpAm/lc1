@@ -327,7 +327,7 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
                 intent = controller->update(elapsed, character);
             }
         }
-        character.update(continent_, elapsed, intent);
+        character.update(elapsed, continent_, intent);
     };
     // Leaders move before followers, with stable keyid order inside each phase. The player
     // participates in the first phase, so its intent is applied before followers decide.
@@ -350,7 +350,7 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
     else if (interaction.player_intent.interact && interaction_target_) {
         interaction_target_->interactable()->interact(*player_);
     }
-    dialogs_.update(dialog_participants_, player_, elapsed,
+    dialogs_.update(elapsed, dialog_participants_, player_,
                     interaction.player_input_enabled &&
                         player_->accepts_ambient_requests(interaction.player_intent));
 }

@@ -392,7 +392,7 @@ void Window::wait_events(double timeout_seconds)
     glfwWaitEventsTimeout(timeout_seconds);
 }
 
-glm::vec2 Window::content_size() const
+glm::vec2 Window::window_size() const
 {
     int width = 0;
     int height = 0;

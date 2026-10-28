@@ -6,7 +6,7 @@
 
 ## 先找到一帧的入口
 
-[Application](../app/application.cpp) 更新游戏并准备相机、灯光、绘制项与文字，然后调用
+[Application](../app/application.cpp) 更新游戏与持久 Scene，准备相机和文字，然后调用
 [FrameLoop::draw_frame](../include/lc1/vk/presentation/frame_loop.hpp)。帧循环负责交换链与提交，
 通过同步回调把已开始录制的命令缓冲、当前帧资源和输出目标交给应用。
 

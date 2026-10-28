@@ -173,9 +173,14 @@ bool near(glm::vec3 a, glm::vec3 b)
 void files_and_animation(Fixture &fixture)
 {
     for (bool binary : {false, true}) {
-        auto const source = triangle();
-        auto model =
-            lc1::scene::Model::load_from_file(fixture.write(source, binary), {.scale = {2, 2, 2}});
+        auto source = triangle();
+        tinygltf::Node correction;
+        correction.name = "Axis and unit correction";
+        correction.scale = {2, 2, 2};
+        correction.children = source.scenes[0].nodes;
+        source.scenes[0].nodes = {static_cast<int>(source.nodes.size())};
+        source.nodes.push_back(std::move(correction));
+        auto model = lc1::scene::Model::load_from_file(fixture.write(source, binary));
         check(model.mesh_count() == 1 && model.indices().size() == 3, "triangle geometry");
         check(near(model.vertices()[1].position, {1, 0, 0}), "strided positions");
         check(near(model.vertices()[1].normal, {0, 0, 1}), "strided normals with accessor offset");

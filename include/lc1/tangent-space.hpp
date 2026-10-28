@@ -10,7 +10,7 @@ namespace lc1 {
 // Generates MikkTSpace tangents for UV0, splitting vertices at tangent/handedness
 // discontinuities. Requires finite triangles with usable normals and nondegenerate
 // geometry/UVs; throws without modifying either vector on invalid input or failure.
-// Generate before baking a model correction when matching an authored normal map.
+// Generate in authored mesh coordinates; node transforms are applied when drawing.
 // Meshes without normal maps can keep the default absent tangents.
 void generate_tangents(std::vector<Vertex> &vertices, std::vector<std::uint32_t> &indices);
 

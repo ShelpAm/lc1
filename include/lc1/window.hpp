@@ -89,7 +89,7 @@ class Window {
     FrameExtent framebuffer_extent() const;
 
     // GLFW cursor positions use logical window coordinates, not framebuffer pixels.
-    glm::vec2 content_size() const;
+    glm::vec2 window_size() const;
     bool focused() const;
     bool hovered() const;
 

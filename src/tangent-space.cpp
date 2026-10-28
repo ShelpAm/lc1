@@ -46,8 +46,7 @@ void copy_vector(std::span<float, 3> output, glm::vec3 value)
 
 bool valid_tangent_frame(Vertex const &vertex)
 {
-    if (!finite(vertex.normal) || !finite(glm::vec3{vertex.tangent}) ||
-        (vertex.tangent.w != 1.0F && vertex.tangent.w != -1.0F))
+    if (vertex.tangent.w != 1.0F && vertex.tangent.w != -1.0F)
         return false;
     float const normal_length = glm::length(vertex.normal);
     float const tangent_length = glm::length(glm::vec3{vertex.tangent});
@@ -69,8 +68,8 @@ void generate_tangents(std::vector<Vertex> &vertices, std::vector<std::uint32_t>
             fail("tangent generation: vertex index {} is out of bounds", index);
         auto const &vertex = vertices[index];
         float const length = glm::length(vertex.normal);
-        if (!finite(vertex.position) || !finite(vertex.normal) || !std::isfinite(length) ||
-            length <= 0 || !std::isfinite(vertex.uv.x) || !std::isfinite(vertex.uv.y))
+        if (!finite(vertex.position) || !std::isfinite(length) || length <= 0 ||
+            !std::isfinite(vertex.uv.x) || !std::isfinite(vertex.uv.y))
             fail("tangent generation: vertex {} requires finite position, normal and UV", index);
     }
     for (std::size_t i = 0; i < indices.size(); i += 3) {

@@ -114,6 +114,7 @@ add_library(lc1_engine STATIC
     # Scene data, model loading and per-instance poses.
     src/scene/animation.cpp
     src/scene/camera.cpp
+    src/scene/gpu-model.cpp
     src/scene/lights/directional-light.cpp
     src/scene/lights/point-light.cpp
     src/scene/lights/sphere-light.cpp
@@ -390,6 +391,13 @@ if(BUILD_TESTING)
         target_link_options(lc1_model_animation_tests PRIVATE -static)
     endif()
     add_test(NAME model_animation COMMAND lc1_model_animation_tests)
+    add_executable(lc1_scene_tests tests/scene.cpp)
+    target_link_libraries(lc1_scene_tests PRIVATE lc1_engine)
+    lc1_enable_warnings(lc1_scene_tests)
+    if(MINGW)
+        target_link_options(lc1_scene_tests PRIVATE -static)
+    endif()
+    add_test(NAME scene COMMAND lc1_scene_tests)
     add_executable(lc1_model_tests tests/model.cpp)
     target_link_libraries(lc1_model_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_model_tests)

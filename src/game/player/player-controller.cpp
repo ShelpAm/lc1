@@ -28,7 +28,7 @@ CharacterIntent PlayerController::first_person(Character const &character, glm::
         fail("invalid player input");
     auto const angles = restored_angles.value_or(
         glm::vec2{character.body_yaw() + character.look_yaw(), character.look_pitch()});
-    if (!finite(angles))
+    if (restored_angles && !finite(*restored_angles))
         fail("invalid restored look angles");
     constexpr float look_sensitivity = 0.05F;
     float const yaw = angles.x - look_delta.x * look_sensitivity;

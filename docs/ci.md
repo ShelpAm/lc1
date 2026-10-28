@@ -1,5 +1,13 @@
 # 持续集成
 
+## 分支与 PR
+
+采用 GitHub Flow，只有 `main` 是长期分支。每项工作从最新 `origin/main` 创建短期分支，
+通过 PR 验证后 squash merge 到 `main`，合入后删除工作分支。下一项工作重新从最新 `main`
+创建分支，不继续使用上一次 squash 前的分支历史；`dev` 不作为持续集成分支。
+
+## 构建检查
+
 `.github/workflows/ci.yml` 在 push、pull request 和手动触发时执行四组独立的构建任务：
 
 | 平台 | 环境 | 配置 |

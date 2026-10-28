@@ -9,7 +9,7 @@ namespace lc1 {
 void validate_material(MaterialInfo const &info)
 {
     auto const &p = info.parameters;
-    auto unit = [](float value) { return std::isfinite(value) && value >= 0.0F && value <= 1.0F; };
+    auto unit = [](float value) { return value >= 0.0F && value <= 1.0F; };
     if (!unit(p.base_color_factor.r) || !unit(p.base_color_factor.g) ||
         !unit(p.base_color_factor.b) || !unit(p.base_color_factor.a) || !unit(p.metallic_factor) ||
         !unit(p.roughness_factor) || !unit(p.occlusion_strength) ||
