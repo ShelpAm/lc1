@@ -125,8 +125,8 @@ std::vector<MeshInstance> ModelInstance::mesh_instances(glm::mat4 const &world_t
     instances.reserve(model_->draw_count());
     for (std::size_t i = 0; i < model_->nodes().size(); ++i) {
         if (auto const mesh = model_->nodes()[i].mesh) {
-            auto const matrix = compose_world_matrix(world_transform, matrices[i]);
-            instances.push_back({.mesh = *mesh, .model_matrix = matrix});
+            instances.push_back(MeshInstance{
+                .mesh = *mesh, .model_matrix = compose_world_matrix(world_transform, matrices[i])});
         }
     }
     return instances;

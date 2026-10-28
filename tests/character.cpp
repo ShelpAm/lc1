@@ -8,7 +8,9 @@
 #include "lc1/game/player/player-controller.hpp"
 #include "lc1/game/resources/crafting.hpp"
 #include "lc1/game/session/save.hpp"
+#include "lc1/scene/model-instance.hpp"
 #include "lc1/scene/model.hpp"
+#include "lc1/tangent-space.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -284,7 +286,7 @@ void companion_orders()
         auto intent = lc1::CharacterIntent{};
         if (controller_enabled && character.controller())
             intent = character.controller()->update(std::min(delta_seconds, 0.1F), character);
-        character.update(world, delta_seconds, intent);
+        character.update(delta_seconds, world, intent);
     };
     step(member, 0.1F, false);
     check(near(member.position().x, -8.0F), "a conversation pauses following");
@@ -534,28 +536,28 @@ void jumping()
     auto character = make_character();
     check(character.on_ground(), "spawn starts grounded");
     character.request_jump();
-    character.update(world, 0.0F, {});
+    character.update(0.0F, world, {});
     check(character.on_ground(), "zero-time update does not start a jump");
-    character.update(world, 0.01F, {});
+    character.update(0.01F, world, {});
     check(!character.on_ground() && character.position().y > 0.0F, "jump leaves the ground");
     float const airborne_height = character.position().y;
-    character.walk(world, {1, 0, 0}, 0.01F, false);
+    character.walk(0.01F, world, {1, 0, 0}, false);
     check(near(character.position().y, airborne_height), "walking preserves jump height");
     check(character.position().x > world.spawn().x, "walking works while airborne");
     character.move(world, {10, 0, 0});
     check(character.position().x < 4.701F, "jump retains ground-plane obstacle blocking");
     character.request_jump();
-    character.update(world, 0.01F, {});
+    character.update(0.01F, world, {});
     float const expected_height =
         std::sqrt(2.0F * lc1::gravityf * 0.5F) * 0.02F - 0.5F * lc1::gravityf * 0.02F * 0.02F;
     check(near(character.position().y, expected_height), "airborne request cannot double jump");
     for (int i = 0; i < 200; ++i)
-        character.update(world, 0.01F, {});
+        character.update(0.01F, world, {});
     check(character.on_ground() && character.position().y == 0.0F, "landing clamps to ground");
-    character.update(world, 0.1F, {});
+    character.update(0.1F, world, {});
     check(character.position().y == 0.0F, "landing clears falling velocity");
     character.request_jump();
-    character.update(world, 0.01F, {});
+    character.update(0.01F, world, {});
     check(near(character.position().y, airborne_height), "subsequent jump has the same impulse");
 
     for (float const step : {1.0F / 30.0F, 1.0F / 60.0F, 1.0F / 144.0F}) {
@@ -563,7 +565,7 @@ void jumping()
         jumper.request_jump();
         float peak = 0.0F;
         for (int i = 0; i < 300; ++i) {
-            jumper.update(world, step, {});
+            jumper.update(step, world, {});
             peak = std::max(peak, jumper.position().y);
         }
         check(std::abs(peak - 0.5F) < 0.002F, "jump height is stable across frame rates");
@@ -573,22 +575,22 @@ void jumping()
     auto regular = make_character();
     capped.request_jump();
     regular.request_jump();
-    capped.update(world, 10.0F, {});
-    regular.update(world, 0.1F, {});
+    capped.update(10.0F, world, {});
+    regular.update(0.1F, world, {});
     check(near(capped.position(), regular.position()), "update caps stalled frame time");
-    rejects([&] { character.update(world, -1.0F, {}); }, "negative update time is rejected");
-    rejects([&] { character.update(world, std::numeric_limits<float>::quiet_NaN(), {}); },
+    rejects([&] { character.update(-1.0F, world, {}); }, "negative update time is rejected");
+    rejects([&] { character.update(std::numeric_limits<float>::quiet_NaN(), world, {}); },
             "nonfinite update time is rejected");
 
     auto first = make_character();
     auto first_intent = lc1::PlayerController::first_person(first, {}, {});
     first_intent.jump = true;
-    first.update(world, 0.01F, first_intent);
+    first.update(0.01F, world, first_intent);
     check(!first.on_ground(), "first-person controller requests jump");
     auto third = make_character();
     auto third_intent = lc1::PlayerController::third_person({}, {0, 0, -1});
     third_intent.jump = true;
-    third.update(world, 0.01F, third_intent);
+    third.update(0.01F, world, third_intent);
     check(!third.on_ground(), "third-person controller requests jump");
 }
 
@@ -624,22 +626,22 @@ void pose_and_movement()
 
     lc1::Character walker{world, {.position = world.spawn()}, {}};
     walker.set_look_angles(0, 89);
-    walker.walk(world, walker.look_direction(), 0.1F, false);
+    walker.walk(0.1F, world, walker.look_direction(), false);
     check(near(walker.position(),
                world.spawn() + glm::vec3{0, 0, -0.45F} * std::cos(glm::radians(89.0F))),
           "walk discards vertical direction and preserves analog magnitude");
-    walker.walk(world, {0, 0, -1}, 0.1F, true);
+    walker.walk(0.1F, world, {0, 0, -1}, true);
     check(near(walker.position().y, 0), "running cannot make the ground character fly");
 
     lc1::Character configured{
         world, {.position = {0, 0, 0}}, {}, {.eye_height = 1.2F, .walk_speed = 2.0F}};
-    configured.walk(world, {0, 0, -0.5F}, 0.1F, false);
+    configured.walk(0.1F, world, {0, 0, -0.5F}, false);
     check(near(configured.position(), {0, 0, -0.1F}) && near(configured.eye_position().y, 1.2F),
           "each character has its own dimensions and movement settings");
 
     auto const before = character.position();
     rejects([&] { character.move(world, {0, 1, 0}); }, "ground move rejects vertical displacement");
-    rejects([&] { character.walk(world, {1, 0, 0}, -1, false); }, "negative time is rejected");
+    rejects([&] { character.walk(-1, world, {1, 0, 0}, false); }, "negative time is rejected");
     rejects([&] { character.set_look_angles(std::numeric_limits<float>::quiet_NaN(), 0); },
             "non-finite look input is rejected");
     check(near(character.position(), before), "invalid input leaves position unchanged");
@@ -690,20 +692,20 @@ void height_and_support()
     check(!airborne.on_ground() && near(airborne.position().y, 5.0F),
           "spawning in the air is allowed and does not fail construction");
     for (int frame = 0; frame < 300; ++frame)
-        airborne.update(world, 1.0F / 60.0F, {});
+        airborne.update(1.0F / 60.0F, world, {});
     check(airborne.on_ground() && near(airborne.position().y, 0.0F),
           "an airborne character falls and lands on the sampled ground");
     for (int frame = 0; frame < 30; ++frame) {
-        walker.walk(world, {1.0F, 0.0F, 0.0F}, 0.1F, false);
-        walker.update(world, 0.1F, {});
+        walker.walk(0.1F, world, {1.0F, 0.0F, 0.0F}, false);
+        walker.update(0.1F, world, {});
     }
     check(walker.position().y > 2.0F && walker.on_ground(),
           "grounded character follows a rising terrain surface");
     float const uphill_height = walker.position().y;
 
     for (int frame = 0; frame < 30; ++frame) {
-        walker.walk(world, {-1.0F, 0.0F, 0.0F}, 0.1F, false);
-        walker.update(world, 0.1F, {});
+        walker.walk(0.1F, world, {-1.0F, 0.0F, 0.0F}, false);
+        walker.update(0.1F, world, {});
     }
     check(walker.position().y < uphill_height && walker.on_ground(),
           "grounded character follows a descending terrain surface");
@@ -720,11 +722,11 @@ void height_and_support()
     check(beneath && near(beneath->height, 3.0F),
           "block tops participate in the same support query as terrain");
     on_platform.request_jump();
-    on_platform.update(platform_world, 0.01F, {});
+    on_platform.update(0.01F, platform_world, {});
     check(!on_platform.on_ground() && on_platform.position().y > 3.0F,
           "jumping from a raised platform leaves the platform surface");
     for (int frame = 0; frame < 300; ++frame)
-        on_platform.update(platform_world, 0.01F, {});
+        on_platform.update(0.01F, platform_world, {});
     check(on_platform.on_ground() && near(on_platform.position().y, 3.0F),
           "jumping on a raised platform lands back on the platform, not world Y=0");
 }
@@ -733,7 +735,7 @@ void player_controllers()
 {
     auto const world = make_world();
     lc1::Character character{world, {.position = world.spawn()}, {}};
-    auto apply = [&](lc1::CharacterIntent const &intent) { character.update(world, 0.1F, intent); };
+    auto apply = [&](lc1::CharacterIntent const &intent) { character.update(0.1F, world, intent); };
     apply(lc1::PlayerController::first_person(character, {0, 1}, {1800, -1200}));
     check(near(character.position(), world.spawn() + glm::vec3{0.45F, 0, 0}),
           "first-person movement follows mouse yaw but stays horizontal at high pitch");
@@ -766,18 +768,18 @@ void intent_rules()
 
     // Character, not the controller, chooses the speed that belongs to a sprint request.
     auto sprinter = make_character();
-    sprinter.update(world, 0.1F, {.move = {0, -1}, .sprint = true});
+    sprinter.update(0.1F, world, {.move = {0, -1}, .sprint = true});
     check(near(sprinter.position(), world.spawn() + glm::vec3{0, 0, -1.8F}),
           "sprint intent uses the character's run speed");
 
     // The same jump request is accepted only by the grounded state rule in Character.
     auto jumper = make_character();
     auto control = make_character();
-    jumper.update(world, 0.01F, {.jump = true});
-    control.update(world, 0.01F, {.jump = true});
+    jumper.update(0.01F, world, {.jump = true});
+    control.update(0.01F, world, {.jump = true});
     check(!jumper.on_ground(), "grounded character accepts a jump intent");
-    jumper.update(world, 0.01F, {.jump = true});
-    control.update(world, 0.01F, {});
+    jumper.update(0.01F, world, {.jump = true});
+    control.update(0.01F, world, {});
     check(near(jumper.position(), control.position()) && !jumper.on_ground(),
           "airborne character rejects a second jump intent");
 
@@ -790,13 +792,13 @@ void intent_rules()
           "sprinting character defers ambient requests");
     check(!idle.accepts_ambient_requests({.jump = true}),
           "jumping character defers ambient requests");
-    idle.update(world, 0.01F, {.jump = true});
+    idle.update(0.01F, world, {.jump = true});
     check(!idle.accepts_ambient_requests({}), "airborne character defers ambient requests");
 
     auto intact = make_character();
     auto const before = intact.position();
     rejects(
-        [&] { intact.update(world, 0.1F, {.move = {std::numeric_limits<float>::quiet_NaN(), 0}}); },
+        [&] { intact.update(0.1F, world, {.move = {std::numeric_limits<float>::quiet_NaN(), 0}}); },
         "nonfinite intent is rejected");
     check(intact.position() == before, "invalid intent is rejected before mutating the character");
 }
@@ -812,7 +814,7 @@ void controller_intent_boundary()
     check(npc.position() == before, "an AI decision does not mutate the character");
     check(intent.move != glm::vec2{} && intent.face_movement,
           "the patrol asks Character to move and turn toward its target");
-    npc.update(world, 0.1F, intent);
+    npc.update(0.1F, world, intent);
     check(npc.position().x > before.x, "Character applies the AI's movement intent");
 }
 
@@ -825,57 +827,36 @@ std::vector<lc1::Vertex> triangle()
     };
 }
 
-void model_correction()
+void model_node_transforms()
 {
-    lc1::scene::Model plain{triangle(), {0, 1, 2}};
-    plain.generate_tangents();
-    check(lc1::valid_tangent_frame(plain.vertices()[0]), "model exposes tangent preprocessing");
-    auto with_tangents = triangle();
-    std::vector<std::uint32_t> tangent_indices{0, 1, 2};
-    lc1::generate_tangents(with_tangents, tangent_indices);
-    lc1::scene::Model const tangent_model{
-        with_tangents, tangent_indices, {.rotation = {-90, 0, 0}, .scale = {-2, 3, 4}}};
-    for (auto const &vertex : tangent_model.vertices()) {
-        check(lc1::valid_tangent_frame(vertex), "baked tangent remains valid");
-        check(near(glm::vec3{vertex.tangent}, {-1, 0, 0}) && near(vertex.tangent.w, -1),
-              "baked reflection transforms tangent and handedness");
-        check(near(vertex.normal, {0, 1, 0}), "baked normal uses the inverse transpose");
-    }
-    auto diagonal_uv = triangle();
-    for (auto &vertex : diagonal_uv)
-        vertex.uv = {vertex.position.x + vertex.position.y, vertex.position.y - vertex.position.x};
-    lc1::generate_tangents(diagonal_uv, tangent_indices);
-    lc1::scene::Model const diagonal_model{
-        diagonal_uv, tangent_indices, {.rotation = {-90, 0, 0}, .scale = {-2, 3, 4}}};
-    check(
-        near(glm::vec3{diagonal_model.vertices()[0].tangent}, glm::normalize(glm::vec3{-2, 0, -3})),
-        "non-axis-aligned tangents use the linear transform, not its inverse transpose");
-    lc1::scene::Model const corrected{
-        triangle(),
-        {0, 1, 2},
-        {.position = {1, 2, 3}, .rotation = {-90, 0, 0}, .scale = {2, 3, 4}}};
-    check(near(corrected.vertices()[0].position, {1, 2, 3}) &&
-              near(corrected.vertices()[1].position, {3, 2, 3}) &&
-              near(corrected.vertices()[2].position, {1, 2, 0}),
-          "model-level unit, axis and origin correction is baked into the shared vertices");
-    check(near(corrected.vertices()[0].normal, {0, 1, 0}), "axis correction rotates normals");
-    check(corrected.vertices()[1].uv == glm::vec2{1, 0}, "model correction preserves UVs");
-
-    auto tilted = triangle();
-    tilted[2].position = {0, 1, 1};
-    for (auto &vertex : tilted)
-        vertex.normal = glm::normalize(glm::vec3{0, -1, 1});
-    lc1::scene::Model const mirrored{tilted, {0, 1, 2}, {.scale = {-2, 3, 4}}};
-    auto const points = mirrored.vertices();
-    auto const indices = mirrored.indices();
-    auto const face_normal =
-        glm::normalize(glm::cross(points[indices[1]].position - points[indices[0]].position,
-                                  points[indices[2]].position - points[indices[0]].position));
-    check(near(face_normal, points[0].normal),
-          "nonuniform mirrored correction preserves winding and inverse-transpose normals");
-    check(near(points[0].normal, {0, -0.8F, 0.6F}), "nonuniform scale keeps normals perpendicular");
-    rejects([] { lc1::scene::Model invalid{triangle(), {0, 1, 2}, {.scale = {1, 0, 1}}}; },
-            "singular model correction is rejected");
+    auto vertices = triangle();
+    std::vector<std::uint32_t> indices{0, 1, 2};
+    lc1::generate_tangents(vertices, indices);
+    auto const rotation = glm::angleAxis(glm::radians(-90.0F), glm::vec3{1, 0, 0});
+    lc1::scene::Model const model{
+        std::vector<lc1::scene::Mesh>{lc1::scene::Mesh{vertices, indices}},
+        {{.name = "Import",
+          .transform = {.translation = {1, 2, 3}, .rotation = rotation, .scale = {2, 3, 4}}},
+         {.name = "Geometry", .parent = 0, .mesh = 0}}};
+    lc1::scene::ModelInstance const instance{model.definition()};
+    auto const draws = instance.mesh_instances(glm::mat4{1});
+    check(draws.size() == 1 && draws[0].mesh == 0, "import root expands its mesh child");
+    auto const &matrix = draws[0].model_matrix;
+    check(near(glm::vec3{matrix * glm::vec4{model.vertices()[0].position, 1}}, {1, 2, 3}) &&
+              near(glm::vec3{matrix * glm::vec4{model.vertices()[1].position, 1}}, {3, 2, 3}) &&
+              near(glm::vec3{matrix * glm::vec4{model.vertices()[2].position, 1}}, {1, 2, 0}),
+          "import root applies unit, axis and origin correction once through the hierarchy");
+    check(std::ranges::equal(model.vertices(), vertices) &&
+              std::ranges::equal(model.indices(), indices),
+          "node transforms preserve authored positions, normals, tangents, UVs and winding");
+    lc1::scene::ModelInstance mirrored{model.definition()};
+    mirrored.set_local_transform(0, {.rotation = rotation, .scale = {-2, 3, 4}});
+    check(glm::determinant(glm::mat3{mirrored.mesh_instances(glm::mat4{1})[0].model_matrix}) < 0,
+          "reflection remains in the draw matrix for normal and front-face handling");
+    check(instance.local_transforms()[0].scale == glm::vec3{2, 3, 4},
+          "instance correction does not mutate another instance or the shared asset");
+    rejects([&] { mirrored.set_local_transform(0, {.scale = {1, 0, 1}}); },
+            "singular node correction is rejected");
     rejects([] { lc1::scene::Model invalid{triangle(), {0, 1, 9}}; },
             "invalid model indices are rejected");
 }
@@ -895,7 +876,7 @@ int main()
         player_controllers();
         intent_rules();
         controller_intent_boundary();
-        model_correction();
+        model_node_transforms();
         std::cout << "character tests passed\n";
         return EXIT_SUCCESS;
     }

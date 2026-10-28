@@ -29,7 +29,7 @@ void check(bool condition, char const *message)
 std::vector<std::uint8_t> render(lc1::Device const &device, lc1::Renderer &renderer,
                                  lc1::FrameResources &frame, lc1::scene::FpsCamera &camera,
                                  std::span<lc1::scene::Light const> lights,
-                                 std::span<lc1::DrawItem const> draws,
+                                 std::span<lc1::scene::SceneModel const> draws,
                                  vk::Extent2D extent = {64, 64})
 {
     lc1::GpuImage output{device,
@@ -44,6 +44,11 @@ std::vector<std::uint8_t> render(lc1::Device const &device, lc1::Renderer &rende
         {.size = extent.width * extent.height * 4, .usage = vk::BufferUsageFlagBits::eTransferDst},
         {.flags = vma::AllocationCreateFlagBits::eHostAccessRandom,
          .usage = vma::MemoryUsage::eAuto});
+    lc1::scene::Scene scene;
+    for (auto const &light : lights)
+        scene.add_light(light);
+    for (auto const &draw : draws)
+        scene.add_model(draw);
     camera.set_aspect_ratio(static_cast<float>(extent.width) / extent.height);
     lc1::one_time_submit(device, [&](lc1::CommandBuffer &wrapped) {
         auto const &commands = wrapped.raii();
@@ -53,7 +58,7 @@ std::vector<std::uint8_t> render(lc1::Device const &device, lc1::Renderer &rende
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                                  vk::AccessFlagBits2::eColorAttachmentWrite);
         lc1::RenderTarget const target{&output.view(), extent};
-        renderer.record(wrapped, frame, target, lc1::scene::Scene{camera, lights, draws});
+        renderer.record(wrapped, frame, target, scene, camera);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
                                  vk::ImageLayout::eTransferSrcOptimal,
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -92,9 +97,10 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
         lc1::Vertex{.position = {2, 0, -2}, .uv = {1, 0}},
     };
     std::array<std::uint32_t, 6> const indices{0, 1, 2, 0, 2, 3};
-    lc1::GpuMesh mesh{device, std::span<lc1::Vertex const>{vertices},
-                      std::span<std::uint32_t const>{indices}};
-    std::array draws{lc1::DrawItem{.mesh = &mesh, .material = &material, .depth_bias = false}};
+    lc1::scene::GpuModel mesh{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                           std::span<std::uint32_t const>{indices}}};
+    std::array draws{
+        lc1::scene::SceneModel{.model = &mesh, .material = &material, .depth_bias = false}};
     std::array const lights{
         lc1::scene::to_light(lc1::scene::DirectionalLight{.base = {}, .direction = {0, -1, 0}})};
     lc1::scene::FpsCamera camera;
@@ -155,20 +161,21 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
           "restoring the second frame slot changed a static hard-lit scene");
 
     // Reflect the symmetric ground plane to exercise winding and BLAS transforms.
-    draws[0].model_matrix = glm::scale(glm::mat4{1}, glm::vec3{-1, 1, 1});
+    draws[0].world_transform = glm::scale(glm::mat4{1}, glm::vec3{-1, 1, 1});
     render(device, renderer, normal_frame, camera, lights, draws);
 
     // An elevated patch casts a visible shadow on the ground. Toggling only its
     // caster membership must change pixels, catching a missing/incorrect TLAS lookup.
     auto occlusion_frame = renderer.make_frame_resources(2);
     std::array occlusion_draws{
-        lc1::DrawItem{.mesh = &mesh, .material = &material, .depth_bias = false},
-        lc1::DrawItem{.mesh = &mesh,
-                      .material = &material,
-                      .model_matrix = glm::scale(glm::translate(glm::mat4{1}, glm::vec3{0, 1, 0}),
-                                                 glm::vec3{0.3F}),
-                      .casts_shadow = false,
-                      .depth_bias = false},
+        lc1::scene::SceneModel{.model = &mesh, .material = &material, .depth_bias = false},
+        lc1::scene::SceneModel{
+            .model = &mesh,
+            .material = &material,
+            .world_transform =
+                glm::scale(glm::translate(glm::mat4{1}, glm::vec3{0, 1, 0}), glm::vec3{0.3F}),
+            .casts_shadow = false,
+            .depth_bias = false},
     };
     auto const unshadowed =
         render(device, renderer, occlusion_frame, camera, lights, occlusion_draws);

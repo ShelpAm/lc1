@@ -30,7 +30,7 @@ void MapCameraController::apply(scene::FpsCamera &camera) const
 
 void MapCameraController::zoom(float scroll)
 {
-    scroll = std::isfinite(scroll) ? std::clamp(scroll, -100.0F, 100.0F) : 0.0F;
+    scroll = std::clamp(scroll, -100.0F, 100.0F);
     view_height_ = std::clamp(view_height_ * std::exp(-scroll * 0.12F), 16.0F, 64 * 96.0F);
 }
 
@@ -39,13 +39,12 @@ void MapCameraController::recenter(glm::vec3 player_position)
     center_ = player_position + aim_height;
 }
 
-void MapCameraController::pan(glm::vec2 direction, GroundBounds bounds, float delta_seconds)
+void MapCameraController::pan(float delta_seconds, glm::vec2 direction, GroundBounds bounds)
 {
-    if (locked_ || !std::isfinite(direction.x) || !std::isfinite(direction.y))
+    if (locked_)
         return;
     direction /= std::max(glm::length(direction), 1.0F);
-    float const elapsed =
-        std::isfinite(delta_seconds) ? std::clamp(delta_seconds, 0.0F, 0.1F) : 0.0F;
+    float const elapsed = std::clamp(delta_seconds, 0.0F, 0.1F);
     auto const heading = glm::normalize(glm::vec3{-offset.x, 0, -offset.z});
     auto const right = glm::cross(heading, glm::vec3{0, 1, 0});
     center_ +=
@@ -54,13 +53,12 @@ void MapCameraController::pan(glm::vec2 direction, GroundBounds bounds, float de
     center_.z = std::clamp(center_.z, bounds.min.y, bounds.max.y);
 }
 
-void MapCameraController::update(scene::FpsCamera &camera, glm::vec3 player_position,
-                                 float delta_seconds)
+void MapCameraController::update(float delta_seconds, scene::FpsCamera &camera,
+                                 glm::vec3 player_position)
 {
     if (locked_)
         recenter(player_position);
-    float const elapsed =
-        std::isfinite(delta_seconds) ? std::clamp(delta_seconds, 0.0F, 0.1F) : 0.0F;
+    float const elapsed = std::clamp(delta_seconds, 0.0F, 0.1F);
     float const blend = std::clamp(elapsed * 12.0F, 0.0F, 1.0F);
     smoothed_center_ = glm::mix(smoothed_center_, center_, blend);
     smoothed_view_height_ = glm::mix(smoothed_view_height_, view_height_, blend);

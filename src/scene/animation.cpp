@@ -58,7 +58,7 @@ void AnimationClip::validate(std::size_t node_count) const
                 if (values.size() != channel.times.size())
                     fail("animation keyframe time and value counts differ");
                 for (auto const &value : values)
-                    if (!finite(value))
+                    if (!rotation && !finite(value))
                         fail("animation keyframe values must be finite");
             },
             channel.values);

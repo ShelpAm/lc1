@@ -34,7 +34,7 @@ bool valid(GroundBounds bounds)
 
 bool contains(GroundBounds bounds, glm::vec2 point)
 {
-    return finite(point) && glm::all(glm::greaterThanEqual(point, bounds.min)) &&
+    return glm::all(glm::greaterThanEqual(point, bounds.min)) &&
            glm::all(glm::lessThan(point, bounds.max));
 }
 

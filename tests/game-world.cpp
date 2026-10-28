@@ -274,7 +274,7 @@ void control_physics_camera_order()
     check(world.player().position() == before_control && world.player().on_ground(),
           "resolving view input does not mutate world state");
     world.update(0.1F, {.player_intent = command});
-    view.update_camera(world.player(), 0.1F);
+    view.update_camera(0.1F, world.player());
     check(!world.player().on_ground() && world.player().position().y > 0,
           "jump input reaches physics in the same frame");
     check(view.camera().position() == world.player().eye_position(),

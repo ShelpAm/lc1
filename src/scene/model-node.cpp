@@ -11,8 +11,8 @@ glm::mat4 NodeTransform::matrix() const
         return true;
     };
     float const length = glm::length(rotation);
-    if (!finite(translation) || !finite(rotation) || !finite(scale) || !std::isfinite(length) ||
-        length == 0.0F || scale.x == 0.0F || scale.y == 0.0F || scale.z == 0.0F)
+    if (!finite(translation) || !finite(scale) || !std::isfinite(length) || length == 0.0F ||
+        scale.x == 0.0F || scale.y == 0.0F || scale.z == 0.0F)
         fail("model node transform must be finite and invertible");
     auto const result = glm::translate(glm::mat4{1.0F}, translation) *
                         glm::mat4_cast(rotation / length) * glm::scale(glm::mat4{1.0F}, scale);

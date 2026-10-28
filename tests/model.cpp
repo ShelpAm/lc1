@@ -114,15 +114,14 @@ void shared_meshes()
 void single_mesh_compatibility()
 {
     lc1::scene::Model const model{std::vector<lc1::Vertex>{{.position = {1, 0, 0}, .uv = {0, 0}}},
-                                  std::vector<std::uint32_t>{},
-                                  {.position = {3, 0, 0}}};
+                                  std::vector<std::uint32_t>{}};
     check(model.mesh_count() == 1 && model.definition().nodes().size() == 1 &&
               model.definition().nodes()[0].mesh == 0,
           "legacy geometry creates one mesh and an identity root");
     lc1::scene::ModelInstance const instance{model.definition()};
     auto const point = instance.model_matrices()[0] * glm::vec4{model.vertices()[0].position, 1};
-    check(near(glm::vec3{point}, {4, 0, 0}),
-          "baked import correction is not applied again by the instance");
+    check(near(glm::vec3{point}, {1, 0, 0}),
+          "single-mesh construction preserves geometry under its identity root");
 }
 } // namespace
 

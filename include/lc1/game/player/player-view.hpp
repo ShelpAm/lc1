@@ -23,10 +23,10 @@ class PlayerView {
     CharacterIntent resolve_input(Character const &player, GameInputRouter const &input,
                                   glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled);
     // Call only while mouse input is enabled; pointer_active additionally gates edge pan.
-    void update_pointer(InputState const &devices, glm::vec2 viewport_size, bool pointer_active,
-                        float delta_seconds);
+    void update_pointer(float delta_seconds, InputState const &devices, glm::vec2 viewport_size,
+                        bool pointer_active);
     // Optional animated eye world transform adds mount rotation to gameplay look in first person.
-    void update_camera(Character const &player, float delta_seconds,
+    void update_camera(float delta_seconds, Character const &player,
                        std::optional<glm::mat4> eye_transform = {});
 
     void set_aspect_ratio(float aspect_ratio);

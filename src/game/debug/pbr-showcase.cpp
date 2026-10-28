@@ -124,13 +124,13 @@ MaterialInfo const &PbrShowcase::material(glm::vec3 color, float metallic, float
     return materials_.back();
 }
 
-std::size_t PbrShowcase::place(GpuMesh const &mesh, MaterialInfo const &material,
+std::size_t PbrShowcase::place(scene::GpuModel const &mesh, MaterialInfo const &material,
                                glm::vec3 position, glm::vec3 scale, float yaw)
 {
     auto transform = glm::translate(glm::mat4{1}, position + origin_);
     transform = glm::rotate(transform, yaw, glm::vec3{0, 1, 0});
     draws_.push_back(
-        {.mesh = &mesh, .material = &material, .model_matrix = glm::scale(transform, scale)});
+        {.model = &mesh, .material = &material, .world_transform = glm::scale(transform, scale)});
     return draws_.size() - 1;
 }
 
@@ -381,18 +381,18 @@ void PbrShowcase::update(float seconds)
     auto transform = glm::translate(glm::mat4{1}, origin_ + glm::vec3{18, 2.1F, 15});
     transform = glm::rotate(transform, seconds * 0.45F, glm::vec3{0, 1, 0});
     transform = glm::rotate(transform, 0.22F, glm::vec3{1, 0, 0});
-    draws_[rotating_draw_].model_matrix = glm::scale(transform, glm::vec3{1.9F});
+    draws_[rotating_draw_].world_transform = glm::scale(transform, glm::vec3{1.9F});
     auto moving = glm::translate(glm::mat4{1},
                                  origin_ + glm::vec3{15 + 1.1F * std::sin(seconds), 2.1F, 2.5F});
     moving = glm::rotate(moving, seconds * 0.7F, glm::vec3{0, 1, 0});
-    draws_[moving_shadow_draw_].model_matrix = glm::scale(moving, glm::vec3{1.3F});
+    draws_[moving_shadow_draw_].world_transform = glm::scale(moving, glm::vec3{1.3F});
 }
 
 } // namespace lc1::demo
 
 namespace lc1::demo {
 
-std::span<DrawItem const> PbrShowcase::draws() const
+std::span<scene::SceneModel const> PbrShowcase::draws() const
 {
     return draws_;
 }

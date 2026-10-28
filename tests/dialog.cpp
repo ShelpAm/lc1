@@ -95,7 +95,7 @@ struct World {
 void tick(lc1::DialogSystem &system, World const &world, float seconds = 1.5F)
 {
     // Empty scheduling roster advances existing sessions without initiating new ones.
-    system.update({}, &world.player, seconds, false);
+    system.update(seconds, {}, &world.player, false);
 }
 
 void rules_and_lifecycle(std::filesystem::path const &path)
@@ -233,9 +233,9 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
     World world;
     lc1::DialogSystem system{path};
     auto const participants = world.participants();
-    system.update(participants, &world.player, 7.0F, false);
+    system.update(7.0F, participants, &world.player, false);
     check(!system.find(world.captive), "NPCs do not initiate immediately on load");
-    system.update(participants, &world.player, 1.0F, false);
+    system.update(1.0F, participants, &world.player, false);
     check(!system.find(world.player) && system.find(world.captive) == system.find(world.leader) &&
               system.find(world.worker) == system.find(world.passerby) &&
               system.find(world.worker) != system.find(world.captive),
@@ -252,7 +252,7 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
         auto intent = lc1::CharacterIntent{};
         if (controller_enabled && world.captive.controller())
             intent = world.captive.controller()->update(0.1F, world.captive);
-        world.captive.update(world.continent, 0.1F, intent);
+        world.captive.update(0.1F, world.continent, intent);
     };
     step(!system.find(world.captive));
     check(world.captive.position() == original && world.captive.controller(),
@@ -268,7 +268,7 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
     World another;
     lc1::DialogSystem requests{path};
     auto const roster = another.participants();
-    requests.update(roster, &another.player, 8.0F, true);
+    requests.update(8.0F, roster, &another.player, true);
     auto const *request = requests.find(another.player);
     check(request && request->talker() == &another.captive &&
               request->respondent() == &another.player,
@@ -287,7 +287,7 @@ void nearby_search_boundaries(std::filesystem::path const &path)
     world.passerby.move(world.continent, {0, 0, -8});
     lc1::DialogSystem system{path};
     auto const roster = world.participants();
-    system.update(roster, nullptr, 8.0F, true);
+    system.update(8.0F, roster, nullptr, true);
     auto const *dialog = system.find(world.player);
     check(dialog && dialog->target() == &world.captive,
           "equal-distance targets use keyid rather than X traversal order");
@@ -296,7 +296,7 @@ void nearby_search_boundaries(std::filesystem::path const &path)
           "clear removes participant indices");
     world.captive.move(world.continent, {3, 0, 0});
     world.leader.move(world.continent, {-7, 0, 0});
-    system.update(roster, nullptr, 0.0F, true);
+    system.update(0.0F, roster, nullptr, true);
     check(system.find(world.player) && system.find(world.player)->target() == &world.captive,
           "targets exactly on the positive X radius boundary are included");
     system.interrupt(world.player);
@@ -314,7 +314,7 @@ void nearby_search_boundaries(std::filesystem::path const &path)
           "timeout removes participant indices");
     system.clear();
     world.captive.move(world.continent, {-8, 0, 0});
-    system.update(roster, nullptr, 0.0F, true);
+    system.update(0.0F, roster, nullptr, true);
     check(system.find(world.player) && system.find(world.player)->target() == &world.captive,
           "targets exactly on the negative X radius boundary are included");
 }
@@ -418,10 +418,10 @@ void benchmark(std::filesystem::path const &path)
         roster.push_back(characters.back().get());
     }
     lc1::DialogSystem system{path};
-    system.update({}, nullptr, 8.0F, false);
+    system.update(8.0F, {}, nullptr, false);
     auto const start = std::chrono::steady_clock::now();
     for (int i = 0; i < 120; ++i)
-        system.update(roster, nullptr, 1.0F / 60.0F, false);
+        system.update(1.0F / 60.0F, roster, nullptr, false);
     auto const seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     std::cout << "512 separated NPCs, 120 updates: " << seconds * 1000.0 << " ms total, "

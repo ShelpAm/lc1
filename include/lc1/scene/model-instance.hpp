@@ -14,7 +14,7 @@ struct AnimationPlayback {
 
 struct MeshInstance {
     std::size_t mesh;
-    glm::mat4 model_matrix{1.0F};
+    glm::mat4 model_matrix;
 };
 
 class ModelInstance {

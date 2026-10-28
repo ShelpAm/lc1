@@ -41,7 +41,7 @@ flowchart TD
     music --> audio["AudioContext · 由 WorldPresentation 拥有"]
 ```
 
-玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, intent)` 决定能否执行、速度和
+玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent, intent)` 决定能否执行、速度和
 最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 安装，
 并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界不依赖
 `PlayerController`，会话负责把玩家 intent 与输入门控一起交给世界。
@@ -71,10 +71,10 @@ flowchart TD
 
 ## 容易误读的边界
 
-- `Model` 同时包含 CPU 导入和 GPU 上传入口，不能视作纯 CPU 模块。
+- `Model` 负责 CPU 导入和预处理，`GpuModel` 负责上传全部网格并持有运行时资源；两者均在 `scene/`，整个目录仍包含 GPU 依赖。
 - `scene::Transform` 与相机可以用于 CPU 逻辑；`scene::Object` 则借用 GPU 网格与材质并生成 `DrawItem`。
   因此整个 `scene/` 不是无渲染依赖的数据层。
-- 主游戏循环与离屏录制统一通过 `scene::Scene` 借用视图向 Renderer 提供相机、灯光和绘制列表。
+- 主游戏循环与离屏录制统一向 Renderer 提供持久 `scene::Scene` 与显式相机；Scene 保存灯光与网格实例，Renderer 注册时生成帧快照，所有权见[资源管理](resources.md#持久渲染场景)。
   `Model` 保存模型内部层级，`ModelInstance` 保存独立姿态；WorldPresentation 的占位角色已使用实例，
   节点动画和多网格绘制已接通，世界场景图与骨骼蒙皮尚未实现，详见[模型资源与实例](resources.md#模型资源与实例)。
 - `ResourceManager` 已编入引擎，但当前游戏资源由表现对象直接构造；它不是现行统一加载入口。

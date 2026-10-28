@@ -43,39 +43,25 @@ GameSession::GameSession(Device const &device, std::filesystem::path const &asse
                  world_.continent().roads().size());
 }
 
-void GameSession::update(InputState const &input_state, float delta_seconds)
+void GameSession::update(float delta_seconds, InputState const &input_state)
 {
-    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
-        fail("invalid session update time");
-
     input_router_.update(input_state);
 
     float const elapsed = std::min(delta_seconds, 0.1F);
-    auto const &ui = ImGui::GetIO();
-    if (window_->focused() && !ui.WantCaptureKeyboard &&
-        input_router_.pressed(GameAction::QuitGame))
-        quit_requested_ = true;
+    auto &imgui_io = ImGui::GetIO();
+    if (window_->focused() && !imgui_io.WantCaptureKeyboard)
+        quit_requested_ = input_router_.pressed(GameAction::QuitGame);
 
     bool const controls_enabled = ui_.gameplay_enabled() && window_->focused() &&
                                   input_router_.active_context() == GameInputContext::Gameplay;
-    bool const keyboard_enabled = controls_enabled && !ui.WantCaptureKeyboard;
-    bool const mouse_enabled = controls_enabled && !ui.WantCaptureMouse;
+    bool const keyboard_enabled = controls_enabled && !imgui_io.WantCaptureKeyboard;
+    bool const mouse_enabled = controls_enabled && !imgui_io.WantCaptureMouse;
 
     player_view_.update_view_mode(input_router_, keyboard_enabled, world_.player());
     bool const keyboard_save_requested =
         keyboard_enabled && input_router_.pressed(GameAction::SaveGame);
 
-    auto const response_index = [&]() -> int {
-        if (!keyboard_enabled)
-            return -1;
-        constexpr std::array actions{GameAction::DialogResponse0, GameAction::DialogResponse1,
-                                     GameAction::DialogResponse2, GameAction::DialogResponse3};
-        for (auto const [index, action] : std::views::zip(std::views::iota(0), actions)) {
-            if (input_router_.pressed(action))
-                return index;
-        }
-        return -1;
-    };
+    ;
     // The controller supplies intent; GameWorld applies it through Character and then
     // handles the world-level dialog interaction. Whether an idle player accepts ambient
     // requests is a Character rule, not an input rule.
@@ -84,12 +70,13 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
                                    world_.player(), input_router_, input_state.cursor_delta(),
                                    keyboard_enabled, mouse_enabled),
                                .player_input_enabled = keyboard_enabled,
-                               .response_index = response_index(),
+                               .response_index = response_index(input_router_),
                            });
     if (mouse_enabled)
-        player_view_.update_pointer(input_state, window_->content_size(),
-                                    window_->hovered() && !window_->cursor_captured(), elapsed);
+        player_view_.update_pointer(elapsed, input_state, window_->window_size(),
+                                    window_->hovered() && !window_->cursor_captured());
     world_presentation_.update(
+        elapsed,
         {
             .nod = keyboard_enabled && input_router_.pressed(GameAction::Nod),
             .cycle_lighting = keyboard_enabled && input_router_.pressed(GameAction::CycleLighting),
@@ -100,12 +87,11 @@ void GameSession::update(InputState const &input_state, float delta_seconds)
                     ? static_cast<int>(input_router_.pressed(GameAction::IncreaseExposure)) -
                           static_cast<int>(input_router_.pressed(GameAction::DecreaseExposure))
                     : 0,
-        },
-        elapsed);
+        });
     std::optional<glm::mat4> eye_transform;
     if (!player_view_.oblique())
         eye_transform = world_presentation_.player_eye_transform();
-    player_view_.update_camera(world_.player(), elapsed, eye_transform);
+    player_view_.update_camera(elapsed, world_.player(), eye_transform);
     world_presentation_.update_listener(player_view_.camera());
 
     auto const *target = world_.interaction_target();

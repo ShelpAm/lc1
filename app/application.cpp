@@ -361,19 +361,19 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
     FrameLoop<FrameResources>::RecordCallback const record = [this](CommandBuffer &command_buffer,
                                                                     FrameResources &resources,
                                                                     RenderTarget const &target) {
-        auto const &view = game_->world_presentation();
+        auto const &presentation = game_->world_presentation();
         auto const &camera = game_->player_view().camera();
         // Text items own their strings and remain alive until graph.execute() returns.
         TextFrameInput const text{
-            .font = &view.font(),
-            .world = view.world_labels(camera),
-            .screen = game_->ui().screen_labels(game_->world(), view.font(),
-                                                window_.framebuffer_extent(), view.location()),
+            .font = &presentation.font(),
+            .world = presentation.world_labels(camera),
+            .screen =
+                game_->ui().screen_labels(game_->world(), presentation.font(),
+                                          window_.framebuffer_extent(), presentation.location()),
         };
         RenderGraph graph;
-        auto const draws = view.draws();
-        scene::Scene const scene{camera, view.lights(), draws};
-        renderer_.add_passes(graph, resources, target, scene, view.output(), text);
+        renderer_.add_passes(graph, resources, target, presentation.scene(), camera,
+                             presentation.output(), text);
         graph.add_pass(
             "ImGui overlay", {"output.ui_text"}, {"output.ui"}, [target](CommandBuffer &commands) {
                 // Make the UI text's writes visible to this attachment load and blending.
@@ -424,7 +424,7 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
         ImGui::NewFrame();
 
         auto const delta_seconds = stopwatch.tick();
-        game_->update(window_.input(), delta_seconds);
+        game_->update(delta_seconds, window_.input());
         if (game_->quit_requested())
             break;
 

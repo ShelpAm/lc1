@@ -259,8 +259,9 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
     auto append_geometry = [&](Geometry &geometry) {
         if (geometry.vertices.empty())
             return;
-        auto const mesh_index = meshes_.size();
-        meshes_.emplace_back(device, std::span<Vertex const>{geometry.vertices}, geometry.indices);
+        auto const mesh_index = models_.size();
+        models_.push_back(std::make_unique<scene::GpuModel>(
+            device, scene::Model{geometry.vertices, geometry.indices}));
         pending.push_back(
             {.mesh_index = mesh_index, .origin = geometry.origin, .depth_bias = false});
     };
@@ -282,17 +283,18 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
             append_geometry(terrain);
             if (road.vertices.empty())
                 continue;
-            auto const mesh_index = meshes_.size();
-            meshes_.emplace_back(device, std::span<Vertex const>{road.vertices}, road.indices);
+            auto const mesh_index = models_.size();
+            models_.push_back(std::make_unique<scene::GpuModel>(
+                device, scene::Model{road.vertices, road.indices}));
             pending.push_back(
                 {.mesh_index = mesh_index, .origin = road.origin, .depth_bias = true});
         }
     }
     draws_.reserve(pending.size());
     for (auto const &entry : pending) {
-        draws_.push_back({.mesh = &meshes_[entry.mesh_index],
+        draws_.push_back({.model = models_[entry.mesh_index].get(),
                           .material = &material_,
-                          .model_matrix = glm::translate(glm::mat4{1.0F}, entry.origin),
+                          .world_transform = glm::translate(glm::mat4{1.0F}, entry.origin),
                           .casts_shadow = !entry.depth_bias,
                           .depth_bias = entry.depth_bias});
     }
@@ -302,7 +304,7 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
 
 namespace lc1 {
 
-std::span<DrawItem const> ContinentView::draw_items() const
+std::span<scene::SceneModel const> ContinentView::draw_items() const
 {
     return draws_;
 }

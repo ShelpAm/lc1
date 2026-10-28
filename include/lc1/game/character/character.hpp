@@ -89,7 +89,7 @@ class Character {
     scene::Transform const &transform() const;
 
     void move(Continent const &continent, glm::vec3 displacement);
-    void walk(Continent const &continent, glm::vec3 direction, float delta_seconds, bool running,
+    void walk(float delta_seconds, Continent const &continent, glm::vec3 direction, bool running,
               bool face_movement = true);
 
     // Right-handed degrees about +Y. Zero faces -Z, independently of asset correction.
@@ -119,7 +119,7 @@ class Character {
     // own gameplay rules (body/look targets, locomotion speed, collision, delta cap and
     // the jump request), then advances jump, gravity and ground support. It never trusts
     // the intent to be legal and does not pull from a controller itself.
-    void update(Continent const &continent, float delta_seconds, CharacterIntent const &intent);
+    void update(float delta_seconds, Continent const &continent, CharacterIntent const &intent);
 
     // Ambient dialog requests are accepted only while standing still, grounded and not
     // asking to jump or sprint. This rule belongs to the character, so a player and an AI
@@ -148,8 +148,8 @@ class Character {
 
   private:
     // Resolves the requested actions before physics. Called only by update().
-    void apply_intent(Continent const &continent, CharacterIntent const &intent,
-                      float delta_seconds);
+    void apply_intent(float delta_seconds, Continent const &continent,
+                      CharacterIntent const &intent);
 
     // Party updates both sides of membership together during recruitment.
     friend class Party;

@@ -71,7 +71,7 @@ occlusion 仍待 IBL 接入，非空贴图目前明确报未支持。
 `Vertex::tangent` 的 xyz 是物体空间切线，w 是副切线手性（+1 或 -1）；默认全零表示没有切线。
 `generate_tangents(vertices, indices)` 使用 Conan 的 `mikktspace/cci.20200325` 生成 UV0 切线，
 按每个三角形角点的结果重新索引，因此会拆开 UV 镜像接缝，不能用旧索引覆盖不同切线。
-`Model::generate_tangents()` 是当前 CPU 几何的便捷入口，放在 `gen_mesh()` 之前调用。
+`Model::generate_tangents()` 是当前 CPU 几何的便捷入口，在交给 `GpuModel` 或构造 `GpuMesh` 之前调用。
 不使用法线贴图的网格不需要执行这一步。
 
 生成过程拒绝退化 UV、退化三角形、非法索引和非有限数据，失败时保留原网格。

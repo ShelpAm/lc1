@@ -1,5 +1,4 @@
 #include "lc1/game/player/player-view.hpp"
-#include "lc1/error.hpp"
 
 #include "lc1/game/character/character.hpp"
 
@@ -12,9 +11,8 @@ namespace lc1 {
 namespace {
 glm::vec2 edge_motion(glm::vec2 cursor, glm::vec2 size)
 {
-    if (size.x <= 0.0F || size.y <= 0.0F || !std::isfinite(size.x) || !std::isfinite(size.y) ||
-        !std::isfinite(cursor.x) || !std::isfinite(cursor.y) || cursor.x < 0.0F ||
-        cursor.y < 0.0F || cursor.x >= size.x || cursor.y >= size.y)
+    if (size.x <= 0.0F || size.y <= 0.0F || !std::isfinite(cursor.x) || !std::isfinite(cursor.y) ||
+        cursor.x < 0.0F || cursor.y < 0.0F || cursor.x >= size.x || cursor.y >= size.y)
         return glm::vec2{0.0F};
 
     // A logical-point edge band keeps the feel consistent on HiDPI displays.
@@ -39,9 +37,6 @@ PlayerView::PlayerView(Continent const &continent, glm::vec3 player_position)
 
 void PlayerView::follow_first_person(glm::vec3 eye_position, glm::vec3 look_direction)
 {
-    if (!std::isfinite(eye_position.x) || !std::isfinite(eye_position.y) ||
-        !std::isfinite(eye_position.z))
-        fail("first-person eye position must be finite");
     camera_.set_position(eye_position);
     camera_.look_at(eye_position + look_direction);
 }
@@ -55,7 +50,7 @@ void PlayerView::toggle(Character const &player)
     if (oblique_) {
         // Recenter while preserving zoom and the Y lock state.
         map_camera_.recenter(player.position());
-        map_camera_.update(camera_, player.position(), 0.0F);
+        map_camera_.update(0.0F, camera_, player.position());
     }
     else {
         follow_first_person(player.eye_position(), player.look_direction());
@@ -94,18 +89,18 @@ CharacterIntent PlayerView::resolve_input(Character const &player, GameInputRout
     return intent;
 }
 
-void PlayerView::update_pointer(InputState const &devices, glm::vec2 viewport_size,
-                                bool pointer_active, float delta_seconds)
+void PlayerView::update_pointer(float delta_seconds, InputState const &devices,
+                                glm::vec2 viewport_size, bool pointer_active)
 {
     if (!oblique_)
         return;
     map_camera_.zoom(devices.scroll().y);
     if (pointer_active && !recenter_)
-        map_camera_.pan(edge_motion(devices.cursor(), viewport_size), continent_->bounds(),
-                        delta_seconds);
+        map_camera_.pan(delta_seconds, edge_motion(devices.cursor(), viewport_size),
+                        continent_->bounds());
 }
 
-void PlayerView::update_camera(Character const &player, float delta_seconds,
+void PlayerView::update_camera(float delta_seconds, Character const &player,
                                std::optional<glm::mat4> eye_transform)
 {
     if (!oblique_) {
@@ -123,7 +118,7 @@ void PlayerView::update_camera(Character const &player, float delta_seconds,
     }
     if (recenter_)
         map_camera_.recenter(player.position());
-    map_camera_.update(camera_, player.position(), delta_seconds);
+    map_camera_.update(delta_seconds, camera_, player.position());
 }
 
 } // namespace lc1

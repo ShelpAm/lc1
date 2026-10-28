@@ -95,7 +95,7 @@ CharacterIntent AiCharacterController::companion_update(float delta_seconds,
     // Facing the leader is a character intent, not a controller-side pose change. Keep it
     // even on a zero-time step; the movement below is limited to the remaining gap.
     intent.body_direction = heading;
-    if (!std::isfinite(delta_seconds) || delta_seconds <= 0.0F)
+    if (delta_seconds <= 0.0F)
         return intent;
 
     float const step_seconds =
