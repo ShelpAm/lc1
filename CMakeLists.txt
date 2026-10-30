@@ -103,8 +103,8 @@ add_subdirectory(shaders)
 # and are included as "lc1/..."; src/ holds sources and private headers
 # (e.g. vk/render/vertex-input.hpp) that the app cannot see.
 add_library(lc1_engine STATIC
-    src/window.cpp
-    src/input.cpp
+    src/platform/window.cpp
+    src/platform/input.cpp
     src/error.cpp
     src/image.cpp
     src/vertex.cpp
@@ -243,6 +243,8 @@ add_library(lc1_game STATIC
 
     src/game/character/character-model.cpp
     src/game/character/character.cpp
+    src/game/physics/character-motion.cpp
+    src/game/physics/world-collision.cpp
     src/game/character/character-controller.cpp
     src/game/character/bag.cpp
     src/game/character/equipment.cpp
@@ -278,6 +280,7 @@ add_library(lc1_game STATIC
     src/game/ui/music-browser.cpp
 
     src/game/debug/pbr-showcase.cpp
+    src/game/debug/world-setup.cpp
 )
 target_link_libraries(lc1_game PUBLIC lc1_engine imgui::imgui)
 

@@ -6,12 +6,12 @@
 #include "lc1/game/session/save.hpp"
 
 #include "lc1/game/actions.hpp"
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/device.hpp"
 #include "lc1/vk/core/instance.hpp"
 #include "lc1/vk/core/loader.hpp"
 #include "lc1/vk/presentation/frame_loop.hpp"
 #include "lc1/vk/presentation/surface.hpp"
-#include "lc1/window.hpp"
 
 #include <cstdint>
 #include <filesystem>

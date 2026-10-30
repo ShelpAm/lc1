@@ -2,8 +2,6 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
-#include "lc1/game/continent/patrol-house.hpp"
-#include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/resources/catalog.hpp"
 #include "lc1/game/world/interactable.hpp"
@@ -26,8 +24,18 @@ void insert_unique(Map &map, std::uint32_t keyid, Value value, std::string_view 
 } // namespace
 
 GameWorld::GameWorld(Save const &save, std::filesystem::path const &dialog_catalog)
-    : continent_(Continent::load(save.continent(), demo::PbrShowcase::spawn_blocks())),
-      dialogs_(dialog_catalog)
+    : GameWorld(save,
+                WorldSetup{.continent = Continent::load(save.continent()),
+                           .example_patrol = {},
+                           .initial_player_resources = {}},
+                dialog_catalog)
+{
+}
+
+GameWorld::GameWorld(Save const &save, WorldSetup setup,
+                     std::filesystem::path const &dialog_catalog)
+    : continent_(std::move(setup.continent)), example_patrol_(std::move(setup.example_patrol)),
+      initial_player_resources_(std::move(setup.initial_player_resources)), dialogs_(dialog_catalog)
 {
     load(save);
 }
@@ -36,6 +44,9 @@ void GameWorld::load(Save const &save)
 {
     if (save.continent() != continent_.identity())
         fail("cannot load a different continent into an existing world");
+    if (save.has_example() && !save.states().empty() && save.states().at(save.example()).patrol &&
+        !example_patrol_)
+        fail("saved patrol requires a scenario route");
     // Release participant and roster borrows before destroying their owners.
     dialogs_.reset();
     interaction_target_ = nullptr;
@@ -52,38 +63,32 @@ void GameWorld::load(Save const &save)
 
     build_world(save);
     player_ = character_by_id(save.player(), "player");
+    if (save.states().empty())
+        for (auto const &stack : initial_player_resources_)
+            if (!resources_.contains(stack.keyid) ||
+                !player_->bag().add(resources_.at(stack.keyid), stack.quantity))
+                fail("invalid initial player resource {}", stack.keyid);
     if (save.has_example()) {
         example_ = character_by_id(save.example(), "AI example");
-        std::vector<Waypoint> waypoints{
-            {.position = continent_.spawn() + glm::vec3{3.27F, 0.0F, -1.84F},
-             .wait_seconds = 1.83F},
-            {.position = continent_.spawn() + glm::vec3{-4.12F, 0.0F, 2.65F},
-             .wait_seconds = 2.47F},
-            {.position = continent_.spawn() + glm::vec3{1.58F, 0.0F, 4.03F}, .wait_seconds = 2.92F},
-            {.position = continent_.spawn() + glm::vec3{-2.96F, 0.0F, -3.41F},
-             .wait_seconds = 1.61F},
-        };
-        if (continent_.identity().id == "present") {
-            auto const route = patrol_house_route();
-            waypoints.clear();
-            for (auto const position : route)
-                waypoints.push_back(
-                    {.position = position,
-                     .wait_seconds = position == glm::vec3{36, 7.8F, 23} ? 2.0F : 0.0F});
-            // Resume at the nearest authored point on the saved floor. Keep that point
-            // at index 1, the controller's initial target; never head across floor slabs.
-            auto const nearest =
-                std::ranges::min_element(waypoints, {}, [&](Waypoint const &point) {
-                    return glm::distance(point.position, example_->position());
-                });
-            auto const index = static_cast<std::size_t>(nearest - waypoints.begin());
-            std::rotate(waypoints.begin(),
-                        waypoints.begin() + (index + waypoints.size() - 1) % waypoints.size(),
-                        waypoints.end());
-        }
-        if (save.states().empty() || save.states().at(save.example()).patrol)
+        if (example_patrol_ && (save.states().empty() || save.states().at(save.example()).patrol)) {
+            auto waypoints = example_patrol_->route;
+            if (waypoints.empty())
+                fail("example patrol needs a nonempty route");
+            if (example_patrol_->resume_nearest) {
+                // Resume from the closest authored point, retaining the controller's target
+                // index 1.
+                auto const nearest =
+                    std::ranges::min_element(waypoints, {}, [&](Waypoint const &point) {
+                        return glm::distance(point.position, example_->position());
+                    });
+                auto const index = static_cast<std::size_t>(nearest - waypoints.begin());
+                std::rotate(waypoints.begin(),
+                            waypoints.begin() + (index + waypoints.size() - 1) % waypoints.size(),
+                            waypoints.end());
+            }
             example_->set_controller(std::make_unique<AiCharacterController>(
-                waypoints, continent_.identity().id == "present" ? 0.4F : 0.5F));
+                std::move(waypoints), example_patrol_->arrival_radius));
+        }
     }
 
     for (auto const &[id, state] : save.states()) {
@@ -166,9 +171,9 @@ void GameWorld::build_world(Save const &save)
         // the Character constructor itself still permits an airborne spawn.
         if (auto const ground = continent_.ground_height({actual.position.x, actual.position.z}))
             actual.position.y = *ground;
-        if (save.states().empty() && save.has_example() && record.keyid == save.example() &&
-            continent_.identity().id == "present")
-            actual.position = patrol_house_spawn;
+        if (save.states().empty() && record.keyid == save.example() && example_patrol_ &&
+            example_patrol_->spawn)
+            actual.position = *example_patrol_->spawn;
         auto const state = save.states().find(record.keyid);
         if (state != save.states().end()) {
             auto const &pose = state->second;
@@ -176,8 +181,13 @@ void GameWorld::build_world(Save const &save)
             actual.rotation.y = pose.body_yaw;
         }
         auto character = std::make_unique<Character>(continent_, actual, std::move(config));
-        if (state != save.states().end())
+        if (state != save.states().end()) {
             character->set_look_angles(state->second.look_yaw, state->second.look_pitch);
+            character->bag() = game::Bag{state->second.bag_capacity};
+            for (auto const &stack : state->second.bag)
+                if (!character->bag().add(resources_.at(stack.keyid), stack.quantity))
+                    fail("cannot restore character {} bag", record.keyid);
+        }
         insert_unique(characters_, record.keyid, std::move(character), "character");
     }
 
@@ -192,7 +202,7 @@ void GameWorld::build_world(Save const &save)
 
 SerializedWorld GameWorld::snapshot() const
 {
-    SerializedWorld world{.version = 3,
+    SerializedWorld world{.version = 4,
                           .continent = continent_.identity(),
                           .session = {.player = player_->config().keyid,
                                       .example = example_ ? example_->config().keyid : 0},
@@ -226,13 +236,15 @@ void GameWorld::link_party_members(Save const &save)
     for (auto const &entry : save.parties()) {
         auto const &record = entry.second;
         Party *const party = parties_.at(record.keyid).get();
-        // keyid 0 is "no leader": a party may exist before anyone leads it.
-        if (record.leader != 0)
-            party->set_leader(character_by_id(record.leader, "party leader"));
+        std::vector<Character *> members;
+        std::vector<Character *> captives;
         for (auto const member : record.members)
-            party->add_member(character_by_id(member, "party member"));
+            members.push_back(character_by_id(member, "party member"));
         for (auto const captive : record.captives)
-            party->add_captive(character_by_id(captive, "party captive"));
+            captives.push_back(character_by_id(captive, "party captive"));
+        party->restore_roster(record.leader == 0 ? nullptr
+                                                 : character_by_id(record.leader, "party leader"),
+                              std::move(members), std::move(captives));
     }
 }
 
@@ -283,7 +295,7 @@ Character *GameWorld::find_interaction_target(glm::vec3 forward) const
             continue;
 
         bool const better =
-            !best || alignment > best_alignment ||
+            best == nullptr || alignment > best_alignment ||
             (alignment == best_alignment && distance_squared < best_distance_squared) ||
             (alignment == best_alignment && distance_squared == best_distance_squared &&
              id < best->config().keyid);
@@ -302,13 +314,6 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
 {
     if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
         fail("invalid world update time");
-    float const elapsed = std::min(delta_seconds, 0.1F);
-
-    for (auto const [type, increment] :
-         {std::pair{game::moneta.keyid, 10U}, std::pair{game::wood.keyid, 2U},
-          std::pair{game::pig_iron.keyid, 5U}}) {
-        player_->bag().add(resources_.at(type), increment);
-    }
 
     auto update_character = [&](Character &character) {
         CharacterIntent intent;
@@ -324,10 +329,10 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
                 intent.body_direction = partner->position() - character.position();
             }
             else if (auto *controller = character.controller()) {
-                intent = controller->update(elapsed, character);
+                intent = controller->update(delta_seconds, character);
             }
         }
-        character.update(elapsed, continent_, intent);
+        character.update(delta_seconds, continent_, intent);
     };
     // Leaders move before followers, with stable keyid order inside each phase. The player
     // participates in the first phase, so its intent is applied before followers decide.
@@ -350,7 +355,7 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
     else if (interaction.player_intent.interact && interaction_target_) {
         interaction_target_->interactable()->interact(*player_);
     }
-    dialogs_.update(elapsed, dialog_participants_, player_,
+    dialogs_.update(delta_seconds, dialog_participants_, player_,
                     interaction.player_input_enabled &&
                         player_->accepts_ambient_requests(interaction.player_intent));
 }

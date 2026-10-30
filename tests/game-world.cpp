@@ -2,8 +2,10 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
+#include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/player/player-view.hpp"
+#include "lc1/game/resources/catalog.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -90,18 +92,20 @@ void world_and_checkpoint()
     check(find(world, 100025).config().equipment.size() == 1,
           "equipment links survive world assembly");
 
+    check(world.player().bag().total_weight() == 0,
+          "a plain world has no implicit demonstration supplies");
+    world.player().bag() = lc1::game::Bag{16000};
+    check(world.player().bag().add(lc1::game::wood, 3), "test supplies fit");
     world.update(0, {.player_intent = {.interact = true}});
+    check(world.player().bag().quantity_of(lc1::game::wood.keyid) == 3 &&
+              world.player().bag().total_weight() == 3000,
+          "zero-time updates do not produce resources");
     check(world.interaction_target() == &find(world, 100025), "facing selects the nearby NPC");
     check(world.dialogs().dialog_id(world.player()) == "recruit", "world starts recruitment");
     world.update(0, {.response_index = 0});
-    // Long stalls use the same simulation cap for conversations and physics.
     world.update(10, {});
-    check(world.dialogs().find(world.player())->displaying_response(),
-          "long frame cannot skip response display while movement is capped");
-    for (int i = 0; i < 16; ++i)
-        world.update(0.1F, {});
     check(world.dialogs().find(world.player())->current_node_id() == "offer",
-          "conversation advances on simulation time");
+          "conversation consumes the full elapsed time of a long frame");
     world.update(0, {.response_index = 0});
     check(find(world, 100025).config().party == world.player().config().party,
           "dialog action transfers both sides of membership");
@@ -119,6 +123,10 @@ void world_and_checkpoint()
     world.player().set_look_angles(20, 10);
     lc1::Save::write(checkpoint.directory(), world.snapshot());
     lc1::GameWorld restored{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    check(restored.player().bag().quantity_of(lc1::game::wood.keyid) == 3 &&
+              restored.player().bag().total_weight() == 3000 &&
+              restored.player().bag().max_weight() == 16000,
+          "checkpoint restores actual inventory without per-frame production");
     check(restored.player().position() == world.player().position(),
           "checkpoint restores position");
     check(restored.player().body_yaw() == 40 && restored.player().look_yaw() == 20 &&
@@ -192,6 +200,30 @@ void reload_world()
     world.update(0.1F, {});
 }
 
+void scenario_inventory()
+{
+    lc1::Save const seed{"saves/01"};
+    lc1::GameWorld world{seed, lc1::demo::world_setup(seed.continent()), "dialogs/catalog.yaml"};
+    auto &bag = world.player().bag();
+    check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 8100,
+          "explicit demonstration setup supplies a bounded initial inventory");
+    world.update(0, {});
+    world.update(1.0F, {});
+    check(bag.total_weight() == 8100, "simulation does not refill demonstration supplies");
+    check(bag.remove(lc1::game::wood, 1), "consume initial supplies");
+    Checkpoint checkpoint;
+    lc1::Save::write(checkpoint.directory(), world.snapshot());
+    lc1::Save const saved{checkpoint.directory()};
+    lc1::GameWorld restored{saved, lc1::demo::world_setup(saved.continent()),
+                            "dialogs/catalog.yaml"};
+    check(restored.player().bag().quantity_of(lc1::game::wood.keyid) == 1 &&
+              restored.player().bag().total_weight() == 7100,
+          "checkpoint restores consumed inventory without applying initial supplies again");
+    world.load(saved);
+    check(world.player().bag().total_weight() == 7100,
+          "in-place reload also restores inventory exactly");
+}
+
 void restored_house_patrol()
 {
     Checkpoint checkpoint;
@@ -206,7 +238,8 @@ void restored_house_patrol()
         state.patrol = true;
     }
     lc1::Save::write(checkpoint.directory(), data);
-    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, lc1::demo::world_setup(data.continent),
+                         "dialogs/catalog.yaml"};
     check(find(world, example).position().y == 7.8F,
           "house patrol restores the saved floor without teleporting");
     bool descended = false;
@@ -231,12 +264,12 @@ void world_applies_control()
     lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
     auto const before = world.player().position();
     world.update(
-        10,
+        0.5F,
         {.player_intent = {
              .move = {1, 0}, .body_yaw = 45, .look = glm::vec2{0, 10}, .face_movement = false}});
     check(std::abs(world.player().position().x - before.x -
-                   world.player().body().walk_speed * 0.1F) < 0.001F,
-          "world applies movement with the same capped delta as physics");
+                   world.player().body().walk_speed * 0.5F) < 0.001F,
+          "world applies movement with the full elapsed time");
     check(world.player().body_yaw() == 45 && world.player().look_pitch() == 10,
           "world applies orientation without a view or controller update");
     auto const pose = world.player().position();
@@ -300,6 +333,7 @@ int main()
         control_physics_camera_order();
         world_applies_control();
         restored_house_patrol();
+        scenario_inventory();
         std::cout << "Game world tests passed\n";
         return EXIT_SUCCESS;
     }

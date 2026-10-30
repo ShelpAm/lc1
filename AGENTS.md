@@ -1,6 +1,6 @@
 # AGENTS.md
 
-现有代码架构不代表最终设计。允许修改不合理的架构。
+Fix a bug at its cause, reasoning from first principles and established best practice. Do not patch over the symptom
 
 ## Scope and workflow
 
@@ -36,7 +36,6 @@ ctest --test-dir build/linux-x86_64/Debug --output-on-failure --no-tests=error
 
 ## C++ conventions
 
-- Use English in code, comments, diagnostics, UI, fixtures and scripts; Chinese in `docs/`.
 - Follow the C++ Core Guidelines. Types/enumerators: `PascalCase`; functions, variables and
   constants: `snake_case`; private members: trailing `_`; macros: `ALL_CAPS`.
   No type/scope/storage prefixes; preserve Vulkan API spelling.

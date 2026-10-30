@@ -1,6 +1,7 @@
 #include "lc1/game/session/game-session.hpp"
 #include "lc1/error.hpp"
 #include "lc1/game/actions.hpp"
+#include "lc1/game/debug/world-setup.hpp"
 
 #include <algorithm>
 #include <array>
@@ -22,7 +23,8 @@ std::string slot_name(std::filesystem::path const &directory)
 GameSession::GameSession(Device const &device, std::filesystem::path const &asset_root,
                          Save const &save, OutputSettings output, Window *window)
     : window_(window), input_router_(default_game_bindings(), GameInputContext::Gameplay),
-      world_(save), world_presentation_(device, asset_root, world_, output),
+      world_(save, demo::world_setup(save.continent())),
+      world_presentation_(device, asset_root, world_, output),
       player_view_(world_.continent(), world_.player().position()),
       music_(world_presentation_.audio_context()),
       save_directory_(std::filesystem::weakly_canonical(save.directory())),
@@ -47,7 +49,6 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
 {
     input_router_.update(input_state);
 
-    float const elapsed = std::min(delta_seconds, 0.1F);
     auto &imgui_io = ImGui::GetIO();
     if (window_->focused() && !imgui_io.WantCaptureKeyboard)
         quit_requested_ = input_router_.pressed(GameAction::QuitGame);
@@ -65,20 +66,21 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     // The controller supplies intent; GameWorld applies it through Character and then
     // handles the world-level dialog interaction. Whether an idle player accepts ambient
     // requests is a Character rule, not an input rule.
-    world_.update(elapsed, WorldInteraction{
-                               .player_intent = player_view_.resolve_input(
-                                   world_.player(), input_router_, input_state.cursor_delta(),
-                                   keyboard_enabled, mouse_enabled),
-                               .player_input_enabled = keyboard_enabled,
-                               .response_index = response_index(input_router_),
-                           });
+    world_.update(delta_seconds, WorldInteraction{
+                                     .player_intent = player_view_.resolve_input(
+                                         world_.player(), input_router_, input_state.cursor_delta(),
+                                         keyboard_enabled, mouse_enabled),
+                                     .player_input_enabled = keyboard_enabled,
+                                     .response_index = response_index(input_router_),
+                                 });
     if (mouse_enabled)
-        player_view_.update_pointer(elapsed, input_state, window_->window_size(),
+        player_view_.update_pointer(delta_seconds, input_state, window_->window_size(),
                                     window_->hovered() && !window_->cursor_captured());
     world_presentation_.update(
-        elapsed,
+        delta_seconds,
         {
             .nod = keyboard_enabled && input_router_.pressed(GameAction::Nod),
+            .swing_weapon = mouse_enabled && input_router_.pressed(GameAction::SwingWeapon),
             .cycle_lighting = keyboard_enabled && input_router_.pressed(GameAction::CycleLighting),
             .toggle_showcase_motion =
                 keyboard_enabled && input_router_.pressed(GameAction::ToggleShowcaseMotion),
@@ -91,7 +93,7 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     std::optional<glm::mat4> eye_transform;
     if (!player_view_.oblique())
         eye_transform = world_presentation_.player_eye_transform();
-    player_view_.update_camera(elapsed, world_.player(), eye_transform);
+    player_view_.update_camera(delta_seconds, world_.player(), eye_transform);
     world_presentation_.update_listener(player_view_.camera());
 
     auto const *target = world_.interaction_target();

@@ -42,7 +42,7 @@ Model animated_model(AnimationClip clip)
 {
     return {std::vector<Mesh>{},
             {{.transform = {.translation = {7, 0, 0}}},
-             {.parent = 0, .transform = {.translation = {0, 3, 0}}}},
+             {.parent_index = 0, .transform = {.translation = {0, 3, 0}}}},
             {std::move(clip)}};
 }
 
@@ -235,11 +235,12 @@ void definition_outlives_geometry()
 
 void mesh_expansion_and_character_content()
 {
-    Model const model{std::vector<Mesh>{Mesh{{}, {}}, Mesh{{}, {}}},
-                      {{.transform = {.translation = {1, 0, 0}}},
-                       {.parent = 0, .transform = {.translation = {0, 2, 0}}, .mesh = 1},
-                       {.parent = 0, .transform = {.translation = {0, 0, 3}}, .mesh = 1}},
-                      {{.channels = {translation()}}}};
+    Model const model{
+        std::vector<Mesh>{Mesh{{}, {}}, Mesh{{}, {}}},
+        {{.transform = {.translation = {1, 0, 0}}},
+         {.parent_index = 0, .transform = {.translation = {0, 2, 0}}, .mesh_index = 1},
+         {.parent_index = 0, .transform = {.translation = {0, 0, 3}}, .mesh_index = 1}},
+        {{.channels = {translation()}}}};
     ModelInstance instance{model.definition()};
     instance.play_animation(0);
     instance.update_animation(1);
@@ -309,6 +310,54 @@ void player_nod_clip()
           "completed nodding does not repeat");
 }
 
+void imported_player_and_weapon()
+{
+    auto const path = std::filesystem::path{__FILE__}.parent_path() / "fixtures/player-prop.obj";
+    lc1::CharacterBody const body{};
+    auto const barrel = lc1::load_barrel_player_model(path, body);
+    ModelInstance player{barrel.definition()};
+    glm::vec3 minimum{std::numeric_limits<float>::max()};
+    glm::vec3 maximum{std::numeric_limits<float>::lowest()};
+    for (auto const &draw : player.mesh_instances(glm::mat4{1}))
+        for (auto const &vertex : barrel.vertices(draw.mesh)) {
+            auto const point = glm::vec3{draw.model_matrix * glm::vec4{vertex.position, 1}};
+            minimum = glm::min(minimum, point);
+            maximum = glm::max(maximum, point);
+        }
+    check(near(minimum, {-body.half_width, 0, -body.half_width}) &&
+              near(maximum, {body.half_width, body.height, body.half_width}),
+          "imported barrel is centred, grounded and fitted to the player's collision body");
+    auto const eyes = barrel.definition().find_node("Eyes");
+    check(eyes && near(glm::vec3{player.node_world_matrix(*eyes, glm::mat4{1})[3]},
+                       {0, body.eye_height, 0}),
+          "import normalization does not scale the eye mount");
+
+    auto const weapon = lc1::load_player_weapon_model(path);
+    ModelInstance instance{weapon.definition()};
+    auto const grip = *weapon.definition().find_node("Grip");
+    auto const mesh = *weapon.definition().find_node("KingdomLongsword");
+    auto const rest = instance.node_world_matrix(mesh, glm::mat4{1});
+    auto const grip_position = instance.node_world_matrix(grip, glm::mat4{1})[3];
+    instance.play_animation(0, false);
+    instance.update_animation(0.28F);
+    auto const moving = instance.node_world_matrix(mesh, glm::mat4{1});
+    check(!near(glm::vec3{rest[1]}, glm::vec3{moving[1]}) &&
+              near(glm::vec3{instance.node_world_matrix(grip, glm::mat4{1})[3]},
+                   glm::vec3{grip_position}),
+          "weapon swings around its fixed grip");
+    auto const world = glm::translate(glm::mat4{1}, glm::vec3{5, 2, -3}) *
+                       glm::rotate(glm::mat4{1}, glm::radians(90.0F), glm::vec3{0, 1, 0});
+    auto const followed = instance.node_world_matrix(mesh, world);
+    check(near(glm::vec3{followed[3]}, glm::vec3{world * moving[3]}),
+          "weapon pose follows the player's translation and yaw");
+    instance.update_animation(1);
+    instance.update_animation(1);
+    check(near(glm::vec3{instance.node_world_matrix(mesh, glm::mat4{1})[1]}, glm::vec3{rest[1]}),
+          "single swing finishes in the resting pose without looping");
+    instance.play_animation(0, false);
+    check(instance.playback()->time == 0, "another click restarts the swing");
+}
+
 } // namespace
 
 int main()
@@ -320,6 +369,7 @@ int main()
         mesh_expansion_and_character_content();
         definition_outlives_geometry();
         player_nod_clip();
+        imported_player_and_weapon();
         std::cout << "Model animation tests passed\n";
     }
     catch (std::exception const &error) {

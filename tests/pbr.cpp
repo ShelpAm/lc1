@@ -1,6 +1,9 @@
 #include "render-device.hpp"
 
+#include "lc1/game/character/character-model.hpp"
+#include "lc1/game/character/character.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/scene/gpu-model.hpp"
 #include "lc1/scene/lights/directional-light.hpp"
@@ -14,12 +17,12 @@
 #include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/continent/view.hpp"
 
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/instance.hpp"
 #include "lc1/vk/core/loader.hpp"
 #include "lc1/vk/presentation/surface.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
-#include "lc1/window.hpp"
 
 #include <glm/gtc/packing.hpp>
 
@@ -483,9 +486,9 @@ void model_animation_test(lc1::Device const &device)
             meshes.emplace_back(std::move(vertices), std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
             return lc1::scene::Model{
                 std::move(meshes),
-                {{.mesh = 0},
-                 {.parent = 0, .transform = {.translation = {-1, 0, 0}}, .mesh = 0},
-                 {.transform = {.translation = {100, 0, 0}}, .mesh = 1}},
+                {{.mesh_index = 0},
+                 {.parent_index = 0, .transform = {.translation = {-1, 0, 0}}, .mesh_index = 0},
+                 {.transform = {.translation = {100, 0, 0}}, .mesh_index = 1}},
                 {{.name = "Move",
                   .channels = {
                       {.times = {0, 1}, .values = std::vector<glm::vec3>{{0, 0, 0}, {2, 0, 0}}}}}}};
@@ -538,15 +541,70 @@ void model_animation_test(lc1::Device const &device)
     near(render(instance).center().r, 2, "restarting animation restores rendered geometry");
 }
 
+void player_models_test(lc1::Device const &device)
+{
+    lc1::scene::GpuModel barrel{
+        device,
+        lc1::load_barrel_player_model("runtime/assets/lc-res/Modular Village/Prop_Barrel_1.obj",
+                                      lc1::CharacterBody{})};
+    lc1::scene::GpuModel sword{
+        device, lc1::load_player_weapon_model("runtime/assets/lc-res/KingdomLongsword.obj")};
+    lc1::MaterialInfo wood;
+    wood.parameters = {.base_color_factor = {0.45F, 0.22F, 0.07F, 1},
+                       .metallic_factor = 0,
+                       .roughness_factor = 0.8F};
+    lc1::MaterialInfo metal;
+    metal.parameters = {.base_color_factor = {0.65F, 0.7F, 0.8F, 1},
+                        .metallic_factor = 0.85F,
+                        .roughness_factor = 0.3F};
+    lc1::scene::Scene scene;
+    scene.add_model({.model = &barrel, .material = &wood});
+    auto *weapon = scene.add_model({.model = &sword, .material = &metal});
+    scene.add_light(lc1::scene::to_light(
+        lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 3},
+                                     .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(scene.draw_count()));
+    lc1::scene::FpsCamera camera;
+    camera.set_position({3, 2.5F, -4});
+    camera.look_at({0.1F, 1, -0.3F});
+    auto render = [&] {
+        return capture(device, renderer, frame, camera, scene, {.width = 800, .height = 600});
+    };
+    auto const rest = render();
+    weapon->pose.play_animation(0, false);
+    scene.update_animations(0.28F);
+    auto const swing = render();
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < rest.output.size(); i += 4)
+        if (rest.output[i] != swing.output[i] || rest.output[i + 1] != swing.output[i + 1] ||
+            rest.output[i + 2] != swing.output[i + 2])
+            ++changed;
+    check(changed > 100, "imported weapon swing must visibly change rendered coverage");
+    std::filesystem::create_directories("artifacts");
+    auto save = [](Capture const &result, char const *path) {
+        std::ofstream image{path, std::ios::binary};
+        image << "P6\n" << result.extent.width << ' ' << result.extent.height << "\n255\n";
+        for (std::size_t i = 0; i < result.output.size(); i += 4)
+            for (int channel = 0; channel < 3; ++channel)
+                image.put(static_cast<char>(result.output[i + channel]));
+        check(image.good(), "failed to save player model capture");
+    };
+    save(rest, "artifacts/player-weapon-rest.ppm");
+    save(swing, "artifacts/player-weapon-swing.ppm");
+}
+
 void showcase_test(lc1::Device const &device)
 {
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Srgb}, vk::SampleCountFlagBits::e4};
     auto const blocks = lc1::demo::PbrShowcase::spawn_blocks();
     auto const continent = lc1::Continent::make_prototype(blocks);
     for (int z = -25; z <= 25; z += 2)
-        check(continent.can_stand(continent.spawn() + glm::vec3{0, 0, z}, 0.3F, 1.8F),
+        check(lc1::WorldCollision{continent}.can_stand(continent.spawn() + glm::vec3{0, 0, z}, 0.3F,
+                                                       1.8F),
               "showcase obstructs the main road");
-    check(!continent.can_stand(continent.spawn() + glm::vec3{-13, 0, 15}, 0.3F, 1.8F),
+    check(!lc1::WorldCollision{continent}.can_stand(continent.spawn() + glm::vec3{-13, 0, 15}, 0.3F,
+                                                    1.8F),
           "showcase pedestal has no static collision");
     std::array<std::uint8_t, 4> const pixel{255, 255, 255, 255};
     lc1::GpuTexture white{device, {.width = 1, .height = 1}, pixel};
@@ -624,7 +682,9 @@ int main(int argc, char **argv)
 {
     try {
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
-        check(argc == 1 || animation_only, "usage: lc1_pbr_tests [--model-animation]");
+        bool const player_only = argc == 2 && std::string_view{argv[1]} == "--player-models";
+        check(argc == 1 || animation_only || player_only,
+              "usage: lc1_pbr_tests [--model-animation|--player-models]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -634,6 +694,12 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (player_only) {
+            player_models_test(device);
+            device.wait_idle();
+            std::cout << "Imported player and weapon swing GPU tests passed\n";
+            return 0;
+        }
         if (animation_only) {
             model_animation_test(device);
             device.wait_idle();

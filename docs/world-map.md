@@ -120,7 +120,8 @@ ctest --test-dir build/linux-x86_64/Debug --output-on-failure
 ```
 
 样例布局在 `src/game/continent/prototype.cpp`，类型和查询接口在
-`include/lc1/game/continent/continent.hpp`，地图校验与移动在 `src/game/continent/continent.cpp`，
+`include/lc1/game/continent/continent.hpp`，地图校验在 `src/game/continent/continent.cpp`，碰撞查询与扫掠在
+`src/game/physics/world-collision.cpp`，角色运动见[角色物理](physics.md)，
 显示在 `src/game/continent/view.cpp`。新增地点时分配 ID、设置范围与入口、
 放置几何，再按入口连接道路；场景与碰撞会共同验证路线。
 

@@ -3,7 +3,7 @@
 会话更新和视角切换时序以[代码边界](code-layout.md#每帧时序)为准；本文规定设备与动作层的接口。
 
 - `Window` 拥有原始 `InputState`，不解释游戏按键。`Window`/`input.hpp` 不包含 Vulkan，输入头也不包含 GLFW。
-- `lc1/input.hpp` 只提供设备状态和 `BasicInputRouter` 模板；游戏动作、context、类型别名和默认绑定属于
+- `lc1/platform/input.hpp` 只提供设备状态和 `BasicInputRouter` 模板；游戏动作、context、类型别名和默认绑定属于
   `game/actions.*`。游戏通过 `GameAction` 查询动作；`GameInputContext::Ui` 刻意无绑定，用来屏蔽玩法。
   Escape 映射为 `QuitGame`，由 GameSession 请求退出、Application 结束循环。
 - 路由器只解析栈顶 context，每次 update 从头计算，重复调用保持幂等。多个键绑定同一动作时，
@@ -14,6 +14,8 @@
   GameSession 根据菜单和视角状态直接调用 `Window::set_cursor_captured()`，由 Window 在捕获变化时重置基线。控制模式、焦点和 context 分别参与玩法门控，
   不能用是否捕获光标来反推输入是否启用。
 - F2 按下时触发玩家单次点头，按住不重复；沿用玩法键盘输入门控。
+- 鼠标左键按下触发一次武器挥动，按住不重复，再次按下从头播放；沿用玩法鼠标门控，
+  菜单、失焦、UI context 和 ImGui 鼠标捕获期间不触发。当前仅为表现动画，不执行命中或伤害判定。
 - F6 打开命名保存，F9 打开存档选择；窗口打开时禁用玩法输入并释放第一人称光标，取消后恢复。
 - GLFW 光标位置是逻辑屏幕坐标；拾取在 framebuffer 边界转换为像素坐标。
   视口尺寸来自窗口整数尺寸，不重复检查浮点有限性；边缘推屏仍检查有效尺寸、光标有限性及范围。

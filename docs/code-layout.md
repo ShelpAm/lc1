@@ -9,26 +9,28 @@
 | `app/main.cpp`、`app/application.*` | `lc1` | 进程入口、窗口和 Vulkan 生命周期、输入接入、交换链和每帧调度 |
 | `include/lc1/game/`、`src/game/` | `lc1_game` | 按玩法功能域划分的规则、状态、控制与表现适配代码 |
 | `game/debug/pbr-showcase.*`，分别位于上述头文件和源码目录 | `lc1_game` | 当前嵌入游戏世界的 PBR 展示，供游戏和 GPU 测试共同使用 |
-| 其余引擎模块，包括 `scene/`、`vk/`、窗口及资源模块 | `lc1_engine` | 场景表达、渲染和平台能力 |
+| `include/lc1/platform/`、`src/platform/` | `lc1_engine` | 窗口、设备输入与通用输入路由；类型仍使用 `lc1` 命名空间 |
+| 其余引擎模块，包括 `scene/`、`vk/` 及资源模块 | `lc1_engine` | 场景表达、渲染和平台能力 |
 
 `include/lc1/game/` 与 `src/game/` 使用相同的功能域子目录，便于按“要改哪个玩法”而不是
 按“controller/view/model”定位文件：
 
 | 目录 | 职责 |
 |---|---|
-| `character/` | `Character`、`CharacterIntent`、`CharacterController`、AI 巡逻/伴随模式、装备、武器、重力常量 |
+| `character/` | `Character`、`CharacterIntent`、`CharacterController`、AI 巡逻/伴随模式、装备、武器 |
 | `player/` | 玩家动作到 intent 的解析、第一人称/斜视角状态与玩家相机跟随 |
 | `camera/` | 可复用的地图/斜视角相机算法，不读取输入、不拥有角色 |
-| `continent/` | 大陆数据、碰撞与查询、布局/原型/生成数据、地形绘制 |
+| `physics/` | 角色运动求解、静态碰撞查询、运动配置与重力常量；碰撞规则见[角色物理](physics.md) |
+| `continent/` | 大陆数据与地理查询、布局/原型/生成数据、地形绘制 |
 | `party/` | 队伍、阵营和队员命令 |
 | `dialog/` | 对话脚本、单场会话、入口规则与冷却 |
 | `world/` | `GameWorld` 装配与更新、`WorldPresentation`、可交互对象 |
 | `session/` | `GameSession` 协调以及 `Save`/序列化 |
 | `ui/` | 会话内 ImGui 界面与音乐浏览器 |
 | `debug/` | 嵌入世界的 PBR 展示，游戏与 GPU 测试共用 |
-| `actions.hpp/.cpp` | 游戏自己的动作、context 和默认绑定；设备层是 `lc1/input.hpp` |
+| `actions.hpp/.cpp` | 游戏自己的动作、context 和默认绑定；设备层是 `lc1/platform/input.hpp` |
 
-`actions.hpp` 没有单独建目录：它只有一组小接口，但必须和引擎的 `lc1/input.hpp` 明确区分。
+`actions.hpp` 没有单独建目录：它只有一组小接口，但必须和引擎的 `lc1/platform/input.hpp` 明确区分。
 引擎头文件只有 `InputState`、`Key` 和模板 `BasicInputRouter`；游戏的 `GameAction`、
 `GameInputContext`、`GameInputRouter` 和 `default_game_bindings()` 都在 `game/actions.*`。
 
@@ -64,9 +66,21 @@ Application 通过 `GameSession::world()`、`world_presentation()`、`player_vie
 查询各自的数据；引用有效期不超过会话。会话负责更新协调、保存及反馈，并提供宽高比设置入口，
 不为每个子对象查询重复提供转发方法。
 
-角色当前共用占位模型定义（节点与动画）、GPU 网格和材质，CPU 几何在上传后释放；Scene 为每个角色拥有独立的 `ModelInstance`；
+NPC 当前共用占位模型定义、GPU 网格和材质；玩家使用本地木桶模型，另有跟随身体世界变换的武器实例，
+素材路径及动画行为见[角色文档](character.md#本地模型试用)。CPU 几何在上传后释放；Scene 为每个角色拥有独立的 `ModelInstance`；
 `WorldPresentation` 保存角色与场景实例的关联、选择动画并提交角色世界变换，Scene 推进动画、查询挂点并展开 DrawItem；角色仍是玩法变换的唯一权威。
 模型与实例的索引及借用约定见[资源文档](resources.md#模型资源与实例)。`scene::Object` 仍可用于其他渲染场景，不再是角色世界姿态的所有者。
+
+示例内容由 CPU 侧 `game/debug/world-setup.*` 集中装配，`GameSession` 显式把
+`demo::world_setup()` 的 `WorldSetup` 交给世界：大陆含展示碰撞体，另带示例巡逻路线、出生点和初始物资。
+`GameWorld(save)` 默认只加载存档指定的基础大陆，不隐式添加展示场景或巡逻；
+需要恢复巡逻的 checkpoint 必须提供路线，缺少时明确失败，不静默丢失巡逻状态。
+世界只执行传入的场景配置，不包含 PBR 展示类型或硬编码地图路线。
+展示绘制和碰撞共用 `showcase_blocks()`；原 `PbrShowcase::spawn_blocks()` 转发该 CPU 数据入口。
+
+演示物资仅在从种子数据创建世界时发放一次：10 Moneta、2 木材和 3 生铁，共 8.1 kg，
+适配默认 10 kg 背包。`update()` 不产生测试物资，checkpoint 精确恢复已消耗的数量。
+背包格式和旧存档迁移见[存档](save-data.md)。
 
 `DialogCatalog` 拥有 YAML 内容和状态入口规则，`Dialog` 表示一场交流，`DialogSystem` 管理
 并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、控制器暂停及交互动作执行；
@@ -107,10 +121,11 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 争用方向键与空格；默认设置下，仅被聚焦的窗口（常驻调试面板就是一例）也会让 `WantCaptureKeyboard`
 每帧为真，使所有 `GameAction` 都解析为未按下。菜单与面板都由鼠标操作。
 
-模拟时间要求有限且非负，每帧最多推进 0.1 秒；角色、对话、相机和展示使用同一份时间。
+模拟时间要求有限且非负，不设置 0.1 秒截断；角色、对话、相机和展示使用同一份完整时间。
 `GameWorld::update()` 在世界入口检查时间；随后执行的表现更新与相机控制器信任该前置条件，
 不重复检查非有限时间，也不将非法时间静默替换为零。角色、对话及动画的独立调用入口仍验证各自输入。
-当前没有固定步长或追赶长帧。角色名单按 keyid 排序，非跟随者先更新、跟随者后更新，
+角色运动在内部细分时间并全部推进，步长与请求消费规则见[角色物理](physics.md)；
+控制器、对话、相机和展示仍每帧调用一次，没有独立固定步长时钟。角色名单按 keyid 排序，非跟随者先更新、跟随者后更新，
 避免依赖 `unordered_map` 遍历顺序，也让跟随者读取本帧队长的位置。
 
 ## 生命周期与资源
@@ -140,7 +155,7 @@ FrameLoop 的帧资源在会话之后构造、之前销毁。`GameLocation` 的�
 `lc1_game_world_tests` 覆盖无窗口世界装配、交互招募、跟随、存档恢复、统一时间以及
 玩家控制 → 物理 → 相机的时序。原有大陆、角色、对话和视角 CPU 测试继续运行。
 GPU 渲染和窗口交互需要单独验证。动作枚举、context、默认绑定属于 `game/actions.*`；
-引擎 `lc1/input.hpp` 只保留设备状态和模板路由。`lc1_input_tests` 使用自定义动作/context 验证通用路由。
+引擎 `lc1/platform/input.hpp` 只保留设备状态和模板路由。`lc1_input_tests` 使用自定义动作/context 验证通用路由。
 
 ## 修改功能时从哪里开始
 

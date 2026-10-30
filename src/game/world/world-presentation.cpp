@@ -26,8 +26,7 @@ float volume_to_gain(float volume_percent)
     return normalized * normalized;
 }
 
-// The player's body. The placeholder mesh below and the collision body are built from the
-// same numbers, so the two cannot silently disagree.
+// NPCs currently use the default body and share a placeholder mesh.
 constexpr CharacterBody player_body{};
 
 // One font per frame, and its atlas is fixed once constructed: the face has to cover every
@@ -63,22 +62,36 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
       continent_view_{device, white_, world.continent()},
       showcase_{device, world.continent().spawn()},
       character_resources_{device, make_character_model(player_body)},
+      player_resources_{
+          device, load_barrel_player_model(asset_root / "lc-res/Modular Village/Prop_Barrel_1.obj",
+                                           world.player().body())},
+      weapon_resources_{device,
+                        load_player_weapon_model(asset_root / "lc-res/KingdomLongsword.obj")},
       player_material_{
           MaterialInfo{.parameters = {.metallic_factor = 0.0F, .roughness_factor = 0.8F},
                        .base_color = {.texture = &white_}}},
+      barrel_material_{MaterialInfo{.parameters = {.base_color_factor = {0.45F, 0.22F, 0.07F, 1.0F},
+                                                   .metallic_factor = 0.0F,
+                                                   .roughness_factor = 0.8F},
+                                    .base_color = {.texture = &white_}}},
+      weapon_material_{MaterialInfo{.parameters = {.base_color_factor = {0.65F, 0.7F, 0.8F, 1.0F},
+                                                   .metallic_factor = 0.85F,
+                                                   .roughness_factor = 0.3F},
+                                    .base_color = {.texture = &white_}}},
       output_(output)
 {
     character_models_.reserve(world.characters().size());
     for (std::size_t i = 0; i < world.characters().size(); ++i) {
+        bool const player = world.characters()[i] == &world.player();
+        auto const &resources = player ? player_resources_ : character_resources_;
         auto *model = scene_.add_model(scene::SceneModel{
-            .model = &character_resources_,
-            .material = &player_material_,
+            .model = &resources,
+            .material = player ? &barrel_material_ : &player_material_,
             .world_transform = world.characters()[i]->transform().model_matrix()});
         character_models_.push_back(model);
         auto &instance = model->pose;
-        bool const player = world.characters()[i] == &world.player();
         std::string_view const clip_name = player ? "Nod" : "Idle";
-        auto const clips = character_resources_.definition().animations();
+        auto const clips = resources.definition().animations();
         auto const clip = std::ranges::find(clips, clip_name, &scene::AnimationClip::name);
         if (clip == clips.end())
             fail("character model is missing animation {}", clip_name);
@@ -95,10 +108,14 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
 
     if (!player_model_)
         fail("player presentation is missing");
-    auto const eyes = character_resources_.definition().find_node("Eyes");
+    auto const eyes = player_resources_.definition().find_node("Eyes");
     if (!eyes)
         fail("character model is missing the Eyes mount");
     eyes_node_index_ = *eyes;
+    weapon_model_ = scene_.add_model(
+        scene::SceneModel{.model = &weapon_resources_,
+                          .material = &weapon_material_,
+                          .world_transform = world.player().transform().model_matrix()});
 
     scene::DirectionalLight const sun{
         .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.3F},
@@ -143,6 +160,7 @@ void WorldPresentation::update_instances()
         showcase_models_[i]->world_transform = showcase[i].world_transform;
     for (std::size_t i = 0; i < character_models_.size(); ++i)
         character_models_[i]->world_transform = world_->characters()[i]->transform().model_matrix();
+    weapon_model_->world_transform = world_->player().transform().model_matrix();
 }
 
 std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
@@ -231,7 +249,9 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
 {
     if (input.nod)
         player_model_->pose.play_animation(nod_animation_index_, false);
-    scene_.update_animations(std::min(delta_seconds, 0.1F));
+    if (input.swing_weapon)
+        weapon_model_->pose.play_animation(0, false);
+    scene_.update_animations(delta_seconds);
     if (input.cycle_lighting)
         lighting_mode_ = (lighting_mode_ + 1) % lighting_names.size();
     if (input.toggle_showcase_motion)
@@ -240,7 +260,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         std::clamp(output_.exposure * std::exp2(static_cast<float>(input.exposure_steps) * 0.5F),
                    0.03125F, 16.0F);
     if (showcase_animated_)
-        showcase_time_ += std::clamp(delta_seconds, 0.0F, 0.1F);
+        showcase_time_ += delta_seconds;
     showcase_.update(showcase_time_);
     update_lighting();
     update_instances();

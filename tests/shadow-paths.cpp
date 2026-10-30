@@ -1,6 +1,7 @@
 #include "render-device.hpp"
 
 #include "lc1/image.hpp"
+#include "lc1/platform/window.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/scene/lights/directional-light.hpp"
 #include "lc1/vk/core/device.hpp"
@@ -10,7 +11,6 @@
 #include "lc1/vk/render/renderer.hpp"
 #include "lc1/vk/resources/gpu-texture.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
-#include "lc1/window.hpp"
 
 #include <algorithm>
 #include <array>

@@ -11,10 +11,10 @@ ModelDefinition::ModelDefinition(std::size_t mesh_count, std::vector<ModelNode> 
                                  std::vector<AnimationClip> animations)
     : nodes_(std::move(nodes)), animations_(std::move(animations))
 {
-    for (auto const &[index, node] : std::views::enumerate(nodes_)) {
-        if (node.parent && *node.parent >= static_cast<std::size_t>(index))
+    for (auto const &[index, node] : std::views::zip(std::views::iota(0UZ), nodes_)) {
+        if (node.parent_index && *node.parent_index >= index)
             fail("model parent must precede its child");
-        if (node.mesh && *node.mesh >= mesh_count)
+        if (node.mesh_index && *node.mesh_index >= mesh_count)
             fail("model node mesh index is out of range");
         node.transform.matrix();
     }
@@ -34,8 +34,8 @@ std::span<AnimationClip const> ModelDefinition::animations() const
 
 std::size_t ModelDefinition::draw_count() const
 {
-    return static_cast<std::size_t>(
-        std::ranges::count_if(nodes_, [](auto const &node) { return node.mesh.has_value(); }));
+    return static_cast<std::size_t>(std::ranges::count_if(
+        nodes_, [](auto const &node) { return node.mesh_index.has_value(); }));
 }
 
 std::optional<std::size_t> ModelDefinition::find_node(std::string_view name) const

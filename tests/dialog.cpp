@@ -78,11 +78,8 @@ struct World {
 
     World()
     {
-        party.set_leader(&player);
-        party.add_captive(&captive);
-        other.set_leader(&leader);
-        other.add_member(&worker);
-        other.add_member(&passerby);
+        party.restore_roster(&player, {}, {&captive});
+        other.restore_roster(&leader, {&worker, &passerby}, {});
     }
 
     auto participants()

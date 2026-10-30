@@ -35,6 +35,9 @@ flowchart TD
     intent --> character[Character]
     world --> ai
     world --> character
+    character --> motion["CharacterMotion · 碰撞与重力"]
+    motion --> collision["WorldCollision · 静态碰撞查询"]
+    collision --> continent
     world --> continent[Continent]
     world --> dialog[DialogSystem]
     world --> save["Save / SerializedWorld"]
@@ -47,8 +50,8 @@ flowchart TD
 `PlayerController`，会话负责把玩家 intent 与输入门控一起交给世界。
 
 游戏实现位于 `include/lc1/game/` 与 `src/game/`，按 `character/`、`player/`、`world/`、
-`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。
-`game/actions.*` 是游戏动作层，`lc1/input.hpp` 是设备/模板路由层。
+`physics/`、`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。
+`game/actions.*` 是游戏动作层，`lc1/platform/input.hpp` 是设备/模板路由层。
 输入解析、更新顺序以及对象间借用见[代码边界](code-layout.md)；角色、对话、存档分别由
 [角色](character.md)、[对话](dialog.md)、[存档](save-data.md)文档说明。网络架构是未来方向，
 图中均为本地原型对象。

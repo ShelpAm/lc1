@@ -1,4 +1,4 @@
-#include "lc1/input.hpp"
+#include "lc1/platform/input.hpp"
 
 namespace lc1 {
 namespace {

@@ -206,7 +206,7 @@ Application::Application(ApplicationConfig const &config)
       }))
 {
     spdlog::info("[world] WASD: walk, wheel: zoom, Shift: run, Y: camera lock, Space: "
-                 "recenter, M: first-person/oblique view, Esc: quit");
+                 "recenter, M: first-person/oblique view, left click: swing weapon, Esc: quit");
     spdlog::info("[showcase] material exhibits beside the spawn road; F4: lighting, "
                  "F5: pause motion, PageUp/PageDown: exposure");
 

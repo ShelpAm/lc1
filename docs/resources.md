@@ -94,11 +94,12 @@ OBJ、程序化顶点/索引构造生成一个引用网格 0 的单位根节点�
 占位角色的 `Eyes` 节点挂在头部下；表现层保存挂点索引，在动画更新后向 Scene 查询，
 把眼睛世界变换（位置与旋转）交给第一人称相机。
 
-当前 `WorldPresentation` 通过 `GpuModel{device, make_character_model(body)}` 创建共享角色资源，
+当前 `WorldPresentation` 通过 `GpuModel{device, make_character_model(body)}` 创建共享 NPC 资源，
 加载用的 CPU 几何在 GpuModel 构造返回前释放；
 在 Scene 中为每个角色创建独立 `ModelInstance`，游戏层只保存借用指针。
 占位内容由 `make_character_model()` 构造，身体和头部是两个网格节点，共享定义中有头部左右转动的 `Idle` 和双次点头的 `Nod`；
-表现层按玩家身份选择 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置从 `Character` 读取，更新末尾将角色世界矩阵提交给 Scene。
+玩家木桶与独立武器的文件加载、校正及动画约定见[本地模型试用](character.md#本地模型试用)，
+玩家保留 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置从 `Character` 读取，更新末尾将角色世界矩阵提交给 Scene。
 帧容量按每个角色实际展开的绘制项数量计算并检查 uint32 上限。
 待机动画不是行走、攻击或 root motion；表现时间与会话一致，每帧最多推进 0.1 秒。
 

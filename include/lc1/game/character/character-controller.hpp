@@ -23,7 +23,7 @@ class CharacterController {
     virtual ~CharacterController() = default;
 
     // An interface, not a default: a controller that does nothing would silently stop
-    // driving its character. The caller passes the same finite, 0.1 s-capped simulation
+    // driving its character. The caller passes the same finite, nonnegative simulation
     // time it will pass to Character::update(); the controller returns what it wants.
     virtual CharacterIntent update(float delta_seconds, Character const &character) = 0;
 

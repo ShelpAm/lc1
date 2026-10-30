@@ -54,7 +54,8 @@ void model_ownership_animation_and_mounts()
     using namespace lc1::scene;
     ModelDefinition const definition{
         0,
-        {{.name = "Root"}, {.name = "Eyes", .parent = 0, .transform = {.translation = {0, 3, 0}}}},
+        {{.name = "Root"},
+         {.name = "Eyes", .parent_index = 0, .transform = {.translation = {0, 3, 0}}}},
         {{.name = "Move",
           .channels = {
               {.times = {0, 2}, .values = std::vector<glm::vec3>{{0, 0, 0}, {4, 0, 0}}}}}}};
@@ -88,7 +89,7 @@ void model_ownership_animation_and_mounts()
     rejects([&] { (void)player->node_world_matrix(2); });
     rejects([&] { scene.update_animations(-1); });
     rejects([&] { scene.add_model({.model = &model, .material = nullptr}); });
-    ModelDefinition const missing_mesh{1, {{.name = "Mesh", .mesh = 0}}};
+    ModelDefinition const missing_mesh{1, {{.name = "Mesh", .mesh_index = 0}}};
     rejects([&] { GpuModel invalid{std::vector<lc1::GpuMesh>{}, missing_mesh}; });
     rejects([&] { scene.add_model({.model = nullptr, .material = &material}); });
     GpuModel const other_model{std::vector<lc1::GpuMesh>{}, definition};

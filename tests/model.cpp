@@ -37,9 +37,12 @@ void hierarchy_and_instances()
 {
     lc1::scene::Model const model{
         std::vector<lc1::scene::Mesh>{lc1::scene::Mesh{{}, {}}},
-        {{.name = "body", .transform = {.translation = {1, 0, 0}}, .mesh = 0},
-         {.name = "hand", .parent = 0, .transform = {.translation = {0, 2, 0}}, .mesh = 0},
-         {.name = "attachment", .parent = 1, .transform = {.translation = {0, 0, 3}}},
+        {{.name = "body", .transform = {.translation = {1, 0, 0}}, .mesh_index = 0},
+         {.name = "hand",
+          .parent_index = 0,
+          .transform = {.translation = {0, 2, 0}},
+          .mesh_index = 0},
+         {.name = "attachment", .parent_index = 1, .transform = {.translation = {0, 0, 3}}},
          {.name = "other root", .transform = {.translation = {-1, 0, 0}}}}};
     lc1::scene::ModelInstance first{model.definition()};
     lc1::scene::ModelInstance second{model.definition()};
@@ -69,11 +72,13 @@ void hierarchy_and_instances()
 
 void invalid_models()
 {
-    rejects([] { lc1::scene::Model model{std::vector<lc1::scene::Mesh>{}, {{.parent = 0}}}; });
+    rejects(
+        [] { lc1::scene::Model model{std::vector<lc1::scene::Mesh>{}, {{.parent_index = 0}}}; });
     rejects([] {
-        lc1::scene::Model model{std::vector<lc1::scene::Mesh>{}, {{.parent = 1}, {.parent = 0}}};
+        lc1::scene::Model model{std::vector<lc1::scene::Mesh>{},
+                                {{.parent_index = 1}, {.parent_index = 0}}};
     });
-    rejects([] { lc1::scene::Model model{std::vector<lc1::scene::Mesh>{}, {{.mesh = 0}}}; });
+    rejects([] { lc1::scene::Model model{std::vector<lc1::scene::Mesh>{}, {{.mesh_index = 0}}}; });
     rejects([] {
         lc1::scene::Model model{std::vector<lc1::scene::Mesh>{},
                                 {{.transform = {.rotation = {0, 0, 0, 0}}}}};
@@ -85,7 +90,7 @@ void invalid_models()
     });
     rejects([] {
         lc1::scene::Model model{std::vector<lc1::scene::Mesh>{lc1::scene::Mesh{{}, {0, 1, 2}}},
-                                {{.mesh = 0}}};
+                                {{.mesh_index = 0}}};
     });
     lc1::scene::Model const empty{std::vector<lc1::scene::Mesh>{},
                                   std::vector<lc1::scene::ModelNode>{}};
@@ -101,9 +106,10 @@ void shared_meshes()
                         std::vector<std::uint32_t>{});
     meshes.emplace_back(std::vector<lc1::Vertex>{{.position = {2, 0, 0}, .uv = {0, 0}}},
                         std::vector<std::uint32_t>{});
-    lc1::scene::Model const model{std::move(meshes), {{.mesh = 1}, {.mesh = 0}, {.mesh = 1}}};
+    lc1::scene::Model const model{std::move(meshes),
+                                  {{.mesh_index = 1}, {.mesh_index = 0}, {.mesh_index = 1}}};
     check(model.mesh_count() == 2 &&
-              model.definition().nodes()[0].mesh == model.definition().nodes()[2].mesh,
+              model.definition().nodes()[0].mesh_index == model.definition().nodes()[2].mesh_index,
           "multiple nodes can reference one mesh without duplicating its geometry");
     check(near(model.vertices(0)[0].position, {1, 0, 0}) &&
               near(model.vertices(1)[0].position, {2, 0, 0}),
@@ -116,7 +122,7 @@ void single_mesh_compatibility()
     lc1::scene::Model const model{std::vector<lc1::Vertex>{{.position = {1, 0, 0}, .uv = {0, 0}}},
                                   std::vector<std::uint32_t>{}};
     check(model.mesh_count() == 1 && model.definition().nodes().size() == 1 &&
-              model.definition().nodes()[0].mesh == 0,
+              model.definition().nodes()[0].mesh_index == 0,
           "legacy geometry creates one mesh and an identity root");
     lc1::scene::ModelInstance const instance{model.definition()};
     auto const point = instance.model_matrices()[0] * glm::vec4{model.vertices()[0].position, 1};

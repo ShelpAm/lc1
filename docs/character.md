@@ -3,7 +3,8 @@
 当前角色支持站立和沿地面移动，表现层的身体/头部节点已有待机动画。主角、士兵和 NPC 都可以使用
 `lc1::Character`；由玩家还是 AI 控制，不改变角色自身的类型。
 
-角色属于游戏层，声明在 `include/lc1/game/character/character.hpp`，实现在 `src/game/character/character.cpp`，
+角色属于游戏层，声明在 `include/lc1/game/character/character.hpp`，状态与动作请求处理在 `src/game/character/character.cpp`，
+运动求解由角色拥有的 `CharacterMotion` 组件负责，见[角色物理](physics.md)，
 与 `Continent` 和角色控制器一样使用 `lc1` 命名空间。角色持有唯一的 `scene::Transform`，外观资源和绘制由 `WorldPresentation` 负责，
 场景层不负责角色的出生、行走或碰撞规则。
 
@@ -16,10 +17,11 @@
 | 身体宽高、眼睛高度、行走和奔跑速度 | 每个角色的 `CharacterBody` |
 | 模型原点、单位、坐标轴的校正 | `ModelDefinition` 的根节点变换，随实例姿态参与绘制 |
 | CPU 顶点和索引 | `Model` |
-| GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有的 `GpuMesh`，当前角色共享占位资源 |
+| GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有的 `GpuModel`；NPC 共用占位资源，玩家和武器各自加载 |
 | 绘制资源引用 | `WorldPresentation` 生成的 `DrawItem`，借用资源 |
 | 玩家输入和控制决策 | `PlayerController` 解释输入并产生 `CharacterIntent`；角色不包含 `GameInputRouter`、`Window` 或相机 |
-| 动作是否允许、最终速度、朝向与跳跃结果 | `Character::update(delta, continent, intent)` 及其 gameplay 规则 |
+| 动作请求、期望速度与朝向 | `Character::update(delta, continent, intent)` 及其 gameplay 规则 |
+| 竖直速度、接地与碰撞求解 | 角色独占的 `CharacterMotion`，借用角色位置完成本次计算 |
 | AI 巡逻目标与等待 | `AiCharacterController` 的巡逻模式，只通过 `CharacterIntent` 影响角色 |
 | 队员跟随/等待 | `AiCharacterController` 的 `CompanionOrder` 模式，由队伍命令安装和替换 |
 | 当前观察画面的相机 | 应用/场景，按需要读取角色眼睛位置和观察方向 |
@@ -30,6 +32,18 @@
 
 `heading()` 是不包含俯仰的观察方向，`body_heading()` 是身体朝向，
 `look_direction()` 是包含俯仰的完整观察方向。它们在抬头或向侧面观察时有意不同。
+
+## 身份与队伍关系
+
+`Character::config()` 只返回只读配置，外部不能改写角色编号、所属队伍或装备槽映射。
+角色和队伍禁止复制、移动；注册表、队伍、对话和表现中的借用因此保持对象地址稳定。
+独立的 `CharacterMotion` 仍可移动，它不保存角色位置指针。
+
+`Party::restore_roster()` 是一次性装配入口，完整校验后提交名单，不能用于覆盖运行中的队伍。
+`recruit()` 同时更新来源、目标和角色所属队伍，先分配控制器及目标成员空间再修改关系，
+失败不留下已转队却未安装跟随控制器的状态。
+`change_leader()` 只允许提升本队普通成员或清空队长；原队长转为普通成员，俘虏不能提升。
+新队长的伴随命令会清除，清空队长时清除成员伴随命令，避免保存无法恢复的无队长命令。
 
 ## 构造和移动
 
@@ -56,22 +70,24 @@ character.move(continent, {0.0F, 0.0F, -0.5F});
 它借用大陆的碰撞查询，让身体沿障碍滑动，并把结果写回同一份世界位置。
 
 `walk(delta_seconds, continent, direction, running)` 根据角色速度计算位移。方向投影到
-XZ 平面，长度超过 1 时归一化，保留较小输入的模拟量强度；单次时间最多取 0.1 秒，
-避免断点或调整窗口造成瞬移。第一人称控制器使用 `heading()`，因此抬头不会减慢行走。
+XZ 平面，长度超过 1 时归一化，保留较小输入的模拟量强度，使用完整的非负有限时间计算位移。第一人称控制器使用 `heading()`，因此抬头不会减慢行走。
 
 `update(delta_seconds, continent, intent)` 是控制器意图进入角色状态的唯一路径，并把
-“应用 intent”与“推进物理”合并为一次状态更新。它先校验时间，私有 `apply_intent()` 信任已验证的时间并校验完整 intent，再按顺序应用
-身体 yaw/朝向、观察目标、水平移动和跳跃请求，随后推进跳跃、重力和接地；速度和碰撞
-仍由 `walk()`/`move()` 负责，控制器不直接写 `transform_`、`velocity_` 或耐力等状态。
+“应用 intent”与“推进物理”合并为一次状态更新。它先校验时间，私有 `apply_intent()`
+校验完整 intent，再应用身体 yaw/朝向、观察目标和跳跃请求，不执行位移。
+随后角色根据移动方向、奔跑和转身策略计算水平期望速度，交给 `CharacterMotion::update()`。
+物理组件不接收 `CharacterIntent`，不读取玩家／AI 控制器，不决定行走速度或身体朝向；
+它只处理物理运动并更新角色唯一的 `transform_.position`。状态归属、配置、时间细分与碰撞规则
+以[角色物理](physics.md)为准。
 `walk()` 和 `move()` 保留为角色自身的低层移动 API，供测试和特殊的世界级调整使用。
 
-这些方法都不自动转身。第一人称可以侧移、后退；斜视角控制器则通过 `face_movement`
+`move()` 不自动转身；`walk()` 按 `face_movement` 决定是否转身。第一人称可以侧移、后退；斜视角控制器通过 `face_movement`
 请求身体朝向移动方向，由角色决定是否执行。
 
 ## 跳跃与接地
 
 控制器通过 `CharacterIntent::jump` 发出一次跳跃请求，由 `Character::update()` 内部的
-`apply_intent()` 转成 `request_jump()`，再根据 `on_ground()` 更新竖直速度、高度和接地状态。
+`apply_intent()` 转成 `request_jump()`，再由 `CharacterMotion` 根据接地状态更新竖直速度、高度和接地状态。
 应用层使用按下事件而不是持续按住事件，避免落地后自动连跳；第一人称和斜视角控制器均支持
 该请求。当前 Space 也绑定了相机回中，斜视角下会同时触发原有回中行为，按键分离留待输入设计调整。
 
@@ -79,7 +95,7 @@ XZ 平面，长度超过 1 时归一化，保留较小输入的模拟量强度�
 日后加入眩晕、攻击状态或跳跃缓冲时，也应在 `Character::update()`/`apply_intent()` 一侧增加判断，
 而不是让每个控制器各自复制。
 
-地面高度来自 `Continent::support_below()`，不再固定为 y=0。构造时若脚下有支撑面，
+地面高度来自 `WorldCollision::support_below()`，不再固定为 y=0。构造时若脚下有支撑面，
 角色会贴到该表面；也可以直接在空中出生，第一次 `update(delta_seconds, continent, intent)`
 会应用重力并落地。`update` 在着地时跟随缓坡和小台阶，离开边缘后进入下落，并在下落
 过程中查询支撑面落地。默认跳跃高度为 0.5 米（脚底相对起跳支撑面的上升高度），使用重力计算起跳速度；
@@ -88,11 +104,11 @@ XZ 平面，长度超过 1 时归一化，保留较小输入的模拟量强度�
 
 `support_below()` 会忽略脚下高于当前高度的表面，因此桥面、平台和地面可以在同一
 XZ 坐标上重叠。`ContinentBlock::walkable_top` 标记可站立的体块顶面；普通墙体和建筑
-外壳不参与支撑查询。着地行走遇到低于 `step_height` 的可行走台面时，`Character::move()`
+外壳不参与支撑查询。着地行走遇到低于 `step_height` 的可行走台面时，物理组件
 会先尝试普通水平扫掠，再尝试抬高脚底扫掠，确认能站到更高支撑面后才上台阶；不会借机
 跨过不可站立的矮障碍。空中移动时还会检查地形是否已经从脚下“追上”身体，避免在陡坡上
-加速跳跃时穿入高度场后一直下落。当前仍未实现天花板碰撞、移动平台、坡面滑落和任意
-三角网格地形；这些需要继续扩展三维碰撞，而不是只调整接地高度。
+加速跳跃时穿入高度场后一直下落。向上运动使用头顶扫掠检测实体底面，撞顶后停止上升并继续计算
+剩余时间的下落。移动平台、坡面滑落和任意三角网格地形尚未实现。
 
 ## 模型校正
 
@@ -123,7 +139,7 @@ XZ 坐标上重叠。`ContinentBlock::walkable_top` 标记可站立的体块顶�
 平移和跟随算法，不接收输入打包结构。
 
 M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的世界更新中执行。
-`GameWorld::update()` 使用同一份受限时间先取得控制器 intent：玩家由 `PlayerController`
+`GameWorld::update()` 使用同一份完整时间先取得控制器 intent：玩家由 `PlayerController`
 产生，NPC 由其 `CharacterController::update()` 产生；随后统一调用
 `Character::update(elapsed, continent, intent)`。控制器暂停时只是传入空 intent，物理仍然推进。
 `update_camera()` 随后读取最终姿态，因此跳跃和相机跟随在同一帧生效。
@@ -150,6 +166,28 @@ NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2
 斜视角忽略眼睛挂点。`Character::eye_position()` 仍是玩法层的配置高度查询，未被动画改写；
 不提供挂点的 `PlayerView` 调用方继续使用这一回退值。
 占位几何由 `make_character_model(CharacterBody)` 构造，默认姿态尺寸与身体配置一致。
+
+## 本地模型试用
+
+玩家当前使用 `runtime/assets/lc-res/Modular Village/Prop_Barrel_1.obj`，NPC 保留方块占位模型。
+木桶的静态几何通过 OBJ 加载器读取，校正节点把底部放到脚底、水平居中，分别调整高度与水平尺寸，
+使默认姿态匹配玩家 `CharacterBody`。不修改导入顶点；`Eyes` 仍按身体配置以米表示。
+木桶挂在原有 `Head` 下，F2 会带动整个桶身摇动并保留相机挂点动画。
+木桶使用统一棕色材质，未导入原素材的 MTL 材质分组。
+
+武器使用本地 `weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
+经 `scripts/export-kingdom-longsword.py` 提取为同目录的 `KingdomLongsword.obj`。
+导出仅包含静态网格；运行时通过节点执行 Z-up 校正、单位缩放和握柄偏移，使用统一金属材质。
+Scene 独立拥有武器实例，`WorldPresentation` 拥有其 GPU 资源并提交玩家的身体世界矩阵；
+武器不改变 Character 的位置、碰撞或眼睛挂点。
+鼠标左键按下播放一次 0.55 秒的 `Swing`，包含蓄力、向前挥动和回位，再次按下从头播放。
+当前为可操作的模型展示，没有命中、伤害、连击或装备数据绑定。
+
+上述素材仍属于不纳入 Git 的外部 `runtime/assets/`，缺失时加载明确失败；
+运行前需准备村庄素材，并执行 `python3 scripts/export-kingdom-longsword.py` 生成武器 OBJ。
+CPU 测试使用仓库内的独立几何夹具验证校正、挂点、武器跟随和单次播放，不依赖外部素材。
+`./lc1_pbr_tests --player-models` 使用上述真实素材进行 GPU 回读，检查挥动后的画面变化，
+并在构建目录的 `artifacts/player-weapon-{rest,swing}.ppm` 保存两帧。
 
 后续蒙皮继续由模型实例拥有当前骨骼姿态和播放进度，借用共享骨骼和片段，通过网格索引关联 GPU 资源。
 眼睛位置和观察方向已跟随头部挂点；后续平滑策略仍由视角控制决定。

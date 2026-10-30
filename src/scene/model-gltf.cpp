@@ -340,15 +340,17 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
             fail("glTF skinning/morph weights are unsupported");
         auto const imported = nodes.size();
         mapping[static_cast<std::size_t>(index)] = imported;
-        nodes.push_back({.name = node.name, .parent = parent, .transform = node_transform(node)});
+        nodes.push_back(
+            {.name = node.name, .parent_index = parent, .transform = node_transform(node)});
         if (node.mesh >= 0) {
             auto const &primitives = element(mesh_indices, node.mesh);
             if (primitives.size() == 1)
-                nodes[imported].mesh = primitives.front();
+                nodes[imported].mesh_index = primitives.front();
             else
                 for (auto const mesh : primitives)
-                    nodes.push_back(
-                        {.name = node.name + "/primitive", .parent = imported, .mesh = mesh});
+                    nodes.push_back({.name = node.name + "/primitive",
+                                     .parent_index = imported,
+                                     .mesh_index = mesh});
         }
         for (auto it = node.children.rbegin(); it != node.children.rend(); ++it)
             pending.emplace_back(*it, imported);

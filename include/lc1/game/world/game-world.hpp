@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/dialog/dialog.hpp"
@@ -12,6 +13,20 @@
 #include <unordered_map>
 
 namespace lc1 {
+
+// Explicit scenario inputs, independent of presentation and device resources.
+struct PatrolSetup {
+    std::vector<Waypoint> route;
+    std::optional<glm::vec3> spawn;
+    float arrival_radius = 0.5F;
+    bool resume_nearest = false;
+};
+
+struct WorldSetup {
+    Continent continent;
+    std::optional<PatrolSetup> example_patrol;
+    std::vector<SerializedResourceStack> initial_player_resources;
+};
 
 struct WorldInteraction {
     // What the player controller asked for this frame. GameWorld applies it through
@@ -29,6 +44,8 @@ class GameWorld {
   public:
     GameWorld(Save const &save,
               std::filesystem::path const &dialog_catalog = "runtime/dialogs/catalog.yaml");
+    GameWorld(Save const &save, WorldSetup setup,
+              std::filesystem::path const &dialog_catalog = "runtime/dialogs/catalog.yaml");
     GameWorld(GameWorld const &) = delete;
     GameWorld &operator=(GameWorld const &) = delete;
     GameWorld(GameWorld &&) = delete;
@@ -38,10 +55,8 @@ class GameWorld {
     Continent const &continent() const;
 
     Character &player();
-
     Character const &player() const;
 
-    // Stable, keyid-ordered borrows; character borrows remain valid until load() or destruction.
     std::vector<Character const *> const &characters() const;
 
     DialogSystem const &dialogs() const;
@@ -49,7 +64,7 @@ class GameWorld {
     Character const *interaction_target() const;
 
     // Applies player controls, then physics and interactions; update presentation afterward.
-    // Both physics and conversations advance by the same capped simulation time.
+    // Both physics and conversations advance by the same full simulation time.
     void update(float delta_seconds, WorldInteraction const &interaction);
 
     // Discards runtime state and rebuilds from save, **keeping the continent and dialog catalog**.
@@ -65,9 +80,12 @@ class GameWorld {
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
     Character *find_interaction_target(glm::vec3 forward) const;
 
+    // Registries
     std::unordered_map<std::uint32_t, game::Resource> resources_;
 
     Continent continent_;
+    std::optional<PatrolSetup> example_patrol_;
+    std::vector<SerializedResourceStack> initial_player_resources_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Faction>> factions_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Equipment>> equipments_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Weapon>> weapons_;

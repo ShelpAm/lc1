@@ -69,6 +69,11 @@ struct SerializedCharacterConfig {
     std::map<WeaponType, std::uint32_t> weapon;
 };
 
+struct SerializedResourceStack {
+    std::uint32_t keyid;
+    std::uint32_t quantity;
+};
+
 struct SerializedCharacterState {
     std::uint32_t keyid;
     float x;
@@ -79,11 +84,13 @@ struct SerializedCharacterState {
     float look_pitch;
     bool patrol;
     CompanionOrder companion_order = CompanionOrder::None;
+    std::uint32_t bag_capacity = 10000; // Grams.
+    std::vector<SerializedResourceStack> bag = {};
 };
 
 // One complete checkpoint: membership and character records are committed together.
 struct SerializedWorld {
-    std::uint32_t version = 3;
+    std::uint32_t version = 4;
     ContinentIdentity continent{"present", 1};
     SerializedSession session;
     std::vector<SerializedFaction> factions;

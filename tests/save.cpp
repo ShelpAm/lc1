@@ -317,7 +317,7 @@ void checkpoint_round_trip()
     lc1::Save::write(scratch.directory(), data);
 
     auto invalid = data;
-    invalid.version = 4;
+    invalid.version = 5;
     rejects_write([&] { lc1::Save::write(scratch.directory(), invalid); },
                   "unsupported checkpoint version");
     invalid = data;
@@ -363,6 +363,41 @@ void checkpoint_round_trip()
     check_rejected_in(scratch, "cannot read save file");
 }
 
+void inventory_checkpoints()
+{
+    ScratchSave scratch{"inventory"};
+    auto data = checkpoint_data();
+    auto &state = data.states.front();
+    state.bag_capacity = 16000;
+    state.bag = {{3, 5}, {1, 20}, {2, 2}, {4, 1}};
+    lc1::Save::write(scratch.directory(), data);
+    auto const saved = lc1::Save{scratch.directory()}.states().at(state.keyid);
+    check(saved.bag_capacity == 16000 && saved.bag.size() == 4 && saved.bag.front().keyid == 1 &&
+              saved.bag.front().quantity == 20,
+          "inventory preserves capacity, quantities and canonical order");
+    for (auto const &bag : std::vector<std::vector<lc1::SerializedResourceStack>>{
+             {{999, 1}},
+             {{1, 0}},
+             {{1, 1}, {1, 2}},
+             {{3, 9}},
+             {{3, std::numeric_limits<std::uint32_t>::max()}}}) {
+        auto invalid = data;
+        invalid.states.front().bag = bag;
+        rejects_write([&] { lc1::Save::write(scratch.directory(), invalid); }, "bag");
+        check(lc1::Save{scratch.directory()}.states().at(state.keyid).bag.size() == 4,
+              "invalid inventory leaves the committed checkpoint unchanged");
+    }
+    // Reader validation is independent of writer validation.
+    scratch.patch("checkpoint.yaml", "quantity: 20", "quantity: 0");
+    check_rejected_in(scratch, "zero quantity");
+    lc1::Save::write(scratch.directory(), data);
+    scratch.patch("checkpoint.yaml", "bag_capacity:", "missing_capacity:");
+    check_rejected_in(scratch, "bag_capacity");
+    lc1::Save::write(scratch.directory(), data);
+    scratch.patch("checkpoint.yaml", "bag:", "missing_bag:");
+    check_rejected_in(scratch, "bag");
+}
+
 void legacy_checkpoints_are_upgraded()
 {
     ScratchSave scratch{"legacy"};
@@ -371,6 +406,7 @@ void legacy_checkpoints_are_upgraded()
     auto stream = std::ifstream{scratch.directory() / "checkpoint.yaml"};
     std::string legacy;
     bool continent_fields = false;
+    bool bag_fields = false;
     for (std::string line; std::getline(stream, line);) {
         if (line == "continent:") {
             continent_fields = true;
@@ -379,21 +415,29 @@ void legacy_checkpoints_are_upgraded()
         if (continent_fields && line.starts_with(" "))
             continue;
         continent_fields = false;
-        if (!line.contains("companion_order:"))
+        if (line.starts_with("    bag:")) {
+            bag_fields = true;
+            continue;
+        }
+        if (bag_fields && line.starts_with("      "))
+            continue;
+        bag_fields = false;
+        if (!line.contains("companion_order:") && !line.contains("bag_capacity:") &&
+            !line.contains("bag:"))
             legacy += line + "\n";
     }
     stream.close();
-    auto const version = legacy.find("version: 3");
-    check(version != std::string::npos, "checkpoint writer emits version 3");
-    legacy.replace(version, std::string_view{"version: 3"}.size(), "version: 1");
+    auto const version = legacy.find("version: 4");
+    check(version != std::string::npos, "checkpoint writer emits version 4");
+    legacy.replace(version, std::string_view{"version: 4"}.size(), "version: 1");
     scratch.write("checkpoint.yaml", legacy);
     auto const upgraded = lc1::Save{scratch.directory()}.data();
-    check(upgraded.version == 3 &&
+    check(upgraded.version == 4 &&
               upgraded.states.front().companion_order == lc1::CompanionOrder::None &&
               upgraded.states.at(1).patrol,
           "version 1 checkpoints preserve patrol and gain no implicit follow orders");
     lc1::Save::write(scratch.directory(), upgraded);
-    check(lc1::Save{scratch.directory()}.data().version == 3,
+    check(lc1::Save{scratch.directory()}.data().version == 4,
           "upgraded saves can be written and reloaded");
     check(upgraded.continent == lc1::ContinentIdentity{"present", 1},
           "legacy checkpoints select present continent revision 1");
@@ -408,6 +452,17 @@ void legacy_checkpoints_are_upgraded()
     scratch.write("checkpoint.yaml", v2);
     check(lc1::Save{scratch.directory()}.data().continent == lc1::ContinentIdentity{"present", 1},
           "version 2 checkpoints gain continent identity");
+    auto v3 = v2;
+    v3.replace(version, std::string_view{"version: 2"}.size(), "version: 3");
+    v3 += "continent:\n  id: prototype\n  version: 1\n";
+    scratch.write("checkpoint.yaml", v3);
+    auto const upgraded_v3 = lc1::Save{scratch.directory()}.data();
+    check(upgraded_v3.version == 4 && upgraded_v3.continent.id == "prototype" &&
+              std::ranges::all_of(upgraded_v3.states,
+                                  [](auto const &state) {
+                                      return state.bag.empty() && state.bag_capacity == 10000;
+                                  }),
+          "version 3 preserves continent identity and migrates to empty default bags");
     auto missing_continent = v2;
     missing_continent.replace(version, std::string_view{"version: 2"}.size(), "version: 3");
     scratch.write("checkpoint.yaml", missing_continent);
@@ -487,6 +542,7 @@ int main(int argc, char **argv)
         named_save_slots();
         checkpoint_round_trip();
         legacy_checkpoints_are_upgraded();
+        inventory_checkpoints();
         std::cout << "save data checks passed\n";
     }
     catch (std::exception const &error) {

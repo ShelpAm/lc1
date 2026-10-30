@@ -4,6 +4,7 @@
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 #include "lc1/game/world/interactable.hpp"
 
 #include <algorithm>
@@ -29,45 +30,41 @@ glm::vec3 horizontal_direction(float degrees)
     return {-std::sin(angle), 0.0F, -std::cos(angle)};
 }
 
+CharacterBody validated_body(CharacterBody body)
+{
+    if (!std::isfinite(body.half_width) || body.half_width <= 0.0F || !std::isfinite(body.height) ||
+        body.height <= 0.0F || !std::isfinite(body.eye_height) || body.eye_height < 0.0F ||
+        body.eye_height > body.height || !std::isfinite(body.walk_speed) ||
+        body.walk_speed < 0.0F || !std::isfinite(body.run_speed) || body.run_speed < 0.0F ||
+        !std::isfinite(body.step_height) || body.step_height < 0.0F ||
+        !std::isfinite(body.ground_snap_distance) || body.ground_snap_distance < 0.0F)
+        fail("invalid character body");
+
+    return body;
+}
+
+scene::Transform validated_transform(Continent const &continent, scene::Transform transform,
+                                     CharacterBody const &body)
+{
+    auto const &pose = transform;
+    if (pose.rotation.x != 0.0F || pose.rotation.z != 0.0F || pose.scale != glm::vec3{1.0F})
+        fail("ground character needs an upright, unscaled world transform");
+    if (!WorldCollision{continent}.can_stand(transform.position, body.half_width, body.height))
+        fail("character spawn is obstructed or outside the continent");
+    return transform;
+}
+
 } // namespace
 
 Character::Character(Continent const &continent, scene::Transform transform, CharacterConfig config,
-                     CharacterBody body)
-    : config_(std::move(config)), body_(body), bag_{10000}, on_ground_{}, velocity_{},
-      transform_(transform)
+                     CharacterBody body, CharacterMotionSettings motion_settings)
+    : config_(std::move(config)), body_(validated_body(body)), bag_{10000},
+      transform_(validated_transform(continent, transform, body_)),
+      motion_(WorldCollision{continent}, body_, transform_.position, motion_settings)
 {
-    if (!std::isfinite(body_.half_width) || body_.half_width <= 0.0F ||
-        !std::isfinite(body_.height) || body_.height <= 0.0F || !std::isfinite(body_.eye_height) ||
-        body_.eye_height < 0.0F || body_.eye_height > body_.height ||
-        !std::isfinite(body_.walk_speed) || body_.walk_speed < 0.0F ||
-        !std::isfinite(body_.run_speed) || body_.run_speed < 0.0F ||
-        !std::isfinite(body_.step_height) || body_.step_height < 0.0F ||
-        !std::isfinite(body_.ground_snap_distance) || body_.ground_snap_distance < 0.0F)
-        fail("invalid character body");
-
-    auto const &pose = transform_;
-    if (pose.rotation.x != 0.0F || pose.rotation.z != 0.0F || pose.scale != glm::vec3{1.0F})
-        fail("ground character needs an upright, unscaled world transform");
-    if (!continent.can_stand(position(), body_.half_width, body_.height))
-        fail("character spawn is obstructed or outside the continent");
-    set_body_yaw(pose.rotation.y);
-    // Spawning in the air is valid: the first update will apply gravity and land the
-    // character. If a support surface is already within step/snap range, start grounded
-    // and align the feet to it instead of requiring the caller to know the exact height.
-    auto const support =
-        continent.support_below({position().x, position().y + body_.step_height, position().z},
-                                body_.step_height + body_.ground_snap_distance, body_.half_width);
-    if (support) {
-        float const offset = support->height - position().y;
-        if (offset >= -body_.ground_snap_distance && offset <= body_.step_height) {
-            transform_.position.y = support->height;
-            on_ground_ = true;
-        }
-    }
+    set_body_yaw(transform_.rotation.y);
 }
 
-Character::Character(Character &&) noexcept = default;
-Character &Character::operator=(Character &&) noexcept = default;
 Character::~Character() = default;
 
 void Character::set_interactable(std::unique_ptr<Interactable> interactable)
@@ -80,8 +77,7 @@ Faction const *Character::faction() const
     return config_.party->faction();
 }
 
-void Character::apply_intent(float delta_seconds, Continent const &continent,
-                             CharacterIntent const &intent)
+void Character::apply_intent(CharacterIntent const &intent)
 {
     if (!finite(intent.move) || (intent.body_yaw && !std::isfinite(*intent.body_yaw)) ||
         (intent.body_direction && !finite(*intent.body_direction)) ||
@@ -90,18 +86,13 @@ void Character::apply_intent(float delta_seconds, Continent const &continent,
         fail("invalid character intent");
 
     // Pose changes come first so an intent that supplies both orientation and movement
-    // applies them in a fixed order: body yaw, body direction, look target, then locomotion.
+    // applies them in a fixed order: body yaw, body direction, then look target.
     if (intent.body_yaw)
         set_body_yaw(*intent.body_yaw);
     if (intent.body_direction)
         set_body_direction(*intent.body_direction);
     if (intent.look)
         set_look_angles(intent.look->x, intent.look->y);
-
-    // Character owns speed, facing policy and collision. Sprint is only a request: a
-    // future stamina/state gate belongs here, not in the player or AI controller.
-    walk(delta_seconds, continent, {intent.move.x, 0.0F, intent.move.y}, intent.sprint,
-         intent.face_movement);
 
     // The jump stays a request; update() grants it only while grounded, so an airborne
     // intent cannot double jump.
@@ -120,7 +111,7 @@ CompanionOrder Character::companion_order() const
 
 bool Character::accepts_ambient_requests(CharacterIntent const &intent) const
 {
-    return on_ground_ && !intent.jump && !intent.sprint && intent.move == glm::vec2{};
+    return on_ground() && !intent.jump && !intent.sprint && intent.move == glm::vec2{};
 }
 
 void Character::update(float delta_seconds, Continent const &continent,
@@ -128,130 +119,42 @@ void Character::update(float delta_seconds, Continent const &continent,
 {
     if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
         fail("invalid character update time");
-    // Match the horizontal movement cap after a resize or debugger stall.
-    float const elapsed = std::min(delta_seconds, 0.1F);
-    apply_intent(elapsed, continent, intent);
-    if (elapsed == 0.0F)
-        return;
-
-    if (jump_requested_ && on_ground_) {
-        constexpr float jump_height = 0.5F;
-        velocity_.y = std::sqrt(2.0F * gravityf * jump_height);
-        on_ground_ = false;
-    }
-    jump_requested_ = false;
-
-    // While grounded, follow ramps and small steps. Query from slightly above the feet
-    // so a rising surface within step_height is considered, and look down far enough to
-    // stay attached while descending a slope.
-    if (on_ground_) {
-        auto const support = continent.support_below(
-            {position().x, position().y + body_.step_height, position().z},
-            body_.step_height + body_.ground_snap_distance, body_.half_width);
-        if (support && support->height >= position().y - body_.ground_snap_distance &&
-            support->height <= position().y + body_.step_height) {
-            transform_.position.y = support->height;
-            velocity_.y = 0.0F;
-        }
-        else {
-            on_ground_ = false;
-        }
-    }
-
-    if (!on_ground_) {
-        float const previous_height = position().y;
-        // Constant-acceleration integration keeps the jump height independent of frame rate.
-        transform_.position.y += velocity_.y * elapsed - 0.5F * gravityf * elapsed * elapsed;
-        velocity_.y -= gravityf * elapsed;
-
-        // A fast uphill run can make the terrain rise into the body while the jump is
-        // still ascending. Resolve that penetration first; otherwise the character ends
-        // up below the height field and the downward support query can never find it.
-        auto const terrain = continent.ground_height({position().x, position().z});
-        if (terrain && position().y < *terrain) {
-            transform_.position.y = *terrain;
-            velocity_.y = 0.0F;
-            on_ground_ = true;
-        }
-        // Query from the previous foot height so high-speed falls cannot tunnel through
-        // the terrain. Normal landing is only possible while descending.
-        else if (velocity_.y <= 0.0F) {
-            float const fall_distance = std::max(0.0F, previous_height - position().y);
-            auto const support =
-                continent.support_below({position().x, previous_height, position().z},
-                                        fall_distance + 0.001F, body_.half_width);
-            if (support && position().y <= support->height) {
-                transform_.position.y = support->height;
-                velocity_.y = 0.0F;
-                on_ground_ = true;
-            }
-        }
-    }
+    apply_intent(intent);
+    auto const velocity =
+        walking_velocity({intent.move.x, 0.0F, intent.move.y}, intent.sprint, intent.face_movement);
+    motion_.update(delta_seconds, WorldCollision{continent}, body_, transform_.position, velocity);
 }
 
-void Character::move(Continent const &continent, glm::vec3 displacement)
+glm::vec3 Character::walking_velocity(glm::vec3 direction, bool running, bool face_movement)
 {
-    if (!finite(displacement) || displacement.y != 0.0F)
-        fail("ground character displacement must be finite and horizontal");
-    auto const feet = position();
-    glm::vec2 const horizontal{displacement.x, displacement.z};
-    float const requested_distance = glm::length(horizontal);
-
-    // Horizontal collision is height-aware. The resolved Y is the input feet height;
-    // Character::update() follows terrain and walkable surfaces vertically.
-    auto const normal = continent.move(feet, horizontal, body_.half_width, body_.height);
-    float const normal_progress =
-        glm::distance(glm::vec2{normal.x, normal.z}, glm::vec2{feet.x, feet.z});
-
-    // A walkable step can block the normal sweep even though its top is within the
-    // body's step height. Retry from a raised feet position and accept only if it
-    // makes progress onto a support surface above the current feet.
-    if (on_ground_ && normal_progress + 0.001F < requested_distance) {
-        glm::vec3 raised = feet;
-        raised.y += body_.step_height;
-        if (continent.can_stand(raised, body_.half_width, body_.height)) {
-            auto const stepped = continent.move(raised, horizontal, body_.half_width, body_.height);
-            float const stepped_progress =
-                glm::distance(glm::vec2{stepped.x, stepped.z}, glm::vec2{feet.x, feet.z});
-            if (stepped_progress > normal_progress + 0.001F) {
-                auto const support = continent.support_below(
-                    {stepped.x, raised.y, stepped.z},
-                    body_.step_height + body_.ground_snap_distance, body_.half_width);
-                if (support && support->height > feet.y + 0.001F &&
-                    support->height <= feet.y + body_.step_height + 0.001F) {
-                    glm::vec3 const candidate{stepped.x, support->height, stepped.z};
-                    if (continent.can_stand(candidate, body_.half_width, body_.height)) {
-                        transform_.position = candidate;
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    transform_.position = normal;
-}
-
-void Character::walk(float delta_seconds, Continent const &continent, glm::vec3 direction,
-                     bool running, bool face_movement)
-{
-    if (!finite(direction) || !std::isfinite(delta_seconds) || delta_seconds < 0.0F)
+    if (!finite(direction))
         fail("invalid character walking input");
     direction.y = 0.0F;
     // double avoids overflow when normalizing large but finite input vectors.
     double const length =
         std::hypot(static_cast<double>(direction.x), static_cast<double>(direction.z));
     if (length == 0.0)
-        return;
+        return {};
     direction *= static_cast<float>(1.0 / std::max(length, 1.0));
 
     if (face_movement)
         set_body_yaw(glm::degrees(std::atan2(-direction.x, -direction.z)));
 
     float const speed = running ? body_.run_speed : body_.walk_speed;
-    // A resize or debugger stall must not teleport the character.
-    float const elapsed = std::min(delta_seconds, 0.1F);
-    move(continent, direction * speed * elapsed);
+    return direction * speed;
+}
+
+void Character::walk(float delta_seconds, Continent const &continent, glm::vec3 direction,
+                     bool running, bool face_movement)
+{
+    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
+        fail("invalid character walking time");
+    move(continent, walking_velocity(direction, running, face_movement) * delta_seconds);
+}
+
+void Character::move(Continent const &continent, glm::vec3 displacement)
+{
+    motion_.move(WorldCollision{continent}, body_, transform_.position, displacement);
 }
 
 void Character::set_body_yaw(float degrees)
@@ -305,15 +208,6 @@ glm::vec3 Character::eye_position() const
     return position() + glm::vec3{0.0F, body_.eye_height, 0.0F};
 }
 
-} // namespace lc1
-
-namespace lc1 {
-
-CharacterConfig &Character::config()
-{
-    return config_;
-}
-
 CharacterConfig const &Character::config() const
 {
     return config_;
@@ -361,12 +255,12 @@ float Character::look_pitch() const
 
 void Character::request_jump()
 {
-    jump_requested_ = true;
+    motion_.request_jump();
 }
 
 bool Character::on_ground() const
 {
-    return on_ground_;
+    return motion_.on_ground();
 }
 
 CharacterController *Character::controller()

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lc1/input.hpp"
+#include "lc1/platform/input.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +9,7 @@
 
 namespace lc1 {
 
-// Gameplay action vocabulary. This is the game-side mapping layer: lc1/input.hpp owns
+// Gameplay action vocabulary. This is the game-side mapping layer: lc1/platform/input.hpp owns
 // raw device state and the generic BasicInputRouter, while this header names the actions
 // the game asks for and the contexts in which bindings resolve.
 enum class GameAction : std::uint8_t {
@@ -20,6 +20,7 @@ enum class GameAction : std::uint8_t {
     Sprint,
     Jump,
     Nod,
+    SwingWeapon,
     Interact,
     ToggleCameraView,
     CycleLighting,

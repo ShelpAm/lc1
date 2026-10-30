@@ -5,6 +5,7 @@
 #include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 #include "lc1/game/player/player-controller.hpp"
 #include "lc1/game/resources/crafting.hpp"
 #include "lc1/game/session/save.hpp"
@@ -22,6 +23,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 
@@ -263,9 +265,9 @@ void companion_orders()
     lc1::Character member{world, {.position = {-8, 0, 0}}, config(2, party)};
     lc1::Character captive{world, {.position = {-6, 0, 0}}, config(3, party)};
     lc1::Character stranger{world, {.position = {-4, 0, 0}}, config(4, other)};
-    party.set_leader(&leader);
-    party.add_member(&member);
-    party.add_captive(&captive);
+    lc1::Character far_leader{world, {.position = {10, 0, 0}}, config(5, party)};
+    party.restore_roster(&leader, {&member, &far_leader}, {&captive});
+    other.restore_roster(&stranger, {}, {});
     check(!party.can_command(member, leader) && !party.can_command(leader, captive) &&
               !party.can_command(leader, stranger) && !party.can_command(leader, leader),
           "commands require a leader and an ordinary member of the same party");
@@ -285,7 +287,7 @@ void companion_orders()
                     bool controller_enabled = true) {
         auto intent = lc1::CharacterIntent{};
         if (controller_enabled && character.controller())
-            intent = character.controller()->update(std::min(delta_seconds, 0.1F), character);
+            intent = character.controller()->update(delta_seconds, character);
         character.update(delta_seconds, world, intent);
     };
     step(member, 0.1F, false);
@@ -309,8 +311,7 @@ void companion_orders()
         step(member, 0.1F);
     check(member.on_ground(), "waiting members still land");
     party.command(leader, member, lc1::CompanionOrder::Follow);
-    lc1::Character far_leader{world, {.position = {10, 0, 0}}, config(5, party)};
-    party.set_leader(&far_leader);
+    party.change_leader(&far_leader);
     for (int i = 0; i < 100; ++i)
         step(member, 0.1F);
     check(member.position().x <= 4.701F && member.position().x > 4.6F,
@@ -318,7 +319,7 @@ void companion_orders()
     auto const saved = lc1::serialize_character_state(member);
     check(saved.companion_order == lc1::CompanionOrder::Follow && !saved.patrol,
           "a follow order is serialized independently of the patrol controller");
-    party.set_leader(&leader);
+    party.change_leader(&leader);
     party.command(leader, member, lc1::CompanionOrder::Wait);
     check(lc1::serialize_character_state(member).companion_order == lc1::CompanionOrder::Wait,
           "wait is distinguishable from a stopped patrol");
@@ -345,12 +346,23 @@ void companion_orders()
           "the authored wait response issues an order");
     dialog.update(1.5F, &leader, 1.5F);
     dialog.start(leader, member);
-    party.set_leader(nullptr);
+    party.change_leader(&far_leader);
     choose_id("follow");
     check(member.companion_order() == lc1::CompanionOrder::Wait && !dialog.displaying_response(),
           "stale command choices recheck authority before changing orders");
     check(dialog.candidate_responses().size() == 2,
           "unauthorized speakers see chat and goodbye without command choices");
+    party.command(far_leader, member, lc1::CompanionOrder::Follow);
+    party.change_leader(&member);
+    check(party.leader() == &member && member.companion_order() == lc1::CompanionOrder::None &&
+              std::ranges::contains(party.members(), &far_leader) &&
+              !std::ranges::contains(party.members(), &member),
+          "promotion demotes the previous leader and clears the new leader's follow order");
+    party.command(member, far_leader, lc1::CompanionOrder::Follow);
+    party.change_leader(nullptr);
+    check(!party.leader() && std::ranges::contains(party.members(), &member) &&
+              far_leader.companion_order() == lc1::CompanionOrder::None,
+          "clearing leadership retains members without unrestorable companion orders");
 }
 
 void recruitment_dialog()
@@ -372,12 +384,25 @@ void recruitment_dialog()
     lc1::Character player{world, {.position = world.spawn()}, config(1, "Player", party)};
     lc1::Character npc{world, {.position = world.spawn()}, config(2, "Recruit", party)};
     lc1::Character stranger{world, {.position = world.spawn()}, config(3, "Stranger", other)};
-    party.set_leader(&player);
-    rejects([&] { party.add_member(&player); }, "the leader cannot also be an ordinary member");
-    rejects([&] { party.add_captive(&player); }, "the leader cannot also be a captive");
-    party.add_captive(&npc);
-    rejects([&] { party.set_leader(&npc); }, "a captive cannot also be the leader");
-    other.set_leader(&stranger);
+    lc1::Character outsider{world, {.position = world.spawn()}, config(4, "Outsider", other)};
+    lc1::Character captive{world, {.position = world.spawn()}, config(5, "Captive", other)};
+    lc1::Character reordered_recruit{
+        world, {.position = world.spawn()}, config(6, "New recruit", other)};
+    rejects([&] { party.restore_roster(&player, {&player}, {}); },
+            "leader cannot also be a member");
+    rejects([&] { party.restore_roster(&player, {}, {&player}); },
+            "leader cannot also be a captive");
+    rejects([&] { party.restore_roster(&player, {&stranger}, {}); },
+            "foreign members are rejected");
+    rejects([&] { party.restore_roster(&player, {nullptr}, {}); }, "null members are rejected");
+    rejects([&] { party.restore_roster(&player, {&npc, &npc}, {}); },
+            "duplicate members are rejected");
+    check(!party.leader() && party.members().empty(), "failed assembly does not partially commit");
+    party.restore_roster(&player, {}, {&npc});
+    rejects([&] { party.restore_roster(nullptr, {}, {}); },
+            "assembly cannot overwrite a live roster");
+    rejects([&] { party.change_leader(&npc); }, "a captive cannot become leader");
+    other.restore_roster(&stranger, {&outsider, &reordered_recruit}, {&captive});
     npc.set_controller(std::make_unique<lc1::AiCharacterController>(
         std::vector<lc1::Waypoint>{{.position = world.spawn()}}));
 
@@ -468,9 +493,6 @@ void recruitment_dialog()
               !party.can_recruit(npc, stranger),
           "self, foreign leaders and nonleader recruiters cannot recruit");
 
-    lc1::Character outsider{world, {.position = world.spawn()}, config(4, "Outsider", other)};
-    other.add_member(&outsider);
-    rejects([&] { other.set_leader(&outsider); }, "an ordinary member cannot also be the leader");
     check(party.can_recruit(player, outsider), "another party's ordinary member is eligible");
     dialog.start(player, outsider);
     choose(dialog, player, 0);
@@ -478,8 +500,8 @@ void recruitment_dialog()
     choose(dialog, player, 0);
     check(dialog.target() == &outsider && dialog.candidate_responses().size() == 2 &&
               dialog.current_node_id() == "offer" && party.members().size() == 2 &&
-              other.members().empty() && outsider.config().party == &party &&
-              other.leader() == &stranger,
+              other.members().size() == 1 && other.members().front() == &reordered_recruit &&
+              outsider.config().party == &party && other.leader() == &stranger,
           "stale choices refresh without a second transfer and preserve the source leader");
     choose(dialog, player, 1);
     check(!dialog.target(), "a stale confirmation can still exit the dialogue");
@@ -492,15 +514,11 @@ void recruitment_dialog()
               saved_npc.party == 1 && !saved_state.patrol && near(saved_state.x, npc.position().x),
           "serialization retains recruitment, a separate leader and the stopped patrol");
 
-    lc1::Character captive{world, {.position = world.spawn()}, config(5, "Captive", other)};
-    other.add_captive(&captive);
     rejects([&] { party.recruit(player, captive); }, "foreign captives cannot be recruited");
     check(captive.config().party == &other && other.captives().size() == 1 &&
               party.members().size() == 2,
           "a rejected transfer leaves both parties unchanged");
-    lc1::Character reordered_recruit{
-        world, {.position = world.spawn()}, config(6, "New recruit", other)};
-    other.add_member(&reordered_recruit);
+
     // Always does not bypass the action's own eligibility check.
     auto reordered_script = script;
     reordered_script.nodes[1].choices[1].condition = lc1::DialogCondition::Always;
@@ -571,13 +589,17 @@ void jumping()
         check(std::abs(peak - 0.5F) < 0.002F, "jump height is stable across frame rates");
         check(jumper.on_ground(), "jump lands at each frame rate");
     }
-    auto capped = make_character();
-    auto regular = make_character();
-    capped.request_jump();
-    regular.request_jump();
-    capped.update(10.0F, world, {});
-    regular.update(0.1F, world, {});
-    check(near(capped.position(), regular.position()), "update caps stalled frame time");
+    auto long_frame = make_character();
+    long_frame.update(1.0F, world, {.jump = true});
+    check(long_frame.on_ground() && near(long_frame.position().y, 0.0F),
+          "a long frame completes the jump without discarding time or repeating the request");
+    lc1::Character falling{world, {.position = {0, 12, 0}}, {}};
+    falling.update(0.5F, world, {});
+    check(!falling.on_ground() && near(falling.position().y, 12.0F - 0.5F * lc1::gravityf * 0.25F),
+          "gravity advances through the full long frame");
+    falling.update(2.0F, world, {});
+    check(falling.on_ground() && near(falling.position().y, 0.0F),
+          "a long fall lands without passing through the ground");
     rejects([&] { character.update(-1.0F, world, {}); }, "negative update time is rejected");
     rejects([&] { character.update(std::numeric_limits<float>::quiet_NaN(), world, {}); },
             "nonfinite update time is rejected");
@@ -675,9 +697,9 @@ void height_and_support()
     check(slope->normal.y < 0.999F && slope->normal.x < 0.0F,
           "terrain normal points uphill from the rising slope");
 
-    auto const support = world.support_below({8.0F, 2.5F, 0.0F}, 1.0F);
+    auto const support = lc1::WorldCollision{world}.support_below({8.0F, 2.5F, 0.0F}, 1.0F);
     check(support && near(support->height, 2.0F), "support query finds the slope under the feet");
-    check(!world.support_below({8.0F, 5.0F, 0.0F}, 1.0F),
+    check(!lc1::WorldCollision{world}.support_below({8.0F, 5.0F, 0.0F}, 1.0F),
           "support query does not snap to a surface farther below than requested");
 
     lc1::Character walker{world, {.position = {0.0F, 0.0F, 0.0F}}, {}};
@@ -718,7 +740,8 @@ void height_and_support()
     lc1::Character on_platform{platform_world, {.position = {5.0F, 3.0F, 0.0F}}, {}};
     check(on_platform.on_ground() && near(on_platform.position().y, 3.0F),
           "character can spawn on a walkable block top");
-    auto const beneath = platform_world.support_below({5.0F, 3.0F, 0.0F}, 0.1F);
+    auto const beneath =
+        lc1::WorldCollision{platform_world}.support_below({5.0F, 3.0F, 0.0F}, 0.1F);
     check(beneath && near(beneath->height, 3.0F),
           "block tops participate in the same support query as terrain");
     on_platform.request_jump();
@@ -729,6 +752,111 @@ void height_and_support()
         on_platform.update(0.01F, platform_world, {});
     check(on_platform.on_ground() && near(on_platform.position().y, 3.0F),
           "jumping on a raised platform lands back on the platform, not world Y=0");
+}
+
+void long_frame_platform_motion()
+{
+    auto data = make_world_data();
+    data.blocks = {{{-2, 0, -8}, {2, 0.3F, 0}, lc1::ContinentSurface::Stone, true, true}};
+    lc1::Continent const world{std::move(data)};
+    lc1::Character long_frame{world, {.position = {0, 0, 2}}, {}};
+    lc1::Character short_frames{world, {.position = {0, 0, 2}}, {}};
+    lc1::CharacterIntent const intent{.move = {0, -1}};
+    long_frame.update(1.0F, world, intent);
+    for (int i = 0; i < 60; ++i)
+        short_frames.update(1.0F / 60.0F, world, intent);
+    check(near(long_frame.position(), {0, 0.3F, -2.5F}) && long_frame.on_ground(),
+          "a long frame walks the full distance and climbs a low platform");
+    check(near(long_frame.position(), short_frames.position()),
+          "long and short frames agree when crossing a platform edge");
+}
+
+void ceiling_collision()
+{
+    auto data = make_world_data();
+    data.blocks = {
+        {{-2, 2, -2}, {2, 2.02F, 2}, lc1::ContinentSurface::Stone, true, false},
+        {{-2, 1.9F, -2}, {2, 1.95F, 2}, lc1::ContinentSurface::Stone, false, false},
+        {{-2, 3, -2}, {2, 3.02F, 2}, lc1::ContinentSurface::Stone, true, false},
+    };
+    lc1::Continent const world{std::move(data)};
+    auto const ceiling = lc1::WorldCollision{world}.ceiling_above({0, 1.8F, 0}, 2.0F, 0.3F);
+    check(ceiling && near(*ceiling, 2.0F), "ceiling query finds the nearest solid underside");
+    check(!lc1::WorldCollision{world}.ceiling_above({3, 1.8F, 0}, 2.0F, 0.3F),
+          "ceiling query excludes a horizontally separated roof");
+    check(!lc1::WorldCollision{world}.ceiling_above({0, 1.8F, 0}, 0.1F, 0.3F),
+          "ceiling query respects the sweep distance and ignores non-solid decoration");
+    check(lc1::WorldCollision{world}.ceiling_above({2.2F, 1.8F, 0}, 0.5F, 0.3F).has_value(),
+          "ceiling collision includes partial body footprint overlap");
+    rejects([&] { lc1::WorldCollision{world}.ceiling_above({0, 1.8F, 0}, -1.0F, 0.3F); },
+            "ceiling query rejects negative sweep distance");
+
+    // Deliberately use one large step: the sweep must not jump through a thin roof.
+    lc1::Character character{world, {}, {}, {}, {.max_step_seconds = 1.0}};
+    character.update(0.2F, world, {.jump = true});
+    check(character.position().y > 0.0F && character.position().y < 0.2F &&
+              lc1::WorldCollision{world}.can_stand(character.position(), character.half_width(),
+                                                   character.height()),
+          "jump hits a thin ceiling and falls for the remaining time in the same step");
+    character.update(1.0F, world, {});
+    check(character.on_ground() && near(character.position().y, 0.0F),
+          "ceiling impact does not leave upward velocity or prevent landing");
+
+    lc1::Character edge{world, {.position = {2.2F, 0, 0}}, {}};
+    edge.update(0.2F, world, {.jump = true});
+    check(edge.position().y < 0.2F && lc1::WorldCollision{world}.can_stand(
+                                          edge.position(), edge.half_width(), edge.height()),
+          "the edge of a character's head cannot pass through a roof");
+}
+
+void motion_configuration()
+{
+    auto const world = make_world();
+    lc1::Character character{
+        world, {}, {}, {}, {.gravity = 4.0F, .jump_height = 2.0F, .max_step_seconds = 1.0}};
+    character.update(1.0F, world, {.jump = true});
+    check(near(character.position().y, 2.0F) && !character.on_ground(),
+          "configured gravity and jump height determine the apex");
+    character.update(1.0F, world, {});
+    check(character.on_ground() && near(character.position().y, 0.0F),
+          "configured jump returns to the same support");
+
+    lc1::Character crossing_apex{world, {}, {}, {}, {.max_step_seconds = 1.0}};
+    crossing_apex.update(0.6F, world, {.jump = true});
+    float const expected =
+        std::sqrt(2.0F * lc1::gravityf * 0.5F) * 0.6F - 0.5F * lc1::gravityf * 0.6F * 0.6F;
+    check(near(crossing_apex.position().y, expected) && !crossing_apex.on_ground(),
+          "a step crossing the apex preserves the ballistic trajectory");
+    crossing_apex.update(0.1F, world, {});
+    check(crossing_apex.on_ground(), "descending sweep starts at the apex and reaches the ground");
+
+    for (auto const settings : {
+             lc1::CharacterMotionSettings{.gravity = 0.0F},
+             lc1::CharacterMotionSettings{.jump_height = -1.0F},
+             lc1::CharacterMotionSettings{.max_step_seconds = 0.0},
+             lc1::CharacterMotionSettings{.max_step_seconds =
+                                              std::numeric_limits<double>::infinity()},
+         }) {
+        rejects([&] { lc1::Character invalid{world, {}, {}, {}, settings}; },
+                "invalid motion configuration is rejected");
+    }
+
+    // Identity and address remain stable while parties, dialogs and registries borrow a character.
+    static_assert(!std::is_move_constructible_v<lc1::Character>);
+    static_assert(!std::is_move_assignable_v<lc1::Character>);
+    static_assert(std::is_same_v<decltype(std::declval<lc1::Character &>().config()),
+                                 lc1::CharacterConfig const &>);
+    // Motion itself has no persistent pose borrow and remains independently movable.
+    lc1::WorldCollision collision{world};
+    lc1::CharacterBody body;
+    glm::vec3 position{};
+    lc1::CharacterMotion original{collision, body, position};
+    original.request_jump();
+    original.update(0.1F, collision, body, position, {});
+    auto moved = std::move(original);
+    moved.update(1.0F, collision, body, position, {});
+    check(moved.on_ground() && near(position.y, 0.0F),
+          "moving motion state preserves its trajectory");
 }
 
 void player_controllers()
@@ -837,7 +965,7 @@ void model_node_transforms()
         std::vector<lc1::scene::Mesh>{lc1::scene::Mesh{vertices, indices}},
         {{.name = "Import",
           .transform = {.translation = {1, 2, 3}, .rotation = rotation, .scale = {2, 3, 4}}},
-         {.name = "Geometry", .parent = 0, .mesh = 0}}};
+         {.name = "Geometry", .parent_index = 0, .mesh_index = 0}}};
     lc1::scene::ModelInstance const instance{model.definition()};
     auto const draws = instance.mesh_instances(glm::mat4{1});
     check(draws.size() == 1 && draws[0].mesh == 0, "import root expands its mesh child");
@@ -871,6 +999,9 @@ int main()
         recruitment_dialog();
         companion_orders();
         jumping();
+        long_frame_platform_motion();
+        ceiling_collision();
+        motion_configuration();
         height_and_support();
         pose_and_movement();
         player_controllers();

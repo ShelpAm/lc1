@@ -1,5 +1,6 @@
 #include "lc1/game/player/player-view.hpp"
 
+#include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
@@ -249,6 +250,16 @@ void pointer_pan_and_recenter_priority()
     check(!near(view.camera().position(), recentered), "releasing recenter restores edge pan");
 }
 
+void long_frame_camera_pan()
+{
+    lc1::MapCameraController controller{{0, 0, 0}};
+    controller.toggle_lock();
+    auto const before = controller.center();
+    controller.pan(0.5F, {1, 0}, {{-1000, -1000}, {1000, 1000}});
+    check(near(glm::distance(before, controller.center()), 48.0F * 0.7F * 0.5F),
+          "camera pan consumes the full elapsed time");
+}
+
 void animated_eye_mount()
 {
     auto const world = make_world();
@@ -257,7 +268,7 @@ void animated_eye_mount()
     auto const eyes = model.definition().find_node("Eyes");
     check(eyes.has_value() && !model.definition().find_node("Missing"),
           "named eye mount resolves and missing mount names do not");
-    check(!model.definition().nodes()[*eyes].mesh && model.definition().draw_count() == 2,
+    check(!model.definition().nodes()[*eyes].mesh_index && model.definition().draw_count() == 2,
           "eye mount adds no drawable geometry");
     lc1::scene::ModelInstance instance{model.definition()};
     auto const eye_transform = [&] {
@@ -310,6 +321,24 @@ void animated_eye_mount()
     check(rejected, "invalid mount indices are rejected");
 }
 
+void weapon_mouse_binding()
+{
+    lc1::InputState devices;
+    lc1::GameInputRouter router{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    devices.on_key(lc1::Key::MouseLeft, true);
+    router.update(devices);
+    check(router.pressed(lc1::GameAction::SwingWeapon), "left mouse press requests a swing");
+    devices.begin_frame();
+    router.update(devices);
+    check(!router.pressed(lc1::GameAction::SwingWeapon),
+          "holding the mouse does not repeat swings");
+    devices.on_key(lc1::Key::MouseLeft, false);
+    devices.begin_frame();
+    devices.on_key(lc1::Key::MouseLeft, true);
+    router.update(devices);
+    check(router.pressed(lc1::GameAction::SwingWeapon), "a fresh click requests another swing");
+}
+
 } // namespace
 
 int main()
@@ -321,6 +350,8 @@ int main()
         independent_capture_gates();
         pointer_pan_and_recenter_priority();
         animated_eye_mount();
+        long_frame_camera_pan();
+        weapon_mouse_binding();
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

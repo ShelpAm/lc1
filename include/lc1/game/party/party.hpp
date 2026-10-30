@@ -15,8 +15,19 @@ class Faction;
 // two phases -- parties first, membership once every character exists.
 class Party {
   public:
-    Party(std::uint32_t keyid, Faction *faction, Character *leader = nullptr,
-          std::vector<Character *> members = {}, std::vector<Character *> captives = {});
+    Party(std::uint32_t keyid, Faction *faction);
+    Party(Party const &) = delete;
+    Party &operator=(Party const &) = delete;
+    Party(Party &&) = delete;
+    Party &operator=(Party &&) = delete;
+
+    // One-time assembly. Every non-null character must already name this party.
+    // Validates before committing; characters must remain alive while the roster is used.
+    void restore_roster(Character *leader, std::vector<Character *> members,
+                        std::vector<Character *> captives);
+
+    // Promote an ordinary member (or clear leadership), demoting the previous leader.
+    void change_leader(Character *leader);
 
     std::uint32_t keyid() const;
 
@@ -30,15 +41,6 @@ class Party {
 
     std::vector<Character *> const &captives() const;
 
-    // Load-time wiring. A party record lists character keyids; the characters
-    // themselves only exist after every party has been created.
-    void set_leader(Character *leader);
-
-    // Members exclude the separately stored leader; neither list may overlap the other.
-    void add_member(Character *member);
-
-    void add_captive(Character *captive);
-
     // Only the leader commands ordinary members. Captives and other parties are excluded.
     bool can_command(Character const &commander, Character const &member) const;
     void command(Character const &commander, Character &member, CompanionOrder order);
@@ -49,6 +51,7 @@ class Party {
     void recruit(Character &recruiter, Character &candidate);
 
   private:
+    bool roster_restored_ = false;
     std::uint32_t keyid_;
     Faction *faction_ = nullptr;
     Character *leader_ = nullptr;

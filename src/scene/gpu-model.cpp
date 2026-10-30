@@ -20,7 +20,7 @@ GpuModel::GpuModel(Device const &device, Model model)
 {
 }
 
-GpuModel::GpuModel(GpuMesh mesh) : definition_(1, {{.name = "Mesh", .mesh = 0}})
+GpuModel::GpuModel(GpuMesh mesh) : definition_(1, {{.name = "Mesh", .mesh_index = 0}})
 {
     meshes_.push_back(std::move(mesh));
 }
@@ -29,7 +29,7 @@ GpuModel::GpuModel(std::vector<GpuMesh> meshes, ModelDefinition definition)
     : meshes_(std::move(meshes)), definition_(std::move(definition))
 {
     for (auto const &node : definition_.nodes())
-        if (node.mesh && *node.mesh >= meshes_.size())
+        if (node.mesh_index && *node.mesh_index >= meshes_.size())
             fail("GPU model mesh index is out of range");
 }
 

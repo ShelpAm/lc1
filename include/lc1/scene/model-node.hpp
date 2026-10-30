@@ -24,9 +24,9 @@ struct NodeTransform {
 struct ModelNode {
     std::string name;
     // Indices refer to the owning Model. Parents precede children; no parent means a root.
-    std::optional<std::size_t> parent = std::nullopt;
+    std::optional<std::size_t> parent_index = std::nullopt;
     NodeTransform transform{};
-    std::optional<std::size_t> mesh = std::nullopt;
+    std::optional<std::size_t> mesh_index = std::nullopt;
 };
 
 } // namespace lc1::scene

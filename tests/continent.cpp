@@ -4,6 +4,7 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/camera.hpp"
 
 #include <algorithm>
@@ -55,9 +56,9 @@ void grid_and_terrain()
           "a point immediately inside the upper bound remains a valid query");
     check(world.region_at({16.0F, 0.0F})->type == lc1::RegionType::Sea, "tile/region lookup");
     check(!world.ground_height({17.0F, 1.0F}), "sea is not walkable");
-    auto const shore = world.move({0, 0, 1}, {100, 0}, 0.3F, 1.8F);
+    auto const shore = lc1::WorldCollision{world}.move({0, 0, 1}, {100, 0}, 0.3F, 1.8F);
     check(near(shore.x, 15.7F), "movement stops at shoreline with body clearance");
-    auto const edge = world.move({0, 0, -10}, {-100, 0}, 0.3F, 1.8F);
+    auto const edge = lc1::WorldCollision{world}.move({0, 0, -10}, {-100, 0}, 0.3F, 1.8F);
     check(near(edge.x, -31.7F), "body stays within continent bounds");
 
     data = flat_world();
@@ -77,29 +78,30 @@ void collision_and_sliding()
     auto data = flat_world();
     data.blocks.push_back({{5, 0, -20}, {5.1F, 4, 20}});
     lc1::Continent const world{std::move(data)};
-    auto const hit = world.move({0, 0, 0}, {100, 0}, 0.3F, 1.8F);
+    auto const hit = lc1::WorldCollision{world}.move({0, 0, 0}, {100, 0}, 0.3F, 1.8F);
     check(near(hit.x, 4.7F), "high-speed sweep must not tunnel through thin walls");
-    auto const slide = world.move({0, 0, 0}, {10, 4}, 0.3F, 1.8F);
+    auto const slide = lc1::WorldCollision{world}.move({0, 0, 0}, {10, 4}, 0.3F, 1.8F);
     check(near(slide.x, 4.7F) && near(slide.z, 4.0F), "diagonal movement slides along wall");
-    auto const away = world.move(slide, {-2, 0}, 0.3F, 1.8F);
+    auto const away = lc1::WorldCollision{world}.move(slide, {-2, 0}, 0.3F, 1.8F);
     check(near(away.x, 2.7F), "contact must allow movement away from the wall");
-    auto const tangent = world.move(hit, {0, 8}, 0.3F, 1.8F);
+    auto const tangent = lc1::WorldCollision{world}.move(hit, {0, 8}, 0.3F, 1.8F);
     check(near(tangent.z, 8.0F), "contact must allow tangential movement");
 
     data = flat_world();
     data.blocks.push_back({{5, 0, -20}, {6, 4, 20}});
     data.blocks.push_back({{-20, 0, 5}, {20, 4, 6}});
     lc1::Continent const corner{std::move(data)};
-    auto const stopped = corner.move({0, 0, 0}, {10, 10}, 0.3F, 1.8F);
+    auto const stopped = lc1::WorldCollision{corner}.move({0, 0, 0}, {10, 10}, 0.3F, 1.8F);
     check(near(stopped.x, 4.7F) && near(stopped.z, 4.7F), "two contact planes stop at corner");
-    check(corner.can_stand(stopped, 0.3F, 1.8F), "corner resolution leaves a valid body");
+    check(lc1::WorldCollision{corner}.can_stand(stopped, 0.3F, 1.8F),
+          "corner resolution leaves a valid body");
 
     data = flat_world();
     data.blocks.push_back({{-2, 2, -2}, {2, 5, -1}});
     lc1::Continent const lintel{std::move(data)};
-    check(near(lintel.move({0, 0, 2}, {0, -6}, 0.3F, 1.8F).z, -4),
+    check(near(lc1::WorldCollision{lintel}.move({0, 0, 2}, {0, -6}, 0.3F, 1.8F).z, -4),
           "player passes below an overhead lintel");
-    check(near(lintel.move({0, 0, 2}, {0, -6}, 0.3F, 2.5F).z, -0.7F),
+    check(near(lc1::WorldCollision{lintel}.move({0, 0, 2}, {0, -6}, 0.3F, 2.5F).z, -0.7F),
           "a taller body collides with the same lintel");
 }
 
@@ -131,14 +133,14 @@ void terrain_collision_candidates()
     for (int trial = 0; trial < 1600; ++trial) {
         glm::vec3 const start{x_position(random), 0, z_position(random)};
         float const half_width = trial % 3 == 0 ? 8.0F : 0.3F;
-        bool const valid = reference.can_stand(start, half_width, 1.8F);
-        check(grid.can_stand(start, half_width, 1.8F) == valid,
+        bool const valid = lc1::WorldCollision{reference}.can_stand(start, half_width, 1.8F);
+        check(lc1::WorldCollision{grid}.can_stand(start, half_width, 1.8F) == valid,
               "nearby tile selection agrees with full body overlap tests");
         if (!valid)
             continue;
         glm::vec2 const delta{trial % 5 == 0 ? 0.0F : travel(random), travel(random)};
-        auto const expected = reference.move(start, delta, half_width, 1.8F);
-        auto const actual = grid.move(start, delta, half_width, 1.8F);
+        auto const expected = lc1::WorldCollision{reference}.move(start, delta, half_width, 1.8F);
+        auto const actual = lc1::WorldCollision{grid}.move(start, delta, half_width, 1.8F);
         if (glm::distance(expected, actual) >= 0.001F)
             std::cerr << "trial " << trial << " start " << start.x << ',' << start.z << " delta "
                       << delta.x << ',' << delta.y << " half " << half_width << " expected "
@@ -163,8 +165,8 @@ void player_and_city()
     check(near(straight.position().y, 0) && near(straight.eye_position().y, 1.65F),
           "feet and camera remain at ground level");
     lc1::Character resumed{flat, {.position = flat.spawn()}, {}};
-    resumed.walk(10.0F, flat, {1, 0, 0}, false);
-    check(near(resumed.position().x, 0.45F), "long stalls do not teleport the player");
+    resumed.walk(1.0F, flat, {1, 0, 0}, false);
+    check(near(resumed.position().x, 4.5F), "walking consumes the full elapsed time");
 
     lc1::Continent const city = lc1::Continent::make_prototype();
     lc1::Character player{city, {.position = city.spawn()}, {}};
@@ -175,14 +177,15 @@ void player_and_city()
     for (int frame = 0; frame < 600; ++frame)
         player.walk(1.0F / 60.0F, city, {0, 0, 1}, false);
     check(near(player.position().z, city.spawn().z), "the gate also allows exiting the city");
-    auto const wall = city.move({40, 0, 32}, {0, -100}, 0.3F, 1.8F);
+    auto const wall = lc1::WorldCollision{city}.move({40, 0, 32}, {0, -100}, 0.3F, 1.8F);
     check(near(wall.z, 0.3F), "city wall blocks movement beside the gate");
 
     std::mt19937 random{29};
     std::uniform_real_distribution<float> direction{-1.0F, 1.0F};
     for (int step = 0; step < 4000; ++step) {
         player.walk(0.1F, city, {direction(random), 0, direction(random)}, true);
-        check(city.can_stand(player.position(), player.half_width(), player.height()),
+        check(lc1::WorldCollision{city}.can_stand(player.position(), player.half_width(),
+                                                  player.height()),
               "movement must preserve the nonpenetration invariant");
     }
 }
@@ -283,26 +286,26 @@ void showcase_platform_jump()
     check(reached_low_plinth, "a half-meter jump lands on a reachable walkable ledge");
 
     // Start on top to verify walking and jumping down independently of jump reach.
-    character = lc1::Character{world, {.position = {13.5F, 0.8F, 16.0F}}, {}};
-    check(character.position().x > 6.0F && character.position().x < 21.0F &&
-              character.position().z > 14.0F && character.position().z < 18.0F,
+    lc1::Character descending{world, {.position = {13.5F, 0.8F, 16.0F}}, {}};
+    check(descending.position().x > 6.0F && descending.position().x < 21.0F &&
+              descending.position().z > 14.0F && descending.position().z < 18.0F,
           "showcase plinth landing stays within the platform footprint");
 
     // Moving on the plinth must not treat the solid block underneath as an invalid start.
-    character.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, false);
-    character.update(1.0F / 60.0F, world, {});
-    check(character.on_ground() && character.position().y > 0.7F,
+    descending.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, false);
+    descending.update(1.0F / 60.0F, world, {});
+    check(descending.on_ground() && descending.position().y > 0.7F,
           "walking on a showcase plinth remains valid");
 
     // Walk and jump off the east edge. The foot support must persist until the body
     // footprint has cleared the plinth, otherwise the falling body clips its side and
     // the next horizontal move starts from an invalid position.
-    character.request_jump();
+    descending.request_jump();
     bool reached_ground = false;
     for (int frame = 0; frame < 300; ++frame) {
-        character.update(1.0F / 60.0F, world, {});
-        character.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, true);
-        if (character.on_ground() && character.position().y < 0.1F) {
+        descending.update(1.0F / 60.0F, world, {});
+        descending.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, true);
+        if (descending.on_ground() && descending.position().y < 0.1F) {
             reached_ground = true;
             break;
         }
@@ -315,9 +318,9 @@ void switchback_stairs()
     lc1::Continent const world = lc1::Continent::make_present();
 
     // The southwest corner has open ground plus both stacked landings at one XZ.
-    auto const ground_level = world.support_below({29.0F, 0.5F, 65.0F}, 0.6F);
-    auto const middle_level = world.support_below({29.0F, 10.5F, 65.0F}, 1.0F);
-    auto const top_level = world.support_below({29.0F, 20.0F, 65.0F}, 1.0F);
+    auto const ground_level = lc1::WorldCollision{world}.support_below({29.0F, 0.5F, 65.0F}, 0.6F);
+    auto const middle_level = lc1::WorldCollision{world}.support_below({29.0F, 10.5F, 65.0F}, 1.0F);
+    auto const top_level = lc1::WorldCollision{world}.support_below({29.0F, 20.0F, 65.0F}, 1.0F);
     check(ground_level && std::abs(ground_level->height) < 0.01F,
           "spiral stair has a ground level at the southwest corner");
     check(middle_level && std::abs(middle_level->height - 9.6F) < 0.01F,
@@ -326,8 +329,8 @@ void switchback_stairs()
           "spiral stair has a top landing at the same XZ");
 
     // Flights from the two loops are also stacked above one another.
-    auto const lower_flight = world.support_below({29.0F, 1.5F, 62.1F}, 1.0F);
-    auto const upper_flight = world.support_below({29.0F, 11.0F, 62.1F}, 1.0F);
+    auto const lower_flight = lc1::WorldCollision{world}.support_below({29.0F, 1.5F, 62.1F}, 1.0F);
+    auto const upper_flight = lc1::WorldCollision{world}.support_below({29.0F, 11.0F, 62.1F}, 1.0F);
     check(lower_flight && std::abs(lower_flight->height - 1.2F) < 0.01F,
           "lower spiral flight is a walkable surface");
     check(upper_flight && std::abs(upper_flight->height - 10.8F) < 0.01F,
@@ -415,7 +418,7 @@ void patrol_house_floors()
     for (int frame = 0; frame < 120 * 240; ++frame) {
         auto const intent = controller.update(1.0F / 120.0F, npc);
         npc.update(1.0F / 120.0F, world, intent);
-        check(world.can_stand(npc.position(), npc.half_width(), npc.height()),
+        check(lc1::WorldCollision{world}.can_stand(npc.position(), npc.half_width(), npc.height()),
               "house patrol never penetrates walls or ceilings");
         upper |= npc.position().y > 7.7F;
         middle |= npc.position().y > 4.1F && npc.position().y < 4.3F;
@@ -428,12 +431,13 @@ void patrol_house_floors()
                   << ", " << npc.position().z << "\n";
     check(upper && middle && platform && returned && outside,
           "NPC visits the split level, both upper floors, descends, and exits the house");
-    check(!world.can_stand({39.2F, 0.6F, 20}, 0.3F, 1.8F),
+    check(!lc1::WorldCollision{world}.can_stand({39.2F, 0.6F, 20}, 0.3F, 1.8F),
           "ground-floor partition blocks characters");
-    check(world.can_stand({39.2F, 0.6F, 25.5F}, 0.3F, 1.8F), "room doorway has body clearance");
-    check(world.can_stand({36, 0.6F, 23}, 0.3F, 1.8F) &&
-              world.can_stand({36, 4.2F, 23}, 0.3F, 1.8F) &&
-              world.can_stand({36, 7.8F, 23}, 0.3F, 1.8F),
+    check(lc1::WorldCollision{world}.can_stand({39.2F, 0.6F, 25.5F}, 0.3F, 1.8F),
+          "room doorway has body clearance");
+    check(lc1::WorldCollision{world}.can_stand({36, 0.6F, 23}, 0.3F, 1.8F) &&
+              lc1::WorldCollision{world}.can_stand({36, 4.2F, 23}, 0.3F, 1.8F) &&
+              lc1::WorldCollision{world}.can_stand({36, 7.8F, 23}, 0.3F, 1.8F),
           "stacked rooms retain independent walkable levels");
 }
 
