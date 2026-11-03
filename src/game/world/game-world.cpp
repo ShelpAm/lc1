@@ -82,15 +82,21 @@ void GameWorld::load(Save const &save)
                         return glm::distance(point.position, example_->position());
                     });
                 auto const index = static_cast<std::size_t>(nearest - waypoints.begin());
-                std::rotate(waypoints.begin(),
-                            waypoints.begin() + (index + waypoints.size() - 1) % waypoints.size(),
-                            waypoints.end());
+                std::ranges::rotate(waypoints, waypoints.begin() + (index + waypoints.size() - 1) %
+                                                                       waypoints.size());
             }
             example_->set_controller(std::make_unique<AiCharacterController>(
-                std::move(waypoints), example_patrol_->arrival_radius));
+                dialogs_, player_, std::move(waypoints), example_patrol_->arrival_radius));
         }
     }
 
+    for (auto const &[_, character] : characters_)
+        if (character.get() != player_) {
+            if (!character->controller())
+                character->set_controller(std::make_unique<AiCharacterController>(dialogs_));
+            character->set_interactable(
+                std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
+        }
     for (auto const &[id, state] : save.states()) {
         if (state.companion_order != CompanionOrder::None) {
             auto *character = character_by_id(id, "companion order");
@@ -98,11 +104,6 @@ void GameWorld::load(Save const &save)
             party->command(*party->leader(), *character, state.companion_order);
         }
     }
-
-    for (auto const &[_, character] : characters_)
-        if (character.get() != player_)
-            character->set_interactable(
-                std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
 }
 
 void GameWorld::build_world(Save const &save)
@@ -126,11 +127,12 @@ void GameWorld::build_world(Save const &save)
     }
     for (auto const &entry : save.weapons()) {
         auto const &record = entry.second;
-        insert_unique(weapons_, record.keyid,
-                      std::make_unique<Weapon>(
-                          record.keyid, record.type,
-                          WeaponProperty{.attack = record.attack, .range = record.range}),
-                      "weapon");
+        insert_unique(
+            weapons_, record.keyid,
+            std::make_unique<Weapon>(record.keyid, record.type,
+                                     WeaponProperty{.attack = record.attack, .range = record.range},
+                                     record.model.value()),
+            "weapon");
     }
 
     // Parties precede characters because a character record names the party it belongs to.
@@ -154,6 +156,7 @@ void GameWorld::build_world(Save const &save)
             .level = record.level,
             .equipment = {},
             .weapon = {},
+            .model = record.model.value(),
         };
         for (auto const &slot : record.equipment)
             config.equipment[slot.first] = equipments_.at(slot.second).get();
@@ -221,7 +224,8 @@ SerializedWorld GameWorld::snapshot() const
         world.weapons.push_back({.keyid = id,
                                  .type = weapon->type(),
                                  .attack = weapon->property().attack,
-                                 .range = weapon->property().range});
+                                 .range = weapon->property().range,
+                                 .model = weapon->model_config()});
     for (auto const &[_, party] : parties_)
         world.parties.push_back(serialize_party(*party));
     for (auto const &[_, character] : characters_) {
@@ -312,52 +316,28 @@ Character *GameWorld::find_interaction_target(glm::vec3 forward) const
 
 void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
 {
-    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
-        fail("invalid world update time");
-
-    auto update_character = [&](Character &character) {
-        CharacterIntent intent;
-        if (&character == player_) {
-            intent = interaction.player_intent;
-        }
-        else {
-            auto const *dialog = dialogs_.find(character);
-            if (dialog) {
-                // Conversation pauses the controller but keeps gravity and collision active.
-                auto const *partner =
-                    dialog->talker() == &character ? dialog->target() : dialog->talker();
-                intent.body_direction = partner->position() - character.position();
-            }
-            else if (auto *controller = character.controller()) {
-                intent = controller->update(delta_seconds, character);
-            }
-        }
-        character.update(delta_seconds, continent_, intent);
-    };
     // Leaders move before followers, with stable keyid order inside each phase. The player
     // participates in the first phase, so its intent is applied before followers decide.
     for (auto *character : dialog_participants_)
         if (character->companion_order() != CompanionOrder::Follow)
-            update_character(*character);
+            character->update(delta_seconds, continent_);
     for (auto *character : dialog_participants_)
         if (character->companion_order() == CompanionOrder::Follow)
-            update_character(*character);
+            character->update(delta_seconds, continent_);
 
     // Interaction
-    interaction_target_ = find_interaction_target(
-        interaction.player_intent.interaction_direction.value_or(player_->body_heading()));
+    interaction_target_ = find_interaction_target(player_->body_heading());
     if (auto *dialog = dialogs_.find(*player_)) {
-        if (interaction.player_intent.interact)
+        if (interaction.interact)
             dialogs_.interrupt(*player_);
         else
             dialog->respond(*player_, interaction.response_index);
     }
-    else if (interaction.player_intent.interact && interaction_target_) {
+    else if (interaction.interact && interaction_target_) {
         interaction_target_->interactable()->interact(*player_);
     }
     dialogs_.update(delta_seconds, dialog_participants_, player_,
-                    interaction.player_input_enabled &&
-                        player_->accepts_ambient_requests(interaction.player_intent));
+                    interaction.player_input_enabled && player_->accepts_ambient_requests());
 }
 
 } // namespace lc1
@@ -377,6 +357,11 @@ Character &GameWorld::player()
 Character const &GameWorld::player() const
 {
     return *player_;
+}
+
+std::span<Character *const> GameWorld::characters()
+{
+    return dialog_participants_;
 }
 
 std::vector<Character const *> const &GameWorld::characters() const

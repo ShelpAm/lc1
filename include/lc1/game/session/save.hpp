@@ -38,6 +38,7 @@ struct SerializedWeapon {
     WeaponType type;
     float attack;
     float range;
+    rfl::DefaultVal<ModelConfig> model;
 };
 
 struct SerializedParty {
@@ -67,6 +68,7 @@ struct SerializedCharacterConfig {
     // of [key, value] pairs: "- [Head, 10]".
     std::map<EquipmentType, std::uint32_t> equipment;
     std::map<WeaponType, std::uint32_t> weapon;
+    rfl::DefaultVal<ModelConfig> model;
 };
 
 struct SerializedResourceStack {

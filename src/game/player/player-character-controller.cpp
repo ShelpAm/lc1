@@ -1,4 +1,4 @@
-#include "lc1/game/player/player-controller.hpp"
+#include "lc1/game/player/player-character-controller.hpp"
 
 #include "lc1/error.hpp"
 #include "lc1/game/character/character.hpp"
@@ -20,9 +20,15 @@ bool finite(glm::vec3 value)
 
 } // namespace
 
-CharacterIntent PlayerController::first_person(Character const &character, glm::vec2 movement,
-                                               glm::vec2 look_delta,
-                                               std::optional<glm::vec2> restored_angles)
+PlayerCharacterController::PlayerCharacterController(GameInputRouter const &input,
+                                                     PlayerCharacterInput const &frame)
+    : input_(&input), frame_(&frame)
+{
+}
+
+CharacterIntent PlayerCharacterController::first_person(Character const &character,
+                                                        glm::vec2 movement, glm::vec2 look_delta,
+                                                        std::optional<glm::vec2> restored_angles)
 {
     if (!finite(movement) || !finite(look_delta))
         fail("invalid player input");
@@ -40,11 +46,10 @@ CharacterIntent PlayerController::first_person(Character const &character, glm::
     return {.move = {direction.x, direction.z},
             .body_yaw = yaw,
             .look = glm::vec2{0, pitch},
-            .interaction_direction = heading,
             .face_movement = false};
 }
 
-CharacterIntent PlayerController::third_person(glm::vec2 movement, glm::vec3 view_heading)
+CharacterIntent PlayerCharacterController::third_person(glm::vec2 movement, glm::vec3 view_heading)
 {
     if (!finite(movement))
         fail("invalid player movement");
@@ -64,12 +69,11 @@ CharacterIntent PlayerController::third_person(glm::vec2 movement, glm::vec3 vie
     return intent;
 }
 
-CharacterIntent PlayerController::update(Character const &character, GameInputRouter const &input,
-                                         glm::vec2 look_delta, bool keyboard_enabled,
-                                         bool mouse_enabled, bool oblique, bool view_changed,
-                                         std::optional<glm::vec2> restored_first_person_angles,
-                                         glm::vec3 view_heading)
+CharacterIntent PlayerCharacterController::update(float, Character const &character)
 {
+    auto const &input = *input_;
+    auto const &[look_delta, keyboard_enabled, mouse_enabled, oblique, view_changed,
+                 restored_first_person_angles, view_heading] = *frame_;
     auto const movement =
         keyboard_enabled ? glm::vec2{static_cast<float>(input.held(GameAction::MoveRight)) -
                                          static_cast<float>(input.held(GameAction::MoveLeft)),
@@ -91,7 +95,7 @@ CharacterIntent PlayerController::update(Character const &character, GameInputRo
     }
     intent.sprint = keyboard_enabled && input.held(GameAction::Sprint);
     intent.jump = keyboard_enabled && input.pressed(GameAction::Jump);
-    intent.interact = keyboard_enabled && input.pressed(GameAction::Interact);
+    intent.swing_weapon = mouse_enabled && input.pressed(GameAction::SwingWeapon);
     return intent;
 }
 

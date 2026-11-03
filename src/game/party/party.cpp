@@ -5,7 +5,6 @@
 #include "lc1/game/character/character.hpp"
 
 #include <algorithm>
-#include <memory>
 
 namespace lc1 {
 
@@ -52,13 +51,13 @@ void Party::change_leader(Character *leader)
         std::erase(members_, leader);
         // A leader cannot keep a companion order targeting itself.
         if (leader->companion_order() != CompanionOrder::None)
-            leader->set_controller(nullptr);
+            leader->ai_controller()->set_order(CompanionOrder::None);
     }
     leader_ = leader;
     if (!leader_)
         for (auto *member : members_)
             if (member->companion_order() != CompanionOrder::None)
-                member->set_controller(nullptr);
+                member->ai_controller()->set_order(CompanionOrder::None);
 }
 
 bool Party::can_command(Character const &commander, Character const &member) const
@@ -74,10 +73,10 @@ void Party::command(Character const &commander, Character &member, CompanionOrde
         (order != CompanionOrder::Follow && order != CompanionOrder::Wait))
         fail("character {} cannot command character {} in party {}", commander.config().keyid,
              member.config().keyid, keyid_);
-    // The order is controller-owned behavior state: install a companion controller
-    // instead of keeping a second mode copy on Character.
-    auto controller = std::make_unique<AiCharacterController>(order);
-    member.set_controller(std::move(controller));
+    auto *ai = member.ai_controller();
+    if (!ai)
+        fail("character {} needs an AI controller to receive orders", member.config().keyid);
+    ai->set_order(order);
 }
 
 bool Party::can_recruit(Character const &recruiter, Character const &candidate) const
@@ -100,7 +99,9 @@ void Party::recruit(Character &recruiter, Character &candidate)
         fail("character {} cannot recruit character {} into party {}", recruiter.config().keyid,
              candidate.config().keyid, keyid_);
     auto *source = candidate.config_.party;
-    auto controller = std::make_unique<AiCharacterController>(CompanionOrder::Follow);
+    auto *ai = candidate.ai_controller();
+    if (!ai)
+        fail("character {} needs an AI controller to be recruited", candidate.config().keyid);
     // Allocate before mutating the source so allocation failure preserves membership.
     members_.push_back(&candidate);
     if (source != this)
@@ -108,7 +109,7 @@ void Party::recruit(Character &recruiter, Character &candidate)
     std::erase(source->captives_, &candidate);
     candidate.config_.party = this;
     // Newly recruited members follow their new leader; the previous patrol is discarded.
-    candidate.set_controller(std::move(controller));
+    ai->set_order(CompanionOrder::Follow);
 }
 
 } // namespace lc1

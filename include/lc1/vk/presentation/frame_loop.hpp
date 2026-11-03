@@ -108,36 +108,31 @@ FrameLoop<GpuResource>::FrameLoop(Device const &device,
     if (!make_resource) {
         fail("frame resource factory is empty");
     }
-    try {
-        vk::raii::Device const &raii_device = device_->raii();
+    vk::raii::Device const &raii_device = device_->raii();
 
-        command_pool_ = raii_device.createCommandPool({
-            // RESET_COMMAND_BUFFER_BIT lets us re-begin buffers each frame without
-            // reallocating; re-recording every frame is this milestone's model.
-            .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            .queueFamilyIndex = device_->queue_family(),
+    command_pool_ = raii_device.createCommandPool({
+        // RESET_COMMAND_BUFFER_BIT lets us re-begin buffers each frame without
+        // reallocating; re-recording every frame is this milestone's model.
+        .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+        .queueFamilyIndex = device_->queue_family(),
+    });
+
+    auto command_buffers = raii_device.allocateCommandBuffers({
+        .commandPool = command_pool_,
+        .level = vk::CommandBufferLevel::ePrimary,
+        .commandBufferCount = max_frames_in_flight,
+    });
+
+    frames_.reserve(max_frames_in_flight);
+    for (auto &command_buffer : command_buffers) {
+        frames_.push_back(Frame{
+            .command_buffer = std::move(command_buffer),
+            .image_available = raii_device.createSemaphore({}),
+            // Start signaled so the first wait on each slot returns immediately
+            // instead of blocking on a fence that was never submitted.
+            .in_flight = raii_device.createFence({.flags = vk::FenceCreateFlagBits::eSignaled}),
+            .gpu_resource = make_resource(),
         });
-
-        auto command_buffers = raii_device.allocateCommandBuffers({
-            .commandPool = command_pool_,
-            .level = vk::CommandBufferLevel::ePrimary,
-            .commandBufferCount = max_frames_in_flight,
-        });
-
-        frames_.reserve(max_frames_in_flight);
-        for (auto &command_buffer : command_buffers) {
-            frames_.push_back(Frame{
-                .command_buffer = std::move(command_buffer),
-                .image_available = raii_device.createSemaphore({}),
-                // Start signaled so the first wait on each slot returns immediately
-                // instead of blocking on a fence that was never submitted.
-                .in_flight = raii_device.createFence({.flags = vk::FenceCreateFlagBits::eSignaled}),
-                .gpu_resource = make_resource(),
-            });
-        }
-    }
-    catch (vk::SystemError const &error) {
-        fail("per-frame resource creation failed: {}", error.what());
     }
 }
 
@@ -313,11 +308,7 @@ FrameResult FrameLoop<GpuResource>::draw_frame(Swapchain &swapchain, RecordCallb
         return recreate_after_present ? FrameResult::RecreateRequested : FrameResult::Ok;
     }
     catch (vk::SurfaceLostKHRError const &) {
-        // Must come before the SystemError catch, which is its base class.
         return FrameResult::SurfaceLost;
-    }
-    catch (vk::SystemError const &error) {
-        fail("frame failed: {}", error.what());
     }
 }
 

@@ -1,0 +1,53 @@
+path: player-prop.obj
+nodes:
+- name: Body
+- name: Head
+  parent_index: 0
+  transform:
+    translation: [0, 1.2, 0]
+- name: Eyes
+  parent_index: 1
+  transform:
+    translation: [0, 0.45, 0]
+- name: RightHandGrip
+  parent_index: 0
+  transform:
+    translation: [0.5, 1.05, -0.4]
+    rotation_degrees: [-45, 0, 0]
+- name: Barrel
+  parent_index: 1
+  mesh_index: 0
+  transform:
+    translation: [-0.9, -2.55, -1.5]
+    scale: [0.3, 0.45, 0.3]
+animations:
+- name: Idle
+  channels:
+  - node: 1
+    path: Rotation
+    times: [0, 1, 2, 3, 4]
+    values:
+    - [0, 0, 0]
+    - [0, 10, 0]
+    - [0, 0, 0]
+    - [0, -10, 0]
+    - [0, 0, 0]
+- name: Nod
+  channels:
+  - node: 1
+    path: Rotation
+    times: [0, 0.3, 0.6, 0.9, 1.2, 3]
+    values:
+    - [0, 0, 0]
+    - [-25, 0, 0]
+    - [0, 0, 0]
+    - [-25, 0, 0]
+    - [0, 0, 0]
+    - [0, 0, 0]
+eyes: Eyes
+weapon_mount: RightHandGrip
+action_animation: Nod
+material:
+  base_color: [0.45, 0.22, 0.07, 1]
+  metallic: 0
+  roughness: 0.8

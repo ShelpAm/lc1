@@ -11,6 +11,7 @@ CMake 目标 `copy_saves` 每次构建都将种子文件复制进运行树，覆
 按 F9、主菜单 Load Game 或调试面板 Load game 打开存档列表，选择一项 Load 即可读档。
 窗口打开时屏蔽玩法输入并释放第一人称光标，世界仍继续模拟。HUD 和窗口显示操作结果，详细错误写入日志。
 列表包含完整的七文件种子槽和带 checkpoint 的进度槽，按名称排序，Refresh 重新扫描。
+不符合存档命名规则的目录通过普通条件过滤，不以异常控制列表扫描；显式提交非法名称时仍报告错误。
 损坏的 checkpoint 仍列出，选择后报告错误，不静默隐藏或回退。
 启动时，目录里存在 `checkpoint.yaml` 就优先读取完整进度，否则读取七个初始 YAML。
 `LC1_SAVE_ROOT` 可以覆盖启动槽位，默认为 `runtime/saves/01`；游戏内列表和命名保存使用
@@ -42,7 +43,9 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 
 世界数据文件是 YAML 序列，每条记录一项；`session.yaml` 是单个 YAML 映射。
 字段必须写全：读取使用
-`rfl::NoOptionals`，缺少任何字段都会解析失败，空列表要显式写成 `[]`。
+`rfl::NoOptionals`，缺少原有玩法字段会解析失败，空列表要显式写成 `[]`。
+角色和武器新增的 `model` 及其可选子字段通过 `rfl::DefaultVal` 提供默认值，不放宽原有字段检查；
+该变化是版本 4 的兼容扩展，旧 checkpoint 不会从种子文件自动补入新模型配置。
 
 `keyid` 是身份，名称只是显示。同类编号非零、在本文件内唯一；重排文件或改名不影响引用。
 编号重复时 `Save` 在读取阶段就明确报错，不会静默保留其中一条。
@@ -72,6 +75,7 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `type` | `MeleeWeapon`、`RangedWeapon` |
 | `attack` | 攻击力 |
 | `range` | 射程，米 |
+| `model` | 模型节点、动画、局部变换和材质，见下文 |
 
 ### 队伍 `parties.yaml`
 
@@ -101,10 +105,51 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `level` | 等级 |
 | `equipment` | 装备槽位，每项为 `[装备类型, 装备编号]` 对 |
 | `weapon` | 武器槽位，每项为 `[武器类型, 武器编号]` 对 |
+| `model` | 模型节点、动画、局部变换和材质，见下文 |
 
 编号 `1` 和 `2` 不是特殊编号。谁是玩家由 `session.yaml` 决定，`GameWorld` 不再写死任何
 编号：玩家可以是任意一条角色记录，也可以整支队伍换人。种子数据里 `runtime/saves/01/session.yaml`
 把 1 号定为玩家、2 号定为 AI 示例。
+
+### 角色与武器的 `model`
+
+配置直接属于对应记录，没有单独的武器定义表。
+配置了模型的武器是具体实例，一个武器编号只能被一个角色装备；多个角色使用相同外观时，
+各自使用独立编号，YAML 可用锚点共享模型配置，运行时共享 GPU 资源但分别拥有场景实例。
+旧数据中未配置模型的武器引用继续兼容。当前种子完整示例见
+[`characters.yaml`](../runtime/saves/01/characters.yaml) 和 [`weapons.yaml`](../runtime/saves/01/weapons.yaml)。
+
+| 字段 | 含义与默认值 |
+|---|---|
+| `path` | 相对 asset root 的 OBJ/glTF/GLB 路径；空路径为角色占位几何，武器空路径不装配显示实例 |
+| `transform` | 整个模型的局部变换，默认单位变换 |
+| `nodes` | 可选节点数组；非空时替换文件节点层级，复用文件中的网格 |
+| `animations` | 与显式节点配套的动画片段数组；未提供节点时保留文件自带节点和动画 |
+| `material` | 覆盖整个模型的 PBR 材质，不自动读取 OBJ MTL 或 glTF 材质 |
+| `eyes` | 相机挂点名称，默认 `Eyes`；空字符串使用角色配置眼高 |
+| `weapon_mount` | 角色模型的近战武器挂点名称，默认 `RightHandGrip` |
+| `idle_animation` | NPC 循环动画名称，默认不播放 |
+| `action_animation` | 玩家 F2 / 武器左键单次动画名称，默认不播放 |
+
+`transform` 包含 `translation`、`rotation_degrees`、`scale`，均为三元素数组，默认分别为
+`[0, 0, 0]`、`[0, 0, 0]`、`[1, 1, 1]`。旋转使用 XYZ Euler 角并转换为四元数。
+节点包含必填 `name`、可选 `parent_index`、`mesh_index` 和 `transform`；索引从 0 开始，
+父节点必须在子节点前面。无 `mesh_index` 的节点是挂点。局部变换属于节点，没有独立 correction 字段。
+
+动画片段包含 `name`、`channels`；每个通道包含 `node`、`path`、`times`、`values`，
+`path` 为 `Translation` / `Rotation` / `Scale`，值是三元素数组，旋转值单位为度。
+可选 `interpolation` 为 `Step` / `Linear`，默认 `Linear`。时间必须非负且严格递增，
+通道与节点约束沿用[模型动画契约](resources.md#模型资源与实例)。
+
+材质支持 `base_color`（RGBA，默认全 1）、`metallic`（默认 0）、`roughness`（默认 0.8）、
+`emissive`（RGB，默认全 0）、`normal_scale`（默认 1），以及可选贴图路径
+`base_color_texture`、`metallic_roughness_texture`、`normal_texture`、`emissive_texture`。
+贴图路径相对 asset root；底色和自发光使用 sRGB，MR 和法线使用 Linear，MR 的 G/B 通道分别为粗糙度/金属度。
+配置法线贴图时自动生成切线；缺少有效 UV 的模型会明确失败。AO 尚不支持。
+各贴图缺省时使用渲染器对应的回退行为，详见[光照](lighting.md)。
+
+Save 在入口校验配置数值、显式节点和动画，不加载外部素材。实际装配时再校验文件中的网格索引、
+所选动画和挂点是否存在；失败不发布模型借用。运行对象与快照都保留完整配置，checkpoint 会原样保存。
 
 ### 会话 `session.yaml`
 

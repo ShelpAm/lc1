@@ -1,6 +1,18 @@
 # AGENTS.md
 
+Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
+
 Fix a bug at its cause, reasoning from first principles and established best practice. Do not patch over the symptom
+
+Follow DRY and SOLID principles.
+
+1、要为一个推测出来的、几乎不会发生的并发或安全边界加复杂度之前，先跟用户讲清楚：具体会出什么问题、概率多大、要多写多少，用户点头了再加。不许为了「理论上更稳」悄悄扩大范围。
+
+2、外面进来的数据只在入口校验一次，往里传就用定好类型的值，不要每一层再判断一遍。
+
+3、只用一次的逻辑不要提前抽成函数，直接写在调用的地方，除非它会复用，或者真藏着一块复杂的东西。
+
+4、能不用 try/catch 就不用，能一个函数写完就别拆。
 
 ## Scope and workflow
 
@@ -8,7 +20,7 @@ Fix a bug at its cause, reasoning from first principles and established best pra
   Linux first, Windows supported. No third-party rendering abstraction or volk.
 - Read the relevant entry in [docs/README.md](docs/README.md) before editing a subsystem.
   Subsystem contracts belong in those documents; do not duplicate them here.
-- Architecture may change to meet requirements. Update the affected contract with the code;
+- Architecture may change to meet requirements. Tell the user explicitly if you want to make changes to the architecture. Update the affected contract with the code;
   do not treat current implementation as an immutable design or add speculative infrastructure.
 - Keep changes scoped to the task. Preserve unrelated edits, including staged changes, and
   user comments and intentional code choices, including committed ones. Do not remove or

@@ -2,6 +2,9 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/scene/model-instance.hpp"
 
+#include <fstream>
+#include <rfl/yaml.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -312,9 +315,18 @@ void player_nod_clip()
 
 void imported_player_and_weapon()
 {
-    auto const path = std::filesystem::path{__FILE__}.parent_path() / "fixtures/player-prop.obj";
+    auto const root = std::filesystem::path{__FILE__}.parent_path() / "fixtures";
+    auto const read = [&](char const *name) {
+        std::ifstream stream{root / name};
+        auto result = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(stream);
+        if (!result)
+            throw std::runtime_error(result.error().what());
+        lc1::validate_model_config(*result);
+        return *result;
+    };
+    auto config = read("character-model.yaml");
     lc1::CharacterBody const body{};
-    auto const barrel = lc1::load_barrel_player_model(path, body);
+    auto const barrel = lc1::load_configured_model(config, root, body);
     ModelInstance player{barrel.definition()};
     glm::vec3 minimum{std::numeric_limits<float>::max()};
     glm::vec3 maximum{std::numeric_limits<float>::lowest()};
@@ -332,7 +344,7 @@ void imported_player_and_weapon()
                        {0, body.eye_height, 0}),
           "import normalization does not scale the eye mount");
 
-    auto const weapon = lc1::load_player_weapon_model(path);
+    auto const weapon = lc1::load_configured_model(read("weapon-model.yaml"), root, body);
     ModelInstance instance{weapon.definition()};
     auto const grip = *weapon.definition().find_node("Grip");
     auto const mesh = *weapon.definition().find_node("KingdomLongsword");
@@ -345,8 +357,10 @@ void imported_player_and_weapon()
               near(glm::vec3{instance.node_world_matrix(grip, glm::mat4{1})[3]},
                    glm::vec3{grip_position}),
           "weapon swings around its fixed grip");
-    auto const world = glm::translate(glm::mat4{1}, glm::vec3{5, 2, -3}) *
-                       glm::rotate(glm::mat4{1}, glm::radians(90.0F), glm::vec3{0, 1, 0});
+    auto const mount = *barrel.definition().find_node("RightHandGrip");
+    auto const world = player.node_world_matrix(
+        mount, glm::translate(glm::mat4{1}, glm::vec3{5, 2, -3}) *
+                   glm::rotate(glm::mat4{1}, glm::radians(90.0F), glm::vec3{0, 1, 0}));
     auto const followed = instance.node_world_matrix(mesh, world);
     check(near(glm::vec3{followed[3]}, glm::vec3{world * moving[3]}),
           "weapon pose follows the player's translation and yaw");
@@ -356,6 +370,30 @@ void imported_player_and_weapon()
           "single swing finishes in the resting pose without looping");
     instance.play_animation(0, false);
     check(instance.playback()->time == 0, "another click restarts the swing");
+
+    auto textured_config = read("weapon-model.yaml");
+    textured_config.path = std::string{"textured-prop.obj"};
+    textured_config.material.value().normal_texture = std::string{"normal.png"};
+    auto const textured = lc1::load_configured_model(textured_config, root, body);
+    check(std::ranges::all_of(
+              textured.vertices(),
+              [](auto const &vertex) { return glm::length(glm::vec3{vertex.tangent}) > 0.9F; }),
+          "configured normal texture generates tangents before GPU upload");
+
+    config.transform.value().scale = std::array<float, 3>{1, 0, 1};
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
+    config.nodes.value()[1].parent_index = std::optional<std::size_t>{1};
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
+    config.material.value().roughness = -1.0F;
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
+    config.animations.value()[0].channels[0].times[1] = -1;
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
+    config.path = std::string{"../outside.obj"};
+    rejects([&] { lc1::validate_model_config(config); });
 }
 
 } // namespace

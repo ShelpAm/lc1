@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lc1/game/actions.hpp"
-#include "lc1/game/character/character-intent.hpp"
+#include "lc1/game/character/character-controller.hpp"
 
 #include <glm/glm.hpp>
 
@@ -11,13 +11,29 @@ namespace lc1 {
 
 class Character;
 
+// One local player's frame input, prepared before character updates.
+struct PlayerCharacterInput {
+    glm::vec2 look_delta{};
+    bool keyboard_enabled = false;
+    bool mouse_enabled = false;
+    bool oblique = true;
+    bool view_changed = false;
+    std::optional<glm::vec2> restored_first_person_angles;
+    glm::vec3 view_heading{0, 0, -1};
+};
+
 // Turns player actions into a CharacterIntent. It owns device-to-action mapping, mouse
 // look and the choice between camera-relative and body-relative movement. It does not
 // know whether the character may move, sprint or jump: Character applies those rules.
 // Camera lock, recenter and view switching stay in PlayerView because they change the
 // camera rather than the character.
-class PlayerController {
+class PlayerCharacterController : public CharacterController {
   public:
+    // Both input sources are required borrows and must outlive controller updates.
+    PlayerCharacterController(GameInputRouter const &input, PlayerCharacterInput const &frame);
+
+    CharacterIntent update(float delta_seconds, Character const &character) override;
+
     // Pure resolution for the first-person view. `restored_angles` supplies the remembered
     // absolute yaw/pitch after a view switch; std::nullopt derives them from the character.
     static CharacterIntent first_person(Character const &character, glm::vec2 movement,
@@ -26,13 +42,9 @@ class PlayerController {
     // WASD in the horizontal camera basis; the body turns toward the requested movement.
     static CharacterIntent third_person(glm::vec2 movement, glm::vec3 view_heading);
 
-    // Full one-frame resolution. Input gating stays with the session: a false
-    // keyboard_enabled/mouse_enabled suppresses that device's contribution.
-    static CharacterIntent update(Character const &character, GameInputRouter const &input,
-                                  glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled,
-                                  bool oblique, bool view_changed,
-                                  std::optional<glm::vec2> restored_first_person_angles,
-                                  glm::vec3 view_heading);
+  private:
+    GameInputRouter const *input_;
+    PlayerCharacterInput const *frame_;
 };
 
 } // namespace lc1

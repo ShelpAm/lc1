@@ -1,6 +1,9 @@
 #include "lc1/game/session/save.hpp"
 
 #include "lc1/error.hpp"
+#include "lc1/game/world/game-world.hpp"
+
+#include <rfl/yaml.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -229,6 +232,9 @@ void named_save_slots()
     lc1::Save::write(alpha, data);
     lc1::Save::write(unicode, data);
     std::filesystem::create_directories(root / "incomplete");
+    auto const invalid_slot = root / " bad";
+    std::filesystem::create_directories(invalid_slot);
+    std::ofstream{invalid_slot / "checkpoint.yaml"} << "invalid";
     std::filesystem::copy(seed_directory(), root / "Seed");
     check(lc1::Save::slots(root) == std::vector<std::string>{"Alpha", "Beta", "Seed", "旅途"},
           "slots include named checkpoints and complete seeds in stable name order");
@@ -398,6 +404,49 @@ void inventory_checkpoints()
     check_rejected_in(scratch, "bag");
 }
 
+void model_configuration_round_trip()
+{
+    ScratchSave scratch{"models"};
+    auto data = checkpoint_data();
+    for (auto &state : data.states)
+        state.patrol = false;
+    auto const root = std::filesystem::path{__FILE__}.parent_path() / "fixtures";
+    std::ifstream character_stream{root / "character-model.yaml"};
+    std::ifstream weapon_stream{root / "weapon-model.yaml"};
+    auto const character = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(character_stream);
+    auto const weapon = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(weapon_stream);
+    check(character && weapon, "model fixtures decode");
+    data.characters.front().model = *character;
+    data.weapons.front().model = *weapon;
+    for (auto &record : data.characters)
+        record.weapon.clear();
+    data.characters.front().weapon[data.weapons.front().type] = data.weapons.front().keyid;
+    lc1::Save::write(scratch.directory(), data);
+    lc1::Save const restored{scratch.directory()};
+    check(restored.characters().at(data.characters.front().keyid).model.value() == *character &&
+              restored.weapons().at(data.weapons.front().keyid).model.value() == *weapon,
+          "model hierarchy, animations and material survive checkpoint round trip");
+    lc1::GameWorld const world{restored,
+                               root.parent_path().parent_path() / "runtime/dialogs/catalog.yaml"};
+    auto const snapshot = world.snapshot();
+    check(snapshot.characters.front().model.value() == *character &&
+              snapshot.weapons.front().model.value() == *weapon,
+          "runtime objects retain model configuration for saving without a device");
+    check(!world.characters().front()->model(), "headless characters have no scene borrow");
+
+    data.characters.back().weapon[data.weapons.front().type] = data.weapons.front().keyid;
+    rejects_write([&] { lc1::Save::write(scratch.directory(), data); },
+                  "equipped by multiple characters");
+    data.characters.back().weapon.clear();
+    data.characters.front().model.value().material.value().roughness = -1.0F;
+    rejects_write([&] { lc1::Save::write(scratch.directory(), data); }, "invalid PBR");
+    check(lc1::Save{scratch.directory()}
+                  .characters()
+                  .at(data.characters.front().keyid)
+                  .model.value() == *character,
+          "invalid model configuration preserves the previous checkpoint");
+}
+
 void legacy_checkpoints_are_upgraded()
 {
     ScratchSave scratch{"legacy"};
@@ -543,6 +592,7 @@ int main(int argc, char **argv)
         checkpoint_round_trip();
         legacy_checkpoints_are_upgraded();
         inventory_checkpoints();
+        model_configuration_round_trip();
         std::cout << "save data checks passed\n";
     }
     catch (std::exception const &error) {

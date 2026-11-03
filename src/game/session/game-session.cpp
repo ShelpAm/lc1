@@ -33,6 +33,8 @@ GameSession::GameSession(Device const &device, std::filesystem::path const &asse
     if (!window_)
         fail("game session requires a window");
 
+    world_.player().set_controller(
+        std::make_unique<PlayerCharacterController>(input_router_, player_view_.character_input()));
     refresh_saves();
     window_->set_cursor_captured(should_captures_cursor());
     update_title();
@@ -62,17 +64,13 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     bool const keyboard_save_requested =
         keyboard_enabled && input_router_.pressed(GameAction::SaveGame);
 
-    ;
-    // The controller supplies intent; GameWorld applies it through Character and then
-    // handles the world-level dialog interaction. Whether an idle player accepts ambient
-    // requests is a Character rule, not an input rule.
-    world_.update(delta_seconds, WorldInteraction{
-                                     .player_intent = player_view_.resolve_input(
-                                         world_.player(), input_router_, input_state.cursor_delta(),
-                                         keyboard_enabled, mouse_enabled),
-                                     .player_input_enabled = keyboard_enabled,
-                                     .response_index = response_index(input_router_),
-                                 });
+    player_view_.prepare_input(input_state.cursor_delta(), keyboard_enabled, mouse_enabled);
+    world_.update(delta_seconds,
+                  WorldInteraction{
+                      .interact = keyboard_enabled && input_router_.pressed(GameAction::Interact),
+                      .player_input_enabled = keyboard_enabled,
+                      .response_index = response_index(input_router_),
+                  });
     if (mouse_enabled)
         player_view_.update_pointer(delta_seconds, input_state, window_->window_size(),
                                     window_->hovered() && !window_->cursor_captured());
@@ -80,7 +78,6 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         delta_seconds,
         {
             .nod = keyboard_enabled && input_router_.pressed(GameAction::Nod),
-            .swing_weapon = mouse_enabled && input_router_.pressed(GameAction::SwingWeapon),
             .cycle_lighting = keyboard_enabled && input_router_.pressed(GameAction::CycleLighting),
             .toggle_showcase_motion =
                 keyboard_enabled && input_router_.pressed(GameAction::ToggleShowcaseMotion),

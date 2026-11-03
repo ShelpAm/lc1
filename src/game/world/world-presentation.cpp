@@ -26,9 +26,6 @@ float volume_to_gain(float volume_percent)
     return normalized * normalized;
 }
 
-// NPCs currently use the default body and share a placeholder mesh.
-constexpr CharacterBody player_body{};
-
 // One font per frame, and its atlas is fixed once constructed: the face has to cover every
 // script save data can hold, because the atlas requests only the codepoints that will be
 // drawn. `runtime/assets/` is not tracked, so this is a runtime input; see
@@ -54,68 +51,113 @@ std::u32string font_codepoints(GameWorld const &world)
 
 } // namespace
 
+WorldPresentation::ModelResources::ModelResources(Device const &device,
+                                                  std::filesystem::path const &asset_root,
+                                                  ModelConfig const &config,
+                                                  CharacterBody const &body)
+    : config(config), body(body), model(device, load_configured_model(config, asset_root, body)),
+      material(config.material.value().material())
+{
+}
+
 WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
-                                     GameWorld const &world, OutputSettings output)
+                                     GameWorld &world, OutputSettings output)
     : world_(&world), font_{device, text::GlyphAtlas{asset_root / font_file,
                                                      {.codepoints = font_codepoints(world)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
       continent_view_{device, white_, world.continent()},
-      showcase_{device, world.continent().spawn()},
-      character_resources_{device, make_character_model(player_body)},
-      player_resources_{
-          device, load_barrel_player_model(asset_root / "lc-res/Modular Village/Prop_Barrel_1.obj",
-                                           world.player().body())},
-      weapon_resources_{device,
-                        load_player_weapon_model(asset_root / "lc-res/KingdomLongsword.obj")},
-      player_material_{
-          MaterialInfo{.parameters = {.metallic_factor = 0.0F, .roughness_factor = 0.8F},
-                       .base_color = {.texture = &white_}}},
-      barrel_material_{MaterialInfo{.parameters = {.base_color_factor = {0.45F, 0.22F, 0.07F, 1.0F},
-                                                   .metallic_factor = 0.0F,
-                                                   .roughness_factor = 0.8F},
-                                    .base_color = {.texture = &white_}}},
-      weapon_material_{MaterialInfo{.parameters = {.base_color_factor = {0.65F, 0.7F, 0.8F, 1.0F},
-                                                   .metallic_factor = 0.85F,
-                                                   .roughness_factor = 0.3F},
-                                    .base_color = {.texture = &white_}}},
-      output_(output)
+      showcase_{device, world.continent().spawn()}, output_(output)
 {
-    character_models_.reserve(world.characters().size());
+    std::vector<scene::SceneModel *> character_models;
+    character_models.reserve(world.characters().size());
+    std::vector<std::optional<std::size_t>> weapon_mounts;
+    std::vector<std::pair<Weapon *, scene::SceneModel *>> weapon_models;
+    auto const resources_for = [&](ModelConfig const &config,
+                                   CharacterBody const &body) -> ModelResources & {
+        auto const found = std::ranges::find_if(model_resources_, [&](auto const &entry) {
+            return entry->config == config &&
+                   (!config.path.value().empty() || (entry->body.half_width == body.half_width &&
+                                                     entry->body.height == body.height &&
+                                                     entry->body.eye_height == body.eye_height));
+        });
+        if (found != model_resources_.end())
+            return **found;
+        auto resources = std::make_unique<ModelResources>(device, asset_root, config, body);
+        auto const &material = config.material.value();
+        struct TextureSlot {
+            MaterialTexture *slot;
+            std::string const *path;
+            TextureColorSpace color_space;
+        };
+        std::array const slots{
+            TextureSlot{&resources->material.base_color, &material.base_color_texture.value(),
+                        TextureColorSpace::Srgb},
+            TextureSlot{&resources->material.metallic_roughness,
+                        &material.metallic_roughness_texture.value(), TextureColorSpace::Linear},
+            TextureSlot{&resources->material.normal, &material.normal_texture.value(),
+                        TextureColorSpace::Linear},
+            TextureSlot{&resources->material.emissive, &material.emissive_texture.value(),
+                        TextureColorSpace::Srgb}};
+        for (auto const &slot : slots) {
+            if (slot.path->empty())
+                continue;
+            auto const key =
+                std::pair{std::filesystem::path{*slot.path}.lexically_normal().generic_string(),
+                          slot.color_space};
+            auto found_texture = model_textures_.find(key);
+            if (found_texture == model_textures_.end()) {
+                auto texture = std::make_unique<GpuTexture>(
+                    device, Image::load_from_file(asset_root / key.first), slot.color_space);
+                found_texture = model_textures_.emplace(key, std::move(texture)).first;
+            }
+            slot.slot->texture = found_texture->second.get();
+        }
+        model_resources_.push_back(std::move(resources));
+        return *model_resources_.back();
+    };
     for (std::size_t i = 0; i < world.characters().size(); ++i) {
-        bool const player = world.characters()[i] == &world.player();
-        auto const &resources = player ? player_resources_ : character_resources_;
-        auto *model = scene_.add_model(scene::SceneModel{
-            .model = &resources,
-            .material = player ? &barrel_material_ : &player_material_,
-            .world_transform = world.characters()[i]->transform().model_matrix()});
-        character_models_.push_back(model);
-        auto &instance = model->pose;
-        std::string_view const clip_name = player ? "Nod" : "Idle";
-        auto const clips = resources.definition().animations();
-        auto const clip = std::ranges::find(clips, clip_name, &scene::AnimationClip::name);
-        if (clip == clips.end())
-            fail("character model is missing animation {}", clip_name);
-        auto const animation = static_cast<std::size_t>(clip - clips.begin());
-        if (player) {
-            player_model_ = model;
-            nod_animation_index_ = animation;
+        auto &character = *world.characters()[i];
+        auto const &config = character.config().model;
+        auto &resources = resources_for(config, character.body());
+        auto *model = scene_.add_model(
+            scene::SceneModel{.model = &resources.model,
+                              .material = &resources.material,
+                              .world_transform = character.transform().model_matrix()});
+        character_models.push_back(model);
+        if (&character == &world.player()) {
+            nod_animation_index_ =
+                resources.model.definition().find_animatinon(*config.action_animation);
+            if (!config.eyes.value().empty()) {
+                eyes_node_index_ = resources.model.definition().find_node(config.eyes.value());
+                if (!eyes_node_index_)
+                    fail("character model is missing eyes mount {}", config.eyes.value());
+            }
         }
-        else {
-            instance.play_animation(animation);
-            instance.update_animation(static_cast<float>(i % 11) * clip->duration() / 11.0F);
+        else if (auto const idle =
+                     resources.model.definition().find_animatinon(*config.idle_animation)) {
+            model->pose.play_animation(*idle);
+            auto const &clip = resources.model.definition().animations()[*idle];
+            model->pose.update_animation(static_cast<float>(i % 11) * clip.duration() / 11.0F);
         }
-    }
 
-    if (!player_model_)
-        fail("player presentation is missing");
-    auto const eyes = player_resources_.definition().find_node("Eyes");
-    if (!eyes)
-        fail("character model is missing the Eyes mount");
-    eyes_node_index_ = *eyes;
-    weapon_model_ = scene_.add_model(
-        scene::SceneModel{.model = &weapon_resources_,
-                          .material = &weapon_material_,
-                          .world_transform = world.player().transform().model_matrix()});
+        std::optional<std::size_t> mount;
+        auto const slot = character.config().weapon.find(WeaponType::MeleeWeapon);
+        if (slot != character.config().weapon.end() &&
+            !slot->second->model_config().path.value().empty()) {
+            mount = resources.model.definition().find_node(config.weapon_mount.value());
+            if (!mount)
+                fail("character {} model is missing weapon mount {}", character.config().keyid,
+                     config.weapon_mount.value());
+            auto const &weapon_config = slot->second->model_config();
+            auto &weapon_resources = resources_for(weapon_config, character.body());
+            auto *weapon_model = scene_.add_model(
+                scene::SceneModel{.model = &weapon_resources.model,
+                                  .material = &weapon_resources.material,
+                                  .world_transform = model->node_world_matrix(*mount)});
+            weapon_models.emplace_back(slot->second, weapon_model);
+        }
+        weapon_mounts.push_back(mount);
+    }
 
     scene::DirectionalLight const sun{
         .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.3F},
@@ -146,6 +188,24 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
     update_lighting();
 
     set_volume(50.0F);
+
+    // Publish borrows only after all potentially failing resource setup succeeds.
+    for (std::size_t i = 0; i < character_models.size(); ++i) {
+        world.characters()[i]->model_ = character_models[i];
+        world.characters()[i]->weapon_mount_index_ = weapon_mounts[i];
+    }
+    for (auto const &[weapon, model] : weapon_models)
+        weapon->model_ = model;
+}
+
+WorldPresentation::~WorldPresentation()
+{
+    for (auto *character : world_->characters()) {
+        character->model_ = nullptr;
+        character->weapon_mount_index_.reset();
+        for (auto const &[_, weapon] : character->config().weapon)
+            weapon->model_ = nullptr;
+    }
 }
 
 scene::Scene const &WorldPresentation::scene() const
@@ -158,9 +218,12 @@ void WorldPresentation::update_instances()
     auto const showcase = showcase_.draws();
     for (std::size_t i = 0; i < showcase.size(); ++i)
         showcase_models_[i]->world_transform = showcase[i].world_transform;
-    for (std::size_t i = 0; i < character_models_.size(); ++i)
-        character_models_[i]->world_transform = world_->characters()[i]->transform().model_matrix();
-    weapon_model_->world_transform = world_->player().transform().model_matrix();
+    for (auto *character : world_->characters()) {
+        character->model()->world_transform = character->transform().model_matrix();
+        if (character->weapon_mount_index_)
+            character->config().weapon.at(WeaponType::MeleeWeapon)->model()->world_transform =
+                character->model()->node_world_matrix(*character->weapon_mount_index_);
+    }
 }
 
 std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
@@ -247,11 +310,8 @@ std::string_view WorldPresentation::lighting_name() const
 
 void WorldPresentation::update(float delta_seconds, WorldPresentationInput const &input)
 {
-    if (input.nod)
-        player_model_->pose.play_animation(nod_animation_index_, false);
-    if (input.swing_weapon)
-        weapon_model_->pose.play_animation(0, false);
-    scene_.update_animations(delta_seconds);
+    if (input.nod && nod_animation_index_)
+        world_->player().model()->pose.play_animation(*nod_animation_index_, false);
     if (input.cycle_lighting)
         lighting_mode_ = (lighting_mode_ + 1) % lighting_names.size();
     if (input.toggle_showcase_motion)
@@ -263,6 +323,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         showcase_time_ += delta_seconds;
     showcase_.update(showcase_time_);
     update_lighting();
+    scene_.update_animations(delta_seconds);
     update_instances();
 }
 
@@ -277,7 +338,11 @@ void WorldPresentation::update_listener(scene::FpsCamera const &camera)
 
 glm::mat4 WorldPresentation::player_eye_transform() const
 {
-    return player_model_->node_world_matrix(eyes_node_index_);
+    if (eyes_node_index_)
+        return world_->player().model()->node_world_matrix(*eyes_node_index_);
+    auto transform = world_->player().transform().model_matrix();
+    transform[3] = glm::vec4{world_->player().eye_position(), 1.0F};
+    return transform;
 }
 
 void WorldPresentation::set_volume(float volume_percent)

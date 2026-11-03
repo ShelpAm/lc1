@@ -54,78 +54,68 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(vk::DebugUtilsMessageSeverityFla
 Instance::Instance(VulkanLoader const &loader, std::vector<char const *> extensions,
                    std::vector<char const *> layers)
 {
-    try {
-        vk::raii::Context const &context = loader.raii();
+    vk::raii::Context const &context = loader.raii();
 
-        if (context.enumerateInstanceVersion() < vk::ApiVersion14)
-            fail("Vulkan loader version 1.4 or newer is required");
+    if (context.enumerateInstanceVersion() < vk::ApiVersion14)
+        fail("Vulkan loader version 1.4 or newer is required");
 
-        auto const available_layers = context.enumerateInstanceLayerProperties();
-        for (auto const *layer : layers) {
-            if (std::ranges::none_of(available_layers, [layer](auto const &available_layer) {
-                    return std::string_view{available_layer.layerName.data()} == layer;
-                }))
-                fail("required Vulkan layer '{}' is not available; install the layer and ensure "
-                     "its manifest is discoverable through VK_LAYER_PATH (for Conan dependencies, "
-                     "run with the generated conanrun environment)",
-                     layer);
-        }
-
-        vk::InstanceCreateInfo info;
-
-        constexpr vk::ApplicationInfo app_info{.pApplicationName = "lc1",
-                                               .applicationVersion = vk::makeVersion(0, 1, 0),
-                                               .pEngineName = "lc1",
-                                               .engineVersion = vk::makeVersion(0, 1, 0),
-                                               .apiVersion = vk::ApiVersion14};
-        info.setPApplicationInfo(&app_info);
-
-        auto const available = context.enumerateInstanceExtensionProperties();
-        if (std::ranges::any_of(available, [](auto const &extension) {
-                return std::string_view{extension.extensionName.data()} ==
-                       vk::KHRPortabilityEnumerationExtensionName;
-            })) {
-            info.setFlags(vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR);
-            if (std::ranges::none_of(extensions, [](auto const *extension) {
-                    return std::string_view{extension} ==
-                           vk::KHRPortabilityEnumerationExtensionName;
-                }))
-                extensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
-        }
-
-        // Keep synchronization validation enabled whenever the validation layer is requested.
-        // These values and the pNext chain remain alive through createInstance.
-        vk::Bool32 const validate_sync = vk::True;
-        vk::LayerSettingEXT const setting{
-            .pLayerName = "VK_LAYER_KHRONOS_validation",
-            .pSettingName = "validate_sync",
-            .type = vk::LayerSettingTypeEXT::eBool32,
-            .valueCount = 1,
-            .pValues = &validate_sync,
-        };
-        vk::LayerSettingsCreateInfoEXT layer_settings;
-        if (std::ranges::any_of(layers, [](auto const *layer) {
-                return std::string_view{layer} == "VK_LAYER_KHRONOS_validation";
-            })) {
-            if (std::ranges::none_of(extensions, [](auto const *extension) {
-                    return std::string_view{extension} == vk::EXTLayerSettingsExtensionName;
-                }))
-                extensions.push_back(vk::EXTLayerSettingsExtensionName);
-            layer_settings.setSettings(setting);
-            info.setPNext(&layer_settings);
-        }
-        info.setPEnabledExtensionNames(extensions);
-        info.setPEnabledLayerNames(layers);
-
-        handle_ = context.createInstance(info);
+    auto const available_layers = context.enumerateInstanceLayerProperties();
+    for (auto const *layer : layers) {
+        if (std::ranges::none_of(available_layers, [layer](auto const &available_layer) {
+                return std::string_view{available_layer.layerName.data()} == layer;
+            }))
+            fail("required Vulkan layer '{}' is not available; install the layer and ensure "
+                 "its manifest is discoverable through VK_LAYER_PATH (for Conan dependencies, "
+                 "run with the generated conanrun environment)",
+                 layer);
     }
-    catch (vk::SystemError const &error) {
-        fail("Vulkan instance setup failed: {}", error.what());
+
+    vk::InstanceCreateInfo info;
+
+    constexpr vk::ApplicationInfo app_info{.pApplicationName = "lc1",
+                                           .applicationVersion = vk::makeVersion(0, 1, 0),
+                                           .pEngineName = "lc1",
+                                           .engineVersion = vk::makeVersion(0, 1, 0),
+                                           .apiVersion = vk::ApiVersion14};
+    info.setPApplicationInfo(&app_info);
+
+    auto const available = context.enumerateInstanceExtensionProperties();
+    if (std::ranges::any_of(available, [](auto const &extension) {
+            return std::string_view{extension.extensionName.data()} ==
+                   vk::KHRPortabilityEnumerationExtensionName;
+        })) {
+        info.setFlags(vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR);
+        if (std::ranges::none_of(extensions, [](auto const *extension) {
+                return std::string_view{extension} == vk::KHRPortabilityEnumerationExtensionName;
+            }))
+            extensions.push_back(vk::KHRPortabilityEnumerationExtensionName);
     }
-    catch (lc1::Error const &error) {
-        throw Error(std::format("Vulkan instance setup failed: {}", error.what()),
-                    error.location());
+
+    // Keep synchronization validation enabled whenever the validation layer is requested.
+    // These values and the pNext chain remain alive through createInstance.
+    vk::Bool32 const validate_sync = vk::True;
+    vk::LayerSettingEXT const setting{
+        .pLayerName = "VK_LAYER_KHRONOS_validation",
+        .pSettingName = "validate_sync",
+        .type = vk::LayerSettingTypeEXT::eBool32,
+        .valueCount = 1,
+        .pValues = &validate_sync,
+    };
+    vk::LayerSettingsCreateInfoEXT layer_settings;
+    if (std::ranges::any_of(layers, [](auto const *layer) {
+            return std::string_view{layer} == "VK_LAYER_KHRONOS_validation";
+        })) {
+        if (std::ranges::none_of(extensions, [](auto const *extension) {
+                return std::string_view{extension} == vk::EXTLayerSettingsExtensionName;
+            }))
+            extensions.push_back(vk::EXTLayerSettingsExtensionName);
+        layer_settings.setSettings(setting);
+        info.setPNext(&layer_settings);
     }
+    info.setPEnabledExtensionNames(extensions);
+    info.setPEnabledLayerNames(layers);
+
+    handle_ = context.createInstance(info);
 }
 
 void Instance::setup_debug_messenger()

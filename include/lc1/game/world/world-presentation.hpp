@@ -15,7 +15,6 @@ namespace lc1 {
 
 struct WorldPresentationInput {
     bool nod = false;
-    bool swing_weapon = false;
     bool cycle_lighting = false;
     bool toggle_showcase_motion = false;
     int exposure_steps = 0;
@@ -26,19 +25,21 @@ struct GameLocation {
     std::string_view place;
 };
 
+// Manages GPU resources.
+//
 // Owns presentation resources. Device and world must outlive this immovable presentation;
 // submitted GPU work must complete before teardown. Character transforms live only in GameWorld.
 class WorldPresentation {
   public:
     WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
-                      GameWorld const &world, OutputSettings output);
+                      GameWorld &world, OutputSettings output);
 
     WorldPresentation(WorldPresentation const &) = delete;
     WorldPresentation &operator=(WorldPresentation const &) = delete;
     WorldPresentation(WorldPresentation &&) = delete;
     WorldPresentation &operator=(WorldPresentation &&) = delete;
 
-    ~WorldPresentation() = default;
+    ~WorldPresentation();
 
     // Advance animation before the camera reads its mount, then update the listener afterwards.
     // Time is the finite, nonnegative simulation delta already accepted by GameWorld.
@@ -67,27 +68,32 @@ class WorldPresentation {
     void update_lighting();
     void update_instances();
 
-    GameWorld const *world_; // Required non-null borrow, outlives this presentation.
+    GameWorld *world_; // Required non-null borrow, outlives this presentation.
     GpuFont const font_;
     GpuTexture const white_;
     ContinentView const continent_view_;
     demo::PbrShowcase showcase_;
 
-    scene::GpuModel const character_resources_;
-    scene::GpuModel const player_resources_;
-    scene::GpuModel const weapon_resources_;
+    struct ModelResources {
+        ModelConfig config;
+        CharacterBody body;
+        scene::GpuModel model;
+        MaterialInfo material;
+
+        ModelResources(Device const &device, std::filesystem::path const &asset_root,
+                       ModelConfig const &config, CharacterBody const &body);
+    };
+
+    std::map<std::pair<std::string, TextureColorSpace>, std::unique_ptr<GpuTexture>>
+        model_textures_;
+    std::vector<std::unique_ptr<ModelResources>> model_resources_;
     // Required scene-owned borrows, valid until scene_ is destroyed.
-    std::vector<scene::SceneModel *> character_models_;
-    scene::SceneModel *player_model_ = nullptr;
-    scene::SceneModel *weapon_model_ = nullptr;
     std::vector<scene::SceneModel *> showcase_models_;
     std::vector<scene::SceneLight *> lights_;
     scene::SceneLight *flashlight_ = nullptr;
-    std::size_t nod_animation_index_ = 0;
-    std::size_t eyes_node_index_ = 0;
-    MaterialInfo const player_material_;
-    MaterialInfo const barrel_material_;
-    MaterialInfo const weapon_material_;
+    std::optional<std::size_t> nod_animation_index_;
+
+    std::optional<std::size_t> eyes_node_index_;
     // Declared after assets: scene instances borrow their meshes and materials.
     scene::Scene scene_;
     OutputSettings output_;

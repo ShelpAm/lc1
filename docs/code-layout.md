@@ -53,22 +53,24 @@
 | 对象 | 职责与边界 |
 |---|---|
 | `GameWorld` | 按存档标识和内容版本加载并拥有大陆、势力、装备、武器、队伍、角色和 `DialogSystem`；装配世界、推进规则、生成存档快照；不依赖 Window、ImGui、音频或 Vulkan |
-| `WorldPresentation` | 借用只读世界，拥有地形/角色 GPU 资源、字体、持久 Scene 与音频 context/listener；更新场景实例、灯光并生成世界文字 |
+| `WorldPresentation` | 借用世界并装配角色/武器的模型借用，拥有地形/角色 GPU 资源、字体、持久 Scene 与音频 context/listener；更新场景实例、灯光并生成世界文字 |
 | `PlayerView` | 拥有视角模式、记忆观察角和相机；生成世界空间控制意图，世界更新后再更新相机 |
 | `GameUi` | 菜单、调试面板、保存反馈及屏幕文字；返回命名保存、读档请求和音量变化，由会话执行 |
 | `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldPresentation` 的音频 context |
 | `GameSession` | 读取输入、按焦点/context/ImGui capture 门控、协调各阶段、执行命名保存、向 Application 提交读档请求、直接设置窗口标题和光标捕获，并向 Application 提供退出状态和表现数据 |
 
 `Character` 位于 `game/character/character.*`，内部唯一的 `scene::Transform` 保存脚底位置和身体朝向。
-它不持有网格或材质，也不生成 `DrawItem`；`Party` 同样只处理成员、招募和命令，不负责绘制。
+它保存 Scene 拥有的 `SceneModel*` 借用，不拥有 GPU 网格或材质，也不生成 `DrawItem`；`Party` 同样只处理成员、招募和命令，不负责绘制。
 `WorldPresentation::update()` 将角色最终变换提交给持久 Scene 的渲染实例，玩家是角色集合的一员，不重复追加。
 Application 通过 `GameSession::world()`、`world_presentation()`、`player_view()` 和 `ui()` 的只读引用
 查询各自的数据；引用有效期不超过会话。会话负责更新协调、保存及反馈，并提供宽高比设置入口，
 不为每个子对象查询重复提供转发方法。
 
-NPC 当前共用占位模型定义、GPU 网格和材质；玩家使用本地木桶模型，另有跟随身体世界变换的武器实例，
+角色与武器的模型、节点和材质由对应 YAML 记录指定，相同配置共享 GPU 资源；
+种子中的 NPC 使用占位模型，玩家使用木桶，玩家和 NPC 的已装备近战武器跟随各自模型的持握挂点，
 素材路径及动画行为见[角色文档](character.md#本地模型试用)。CPU 几何在上传后释放；Scene 为每个角色拥有独立的 `ModelInstance`；
-`WorldPresentation` 保存角色与场景实例的关联、选择动画并提交角色世界变换，Scene 推进动画、查询挂点并展开 DrawItem；角色仍是玩法变换的唯一权威。
+`Character` 和 `Weapon` 保存各自场景实例的借用；`Character` 处理挥砍 intent 并触发武器动画；
+`WorldPresentation` 装配模型、设置初始待机动画并提交角色世界变换，Scene 推进动画、查询挂点并展开 DrawItem；角色仍是玩法变换的唯一权威。
 模型与实例的索引及借用约定见[资源文档](resources.md#模型资源与实例)。`scene::Object` 仍可用于其他渲染场景，不再是角色世界姿态的所有者。
 
 示例内容由 CPU 侧 `game/debug/world-setup.*` 集中装配，`GameSession` 显式把
@@ -83,7 +85,7 @@ NPC 当前共用占位模型定义、GPU 网格和材质；玩家使用本地木
 背包格式和旧存档迁移见[存档](save-data.md)。
 
 `DialogCatalog` 拥有 YAML 内容和状态入口规则，`Dialog` 表示一场交流，`DialogSystem` 管理
-并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、控制器暂停及交互动作执行；
+并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、向 AI 提供对话伙伴及执行交互动作；AI 控制器决定对话期间的行为；
 `WorldPresentation` 和 `GameUi` 只读这些状态来生成世界/屏幕文字。
 玩家名与区域/地点 HUD 也由 `GameUi::screen_labels()` 统一生成，Application 只负责提交文本绘制。
 `GameSession` 在构造及每帧更新中直接调用借用的 `Window` 设置标题和光标捕获；`Window::set_title()` 缓存标题，
@@ -92,7 +94,7 @@ NPC 当前共用占位模型定义、GPU 网格和材质；玩家使用本地木
 ## 每帧时序
 
 带模拟时间的更新接口统一把 `delta_seconds` 放在第一个参数，其余参数保持职责顺序；
-例如 `GameSession::update(delta_seconds, input)`、`Character::update(delta_seconds, continent, intent)`。
+例如 `GameSession::update(delta_seconds, input)`、`Character::update(delta_seconds, continent)`。
 `update_pointer()`、`update_camera()`、`walk()` 和 `pan()` 同样遵循此顺序；无时间参数的接口不添加占位时间。
 
 Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::update()`：
@@ -100,10 +102,10 @@ Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::u
 1. 会话用原始 `InputState` 更新自己拥有的 `GameInputRouter`，每次会话更新只解析一次动作。
 2. 根据菜单、窗口焦点、context 和 ImGui capture 计算输入门控，调用 `PlayerView::update_view_mode()` 处理视角切换、锁定与回中。
 3. `PlayerView` 在切换帧丢弃旧光标模式下累计的鼠标位移，避免切入第一人称时镜头跳动。
-4. `PlayerView::resolve_input()` 使用已更新的视角，把鼠标和 `GameAction` 交给 `PlayerController`；它只生成 `CharacterIntent`，不修改角色。
-5. `GameWorld::update()` 先取得 intent：玩家来自 `PlayerController`，NPC 来自
-   `CharacterController::update()`；随后统一调用 `Character::update(elapsed, continent, intent)`，最后处理交互和对话。
-   对话暂停控制器时传入空 intent，物理仍继续。
+4. `PlayerView::prepare_input()` 准备视角、观察增量和输入门控，不生成角色 intent。会话装配时已将输入路由器和视角输入帧绑定给玩家角色的 `PlayerCharacterController`。
+5. `GameWorld::update()` 对玩家和 NPC 统一调用 `Character::update(elapsed, continent)`；
+   角色通过 `CharacterController::update()` 取得 intent，执行规则和物理。会话通过 `WorldInteraction` 单独提交交互按键，世界随后处理交互和对话。
+   AI 从装配时绑定的只读 `DialogSystem` 自行查询对话状态；控制器暂停移动与攻击并面向伙伴，物理仍继续。Scene 统一推进动画时间。
 6. `PlayerView::update_pointer()` 在鼠标门控允许时读取设备滚轮与逻辑光标坐标，
    解析边缘平移；`WorldPresentation::update()` 调用 Scene 推进模型动画、更新灯光与展示并提交世界矩阵，随后
    第一人称读取最终 `Eyes` 挂点，`PlayerView::update_camera()` 更新相机；最后
@@ -121,7 +123,7 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 争用方向键与空格；默认设置下，仅被聚焦的窗口（常驻调试面板就是一例）也会让 `WantCaptureKeyboard`
 每帧为真，使所有 `GameAction` 都解析为未按下。菜单与面板都由鼠标操作。
 
-模拟时间要求有限且非负，不设置 0.1 秒截断；角色、对话、相机和展示使用同一份完整时间。
+角色、对话、相机和展示使用同一份完整时间。
 `GameWorld::update()` 在世界入口检查时间；随后执行的表现更新与相机控制器信任该前置条件，
 不重复检查非有限时间，也不将非法时间静默替换为零。角色、对话及动画的独立调用入口仍验证各自输入。
 角色运动在内部细分时间并全部推进，步长与请求消费规则见[角色物理](physics.md)；
@@ -137,7 +139,8 @@ Application 通过 `unique_ptr` 拥有 `GameSession`，通过临时 `Save` 提�
 世界可以只用 Save、大陆和对话目录构造、更新、生成快照，无需创建窗口或设备。
 
 会话成员按 `GameWorld → WorldPresentation → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
-世界先于借用它的表现与控制器存在，音频 context 先于音源存在。角色名单在两次 `load()` 之间固定，
+世界先于借用它的表现与控制器存在，音频 context 先于音源存在。
+模型借用的发布和清理由表现层协调，约束见[持久渲染场景](resources.md#持久渲染场景)。角色名单在两次 `load()` 之间固定，
 不支持逐个添加/删除；`load()` 在销毁角色前清空活动对话并重建名单，旧对象借用全部失效。
 游戏内读档在 GPU 空闲后构造候选会话和帧资源，成功才替换，失败保留旧会话。
 世界层重新加载的失败语义及表现层协调要求见[存档与装配](save-data.md)。
@@ -161,12 +164,12 @@ GPU 渲染和窗口交互需要单独验证。动作枚举、context、默认绑
 
 - 新增规则或世界状态：在 `GameWorld` 及相应领域对象中实现；需要存档时同步修改记录、校验和往返测试。
 - 新增表现：让 `WorldPresentation` 或 `GameUi` 从世界读取所需数据。资源所有权留在表现层，角色不持有 GPU 对象。
-- 新增玩家操作：补 `game/actions.*` 的 `GameAction` 和绑定，由 `PlayerController` 解释为
+- 新增玩家操作：补 `game/actions.*` 的 `GameAction` 和绑定，由 `PlayerCharacterController` 解释为
   `CharacterIntent`，再由 `Character::update(delta, continent, intent)` 决定能否执行；保留捕获、输入、物理和相机的顺序。
 - 新增角色规则（耐力、眩晕、攻击互斥等）：放在 `character/` 的 `Character` 或对应 gameplay
   subsystem 中，不要写进玩家或 AI 控制器；控制器只填 intent。
 - 新增 AI 行为：实现 `CharacterController::update()` 并返回 `CharacterIntent`，不要直接调用
-  `move`/`walk` 或修改角色状态。伴随/等待是 `AiCharacterController` 的模式，由队伍命令安装、
+  `move`/`walk` 或修改角色状态。伴随/等待是 `AiCharacterController` 的模式，由队伍校验权限并下达命令、
   由存档中的 `companion_order` 恢复。
 - 新增渲染能力：先检查 [Vulkan 分层](vulkan-layers.md)与 [RenderGraph](render-graph.md)，不要让帧循环识别游戏对象或具体 pass。
 

@@ -10,12 +10,21 @@
 #include "lc1/game/physics/character-motion.hpp"
 #include "lc1/scene/transform.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
+namespace lc1::scene {
+struct SceneModel;
+}
+
 namespace lc1 {
+
+class WorldPresentation;
+class AiCharacterController;
 
 class Continent;
 class Equipment;
@@ -42,6 +51,7 @@ struct CharacterConfig {
 
     std::map<EquipmentType, Equipment *> equipment;
     std::map<WeaponType, Weapon *> weapon;
+    ModelConfig model;
 
     float health();
     float strenth();
@@ -62,6 +72,9 @@ class Character {
     ~Character();
 
     CharacterConfig const &config() const;
+
+    scene::SceneModel *model();
+    scene::SceneModel const *model() const;
 
     CharacterBody const &body() const;
 
@@ -100,16 +113,14 @@ class Character {
 
     bool on_ground() const;
 
-    // The single state-update entry point: applies the intent against this character's
-    // own gameplay rules (body/look targets, locomotion speed, collision and
-    // the jump request), then advances jump, gravity and ground support. It never trusts
-    // the intent to be legal and does not pull from a controller itself.
-    void update(float delta_seconds, Continent const &continent, CharacterIntent const &intent);
+    // Resolves the installed controller once, then applies character rules and physics.
+    // A character without a controller receives an empty intent.
+    void update(float delta_seconds, Continent const &continent);
 
     // Ambient dialog requests are accepted only while standing still, grounded and not
     // asking to jump or sprint. This rule belongs to the character, so a player and an AI
     // companion follow the same one.
-    bool accepts_ambient_requests(CharacterIntent const &intent) const;
+    bool accepts_ambient_requests() const;
 
     // The current controller's persistent companion order, or None when the controller is
     // a patrol/non-companion controller.
@@ -117,6 +128,8 @@ class Character {
 
     CharacterController *controller();
     CharacterController const *controller() const;
+    AiCharacterController *ai_controller();
+    AiCharacterController const *ai_controller() const;
     void set_controller(std::unique_ptr<CharacterController> controller);
 
     Interactable *interactable();
@@ -128,12 +141,18 @@ class Character {
     game::Bag const &bag() const;
 
   private:
+    friend class WorldPresentation;
+
     // Resolves the requested actions before physics. Called only by update().
-    void apply_intent(CharacterIntent const &intent);
+    void apply_intent(float delta_seconds, CharacterIntent const &intent);
     glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement);
 
     // Party updates both sides of membership together during recruitment.
     friend class Party;
+
+    // Optional Scene-owned borrow; WorldPresentation clears it before Scene teardown.
+    scene::SceneModel *model_ = nullptr;
+    std::optional<std::size_t> weapon_mount_index_;
 
     CharacterConfig config_;
     CharacterBody body_;
@@ -145,6 +164,9 @@ class Character {
     CharacterMotion motion_;
     std::unique_ptr<CharacterController> controller_;
     std::unique_ptr<Interactable> interactable_;
+
+    bool ambient_requests_blocked_ = false;
+    float weapon_attack_cooldown_ = 0;
 };
 
 } // namespace lc1

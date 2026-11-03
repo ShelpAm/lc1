@@ -1,10 +1,8 @@
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 
-#include <algorithm>
 #include <array>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 namespace lc1 {
@@ -69,71 +67,6 @@ scene::Model make_character_model(CharacterBody const &body)
                       .times = {0.0F, 0.3F, 0.6F, 0.9F, 1.2F, 3.0F},
                       .values = std::vector<glm::quat>{rest, down, rest, down, rest, rest}}}};
     return scene::Model{std::move(meshes), std::move(nodes), {std::move(idle), std::move(nod)}};
-}
-
-scene::Model load_barrel_player_model(std::filesystem::path const &path, CharacterBody const &body)
-{
-    auto const placeholder = make_character_model(body);
-    auto const imported = scene::Model::load_from_obj(path);
-    glm::vec3 minimum{std::numeric_limits<float>::max()};
-    glm::vec3 maximum{std::numeric_limits<float>::lowest()};
-    for (auto const &vertex : imported.vertices()) {
-        minimum = glm::min(minimum, vertex.position);
-        maximum = glm::max(maximum, vertex.position);
-    }
-    auto const extent = maximum - minimum;
-    if (extent.x <= 0 || extent.y <= 0 || extent.z <= 0)
-        fail("player barrel model must have nonzero extent on every axis");
-    float const width_scale = 2.0F * body.half_width / std::max(extent.x, extent.z);
-    glm::vec3 const scale{width_scale, body.height / extent.y, width_scale};
-    glm::vec3 const center{(minimum.x + maximum.x) * 0.5F, minimum.y,
-                           (minimum.z + maximum.z) * 0.5F};
-    auto const definition = placeholder.definition();
-    std::vector<scene::ModelNode> nodes{definition.nodes().begin(), definition.nodes().end()};
-    for (auto &node : nodes)
-        node.mesh_index.reset();
-    // Rock the barrel with the existing head animation; keep the Eyes mount in metres.
-    nodes.push_back({.name = "Barrel",
-                     .parent_index = 1,
-                     .transform = {.translation = -center * scale - nodes[1].transform.translation,
-                                   .scale = scale},
-                     .mesh_index = 0});
-    auto const vertices = imported.vertices();
-    auto const indices = imported.indices();
-    return scene::Model{
-        {scene::Mesh{{vertices.begin(), vertices.end()}, {indices.begin(), indices.end()}}},
-        std::move(nodes),
-        {definition.animations().begin(), definition.animations().end()}};
-}
-
-scene::Model load_player_weapon_model(std::filesystem::path const &path)
-{
-    auto const imported = scene::Model::load_from_obj(path);
-    auto const pitch = [](float degrees) {
-        return glm::angleAxis(glm::radians(degrees), glm::vec3{1, 0, 0});
-    };
-    auto const rest = pitch(-45.0F);
-    std::vector<scene::ModelNode> nodes{
-        {.name = "Grip", .transform = {.translation = {0.5F, 1.05F, -0.4F}, .rotation = rest}},
-        {.name = "KingdomLongsword",
-         .parent_index = 0,
-         // Authored Z-up geometry, with the grip centred near local Z = -1.3.
-         .transform = {.translation = {0, 0.585F, 0},
-                       .rotation = pitch(-90.0F),
-                       .scale = glm::vec3{0.45F}},
-         .mesh_index = 0}};
-    scene::AnimationClip swing{
-        .name = "Swing",
-        .channels = {{.node = 0,
-                      .path = scene::AnimationChannel::Path::Rotation,
-                      .times = {0.0F, 0.12F, 0.28F, 0.55F},
-                      .values = std::vector<glm::quat>{rest, pitch(25.0F), pitch(-120.0F), rest}}}};
-    auto const vertices = imported.vertices();
-    auto const indices = imported.indices();
-    return scene::Model{
-        {scene::Mesh{{vertices.begin(), vertices.end()}, {indices.begin(), indices.end()}}},
-        std::move(nodes),
-        {std::move(swing)}};
 }
 
 } // namespace lc1

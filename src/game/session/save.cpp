@@ -1,6 +1,7 @@
 #include "lc1/game/session/save.hpp"
 
 #include "lc1/error.hpp"
+#include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/party/faction.hpp"
@@ -175,6 +176,13 @@ template <typename Map> auto sorted_records(Map const &map)
     return records;
 }
 
+bool valid_slot_name(std::string_view name)
+{
+    return !name.empty() && name.size() <= 128 && name.front() != ' ' && name.back() != ' ' &&
+           name.back() != '.' && name.find_first_of("/\\:<>\"|?*") == std::string_view::npos &&
+           std::ranges::none_of(name, [](unsigned char c) { return c < 32 || c == 127; });
+}
+
 std::string path_utf8(std::filesystem::path const &path)
 {
     auto const utf8 = path.u8string();
@@ -185,10 +193,7 @@ std::string path_utf8(std::filesystem::path const &path)
 
 std::filesystem::path Save::slot_directory(std::filesystem::path const &root, std::string_view name)
 {
-    if (name.empty() || name == "." || name == ".." || name.size() > 128 || name.front() == ' ' ||
-        name.back() == ' ' || name.back() == '.' ||
-        name.find_first_of("/\\:<>\"|?*") != std::string_view::npos ||
-        std::ranges::any_of(name, [](unsigned char c) { return c < 32 || c == 127; }))
+    if (!valid_slot_name(name))
         fail("invalid save name: use 1-128 bytes without path separators or reserved characters");
     return root / std::filesystem::path{std::u8string{name.begin(), name.end()}};
 }
@@ -212,12 +217,8 @@ std::vector<std::string> Save::slots(std::filesystem::path const &root)
             auto const utf8 = path.filename().u8string();
             std::string name(utf8.begin(), utf8.end());
             // Exclude directories that cannot be selected through the naming interface.
-            try {
-                slot_directory(root, name);
+            if (valid_slot_name(name))
                 result.push_back(std::move(name));
-            }
-            catch (Error const &) {
-            }
         }
     }
     std::ranges::sort(result);
@@ -316,7 +317,8 @@ SerializedCharacterConfig serialize_character(Character const &character)
                                      .party = config.party->keyid(),
                                      .level = config.level,
                                      .equipment = {},
-                                     .weapon = {}};
+                                     .weapon = {},
+                                     .model = config.model};
     for (auto const &[slot, equipment] : config.equipment)
         record.equipment.emplace(slot, equipment->keyid());
     for (auto const &[slot, weapon] : config.weapon)
@@ -336,9 +338,9 @@ SerializedCharacterState serialize_character_state(Character const &character)
         .body_yaw = character.body_yaw(),
         .look_yaw = character.look_yaw(),
         .look_pitch = character.look_pitch(),
-        // A companion controller is a party order, not the patrol example. The order
+        // A companion order replaces the patrol behavior, not the controller. The order
         // itself is serialized separately and restored by Party::command.
-        .patrol = order == CompanionOrder::None && character.controller() != nullptr,
+        .patrol = character.ai_controller() && character.ai_controller()->patrolling(),
         .companion_order = order,
         .bag_capacity = character.bag().max_weight()};
     for (auto const &stack : character.bag().resource_stacks())
@@ -422,6 +424,11 @@ void Save::read_session()
 
 void Save::validate_references() const
 {
+    for (auto const &[_, weapon] : weapons_)
+        validate_model_config(weapon.model.value());
+    for (auto const &[_, character] : characters_)
+        validate_model_config(character.model.value());
+
     Continent::validate_identity(continent_);
     if (session_.player == 0)
         fail("session.yaml must name the player character");
@@ -444,6 +451,7 @@ void Save::validate_references() const
         for (auto const captive : party.captives)
             character(captive, std::format("party {} captive", party.keyid));
     }
+    std::unordered_set<std::uint32_t> displayed_weapons;
     for (auto const &entry : characters_) {
         auto const &character_record = entry.second;
         if (!parties_.contains(character_record.party))
@@ -453,10 +461,14 @@ void Save::validate_references() const
             if (!equipments_.contains(slot.second))
                 fail("character {} refers to unknown equipment {}", character_record.keyid,
                      slot.second);
-        for (auto const &slot : character_record.weapon)
+        for (auto const &slot : character_record.weapon) {
             if (!weapons_.contains(slot.second))
                 fail("character {} refers to unknown weapon {}", character_record.keyid,
                      slot.second);
+            if (!weapons_.at(slot.second).model.value().path.value().empty() &&
+                !displayed_weapons.insert(slot.second).second)
+                fail("weapon {} with a model is equipped by multiple characters", slot.second);
+        }
     }
     // Keep referential diagnostics above independent of membership checks below.
     for (auto const &[_, party] : parties_) {

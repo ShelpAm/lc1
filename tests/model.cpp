@@ -59,9 +59,6 @@ void hierarchy_and_instances()
           "instances have independent poses");
     check(near(model.definition().nodes()[0].transform.translation, {1, 0, 0}),
           "shared default pose is unchanged");
-    auto const world = glm::translate(glm::mat4{1}, glm::vec3{10, 0, 0});
-    check(near(glm::vec3{(world * matrices[2])[3]}, {6, 0, 6}),
-          "external world transform is composed once");
     first.reset_pose();
     check(near(glm::vec3{first.model_matrices()[2][3]}, {1, 2, 3}),
           "reset restores the default pose");

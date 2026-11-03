@@ -29,9 +29,7 @@ struct WorldSetup {
 };
 
 struct WorldInteraction {
-    // What the player controller asked for this frame. GameWorld applies it through
-    // Character, then uses interact/interaction_direction for the world-level action.
-    CharacterIntent player_intent{};
+    bool interact = false;
     // False while UI, focus or ImGui capture owns the input. This gates player-initiated
     // conversations; whether the character is otherwise idle is a Character rule.
     bool player_input_enabled = false;
@@ -57,6 +55,7 @@ class GameWorld {
     Character &player();
     Character const &player() const;
 
+    std::span<Character *const> characters();
     std::vector<Character const *> const &characters() const;
 
     DialogSystem const &dialogs() const;
@@ -80,7 +79,7 @@ class GameWorld {
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
     Character *find_interaction_target(glm::vec3 forward) const;
 
-    // Registries
+    // Resources registry
     std::unordered_map<std::uint32_t, game::Resource> resources_;
 
     Continent continent_;

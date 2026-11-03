@@ -1,4 +1,6 @@
 #include "lc1/game/world/game-world.hpp"
+#include "character-input.hpp"
+#include "player-input.hpp"
 
 #include "lc1/error.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
@@ -18,12 +20,28 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 void check(bool condition, std::string_view message)
 {
     if (!condition)
         throw std::runtime_error(std::string{message});
+}
+
+struct TestInteraction {
+    lc1::CharacterIntent player_intent{};
+    bool interact = false;
+    bool player_input_enabled = false;
+    int response_index = -1;
+};
+
+void update_world(lc1::GameWorld &world, float delta_seconds, TestInteraction const &input)
+{
+    world.player().set_controller(std::make_unique<TestCharacterController>(input.player_intent));
+    world.update(delta_seconds, {.interact = input.interact,
+                                 .player_input_enabled = input.player_input_enabled,
+                                 .response_index = input.response_index});
 }
 
 class Checkpoint {
@@ -96,26 +114,26 @@ void world_and_checkpoint()
           "a plain world has no implicit demonstration supplies");
     world.player().bag() = lc1::game::Bag{16000};
     check(world.player().bag().add(lc1::game::wood, 3), "test supplies fit");
-    world.update(0, {.player_intent = {.interact = true}});
+    update_world(world, 0, {.interact = true});
     check(world.player().bag().quantity_of(lc1::game::wood.keyid) == 3 &&
               world.player().bag().total_weight() == 3000,
           "zero-time updates do not produce resources");
     check(world.interaction_target() == &find(world, 100025), "facing selects the nearby NPC");
     check(world.dialogs().dialog_id(world.player()) == "recruit", "world starts recruitment");
-    world.update(0, {.response_index = 0});
-    world.update(10, {});
+    update_world(world, 0, {.response_index = 0});
+    update_world(world, 10, {});
     check(world.dialogs().find(world.player())->current_node_id() == "offer",
           "conversation consumes the full elapsed time of a long frame");
-    world.update(0, {.response_index = 0});
+    update_world(world, 0, {.response_index = 0});
     check(find(world, 100025).config().party == world.player().config().party,
           "dialog action transfers both sides of membership");
     check(find(world, 100025).companion_order() == lc1::CompanionOrder::Follow,
           "recruited character follows the leader");
-    world.update(0, {.player_intent = {.interact = true}});
+    update_world(world, 0, {.interact = true});
     check(!world.dialogs().find(world.player()), "player can interrupt a conversation");
     world.player().move(world.continent(), {10, 0, 0});
     auto const before = find(world, 100025).position();
-    world.update(0.1F, {});
+    update_world(world, 0.1F, {});
     check(glm::distance(find(world, 100025).position(), world.player().position()) <
               glm::distance(before, world.player().position()),
           "follower uses updated leader pose");
@@ -141,7 +159,7 @@ void world_and_checkpoint()
     for (auto elapsed : {-1.0F, std::numeric_limits<float>::quiet_NaN()}) {
         bool rejected = false;
         try {
-            restored.update(elapsed, {});
+            update_world(restored, elapsed, {});
         }
         catch (lc1::Error const &) {
             rejected = true;
@@ -155,9 +173,8 @@ void reload_world()
     Checkpoint checkpoint;
     lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
     auto const initial_position = world.player().position();
-    lc1::CharacterIntent interact;
-    interact.interact = true;
-    world.update(0, {.player_intent = interact});
+    TestInteraction interact{.interact = true};
+    update_world(world, 0, interact);
     check(world.dialogs().find(world.player()), "reload begins with an active conversation");
     world.player().move(world.continent(), {10, 0, 0});
     world.player().set_look_angles(20, 10);
@@ -171,7 +188,7 @@ void reload_world()
               "reload clears interactions and active conversations");
         check(world.player().config().party->leader() == &world.player(),
               "reload relinks party membership");
-        world.update(0, {.player_intent = interact});
+        update_world(world, 0, interact);
         check(world.dialogs().dialog_id(world.player()) == "recruit",
               "reloaded interactions borrow the live dialog system");
     }
@@ -197,7 +214,7 @@ void reload_world()
     world.load(lc1::Save{checkpoint.directory()});
     check(world.player().config().keyid == 100025, "reload changes player identity");
     check(world.snapshot().session.example == 0, "reload clears the previous example identity");
-    world.update(0.1F, {});
+    update_world(world, 0.1F, {});
 }
 
 void scenario_inventory()
@@ -207,8 +224,8 @@ void scenario_inventory()
     auto &bag = world.player().bag();
     check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 8100,
           "explicit demonstration setup supplies a bounded initial inventory");
-    world.update(0, {});
-    world.update(1.0F, {});
+    update_world(world, 0, {});
+    update_world(world, 1.0F, {});
     check(bag.total_weight() == 8100, "simulation does not refill demonstration supplies");
     check(bag.remove(lc1::game::wood, 1), "consume initial supplies");
     Checkpoint checkpoint;
@@ -245,7 +262,7 @@ void restored_house_patrol()
     bool descended = false;
     bool climbed_again = false;
     for (int frame = 0; frame < 60 * 160; ++frame) {
-        world.update(1.0F / 60.0F, {});
+        update_world(world, 1.0F / 60.0F, {});
         auto const height = find(world, example).position().y;
         descended |= height < 0.7F;
         climbed_again |= descended && height > 7.7F;
@@ -263,8 +280,8 @@ void world_applies_control()
     Checkpoint checkpoint;
     lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
     auto const before = world.player().position();
-    world.update(
-        0.5F,
+    update_world(
+        world, 0.5F,
         {.player_intent = {
              .move = {1, 0}, .body_yaw = 45, .look = glm::vec2{0, 10}, .face_movement = false}});
     check(std::abs(world.player().position().x - before.x -
@@ -275,7 +292,7 @@ void world_applies_control()
     auto const pose = world.player().position();
     bool rejected = false;
     try {
-        world.update(0.1F,
+        update_world(world, 0.1F,
                      {.player_intent = {.move = {0, 1},
                                         .body_yaw = std::numeric_limits<float>::quiet_NaN()}});
     }
@@ -303,10 +320,12 @@ void control_physics_camera_order()
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     input.update(devices);
     view.update_view_mode(input, true, world.player());
-    auto const command = view.resolve_input(world.player(), input, {}, true, true);
+    world.player().set_controller(
+        std::make_unique<lc1::PlayerCharacterController>(input, view.character_input()));
+    view.prepare_input({}, true, true);
     check(world.player().position() == before_control && world.player().on_ground(),
           "resolving view input does not mutate world state");
-    world.update(0.1F, {.player_intent = command});
+    world.update(0.1F, {});
     view.update_camera(0.1F, world.player());
     check(!world.player().on_ground() && world.player().position().y > 0,
           "jump input reaches physics in the same frame");
@@ -318,8 +337,8 @@ void control_physics_camera_order()
     devices.on_key(lc1::Key::D, true);
     input.update(devices);
     view.update_view_mode(input, false, world.player());
-    auto const disabled = view.resolve_input(world.player(), input, {500, 500}, false, false);
-    world.update(0, {.player_intent = disabled});
+    view.prepare_input({500, 500}, false, false);
+    world.update(0, {});
     check(world.player().position() == before && world.player().body_yaw() == 0,
           "disabled controls cannot move or turn the player");
 }
@@ -328,9 +347,9 @@ void control_physics_camera_order()
 int main()
 {
     try {
+        control_physics_camera_order();
         world_and_checkpoint();
         reload_world();
-        control_physics_camera_order();
         world_applies_control();
         restored_house_patrol();
         scenario_inventory();

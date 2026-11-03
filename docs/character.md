@@ -19,11 +19,11 @@
 | CPU 顶点和索引 | `Model` |
 | GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有的 `GpuModel`；NPC 共用占位资源，玩家和武器各自加载 |
 | 绘制资源引用 | `WorldPresentation` 生成的 `DrawItem`，借用资源 |
-| 玩家输入和控制决策 | `PlayerController` 解释输入并产生 `CharacterIntent`；角色不包含 `GameInputRouter`、`Window` 或相机 |
+| 玩家输入和控制决策 | `PlayerCharacterController` 解释输入并产生 `CharacterIntent`；角色不包含 `GameInputRouter`、`Window` 或相机 |
 | 动作请求、期望速度与朝向 | `Character::update(delta, continent, intent)` 及其 gameplay 规则 |
 | 竖直速度、接地与碰撞求解 | 角色独占的 `CharacterMotion`，借用角色位置完成本次计算 |
 | AI 巡逻目标与等待 | `AiCharacterController` 的巡逻模式，只通过 `CharacterIntent` 影响角色 |
-| 队员跟随/等待 | `AiCharacterController` 的 `CompanionOrder` 模式，由队伍命令安装和替换 |
+| 队员跟随/等待 | `AiCharacterController` 的 `CompanionOrder` 模式，由队伍校验权限并下达命令 |
 | 当前观察画面的相机 | 应用/场景，按需要读取角色眼睛位置和观察方向 |
 
 角色世界坐标采用右手系、Y 向上，位置约定为脚底。身体 yaw 为绕 +Y 的右手旋转角，
@@ -124,32 +124,46 @@ XZ 坐标上重叠。`ContinentBlock::walkable_top` 标记可站立的体块顶�
 
 ## 控制与视角
 
-控制流程是 `PlayerController / AiCharacterController -> CharacterIntent -> Character`。
+巡逻控制器构造时接收可选的 `player` 借用，用于现有的近距离挥砍判断；传入的玩家必须比控制器长寿。
+巡逻 AI 在玩家距离不超过 3 米时持续请求挥砍，由 Character 决定执行时机；等待或抵达路点也执行该判断。
+Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取当前队长。
+控制器用 `State` 枚举区分待机、巡逻、跟随、等待和对话，通过 `switch` 执行对应行为；
+构造时绑定只读 `DialogSystem`，每帧自行查询该角色的活动对话，进入对话或恢复原状态；
+对话期间暂停原行为和攻击，巡逻等待计时也暂停。只在本次更新内借用对话和伙伴。
+对话系统必须比控制器长寿。世界先安装 NPC 的 AI，再恢复队员命令。
+`Party` 只校验权限并向现有 AI 下令，不创建或清空控制器，也不依赖对话系统。
+对话中下令更新恢复状态，结束后执行最新命令；清除命令进入待机，不恢复旧巡逻。
+
+控制流程是 `PlayerCharacterController / AiCharacterController -> CharacterIntent -> Character`。
 控制器只表达“想做什么”，不直接移动角色、扣状态或决定最终速度。
 
-`PlayerView` 拥有视角状态、记忆观察角和相机；它从 `GameInputRouter` 读取 `GameAction`，
-在斜视角下先更新相机基，再交给 `PlayerController`。`PlayerController` 负责：
+`PlayerView` 拥有视角状态、记忆观察角和相机；它先更新相机基并准备 `PlayerCharacterInput`；
+`PlayerCharacterController` 从绑定的 `GameInputRouter` 读取 `GameAction`。`PlayerCharacterController` 负责：
 
 - 第一人称：鼠标增量转绝对 yaw/pitch，移动方向跟随观察水平方向，身体随视角转向。
 - 第三人称：WASD 按相机水平方向解释，角色朝移动方向转身。
-- 把 Sprint、Jump、Interact 的按下/按住状态填入 intent。
+- 把 Sprint、Jump、SwingWeapon 的按下/按住状态填入 intent；Interact 由会话提交给世界。
 
 相机锁定和回中留在 `PlayerView`，因为它们改变相机而不是角色；
 `update_pointer()` 解析滚轮及逻辑屏幕边缘，`MapCameraController` 只提供锁定、缩放、回中、
 平移和跟随算法，不接收输入打包结构。
 
 M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的世界更新中执行。
-`GameWorld::update()` 使用同一份完整时间先取得控制器 intent：玩家由 `PlayerController`
-产生，NPC 由其 `CharacterController::update()` 产生；随后统一调用
-`Character::update(elapsed, continent, intent)`。控制器暂停时只是传入空 intent，物理仍然推进。
+`GameSession` 装配时将动作路由器和 `PlayerView` 的输入帧绑定到 `PlayerCharacterController`，
+并将控制器交给玩家角色持有。每帧先准备视角、观察增量和输入门控；控制器更新时主动读取绑定的输入源。
+`GameWorld::update()` 对所有角色统一调用 `Character::update(elapsed, continent)`；
+角色通过 `CharacterController::update()` 取得 intent，执行角色规则和物理。
+没有控制器时使用空 intent，物理仍然推进。测试同样通过安装控制器提供动作。
+会话将交互按键通过 `WorldInteraction` 提交给世界，角色更新不返回 intent。
 `update_camera()` 随后读取最终姿态，因此跳跃和相机跟随在同一帧生效。
 两种视角使用同一个角色，保留斜视角缩放与锁定状态。
 
-环境对话请求也由角色规则决定：`Character::accepts_ambient_requests(intent)` 要求角色着地、
-没有移动、没有冲刺且本帧没有跳跃请求；会话另外用 `player_input_enabled` 表示 UI/焦点
+环境对话请求也由角色规则决定：`Character::accepts_ambient_requests()` 要求角色着地、
+本帧没有移动、冲刺或跳跃请求；会话另外用 `player_input_enabled` 表示 UI/焦点
 是否把输入交给玩家。两者分开，避免把输入门控写进角色规则。
-对话中的 NPC 不再由 `Character` 直接转向：`GameWorld` 把“面向对话伙伴”写入
-`CharacterIntent::body_direction`，再交给统一的 `Character::update()`。
+AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、跟随与攻击，
+生成面向伙伴的 intent。没有巡逻或队员命令的 NPC 也使用静止 AI。
+`CharacterController` 只保留通用的 intent 更新接口，AI 的巡逻状态、队员命令和上下文不进入该基类。
 
 会话按菜单状态、Gameplay/UI context、窗口焦点和 ImGui capture 决定是否提供控制输入。
 鼠标捕获由 Application 执行，菜单打开时释放，不用于反推是否启用鼠标观察。
@@ -157,7 +171,8 @@ M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的
 ## 动画与后续蒙皮边界
 
 Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段；
-`WorldPresentation` 保存角色与 Scene 实例的关联、选择动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
+`Character` 保存自身 Scene 实例的借用，并在处理挥砍 intent 时触发武器动画。
+`WorldPresentation` 装配模型、设置初始待机动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
 NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 播放一次 `Nod`（再次按下从头播放）：
 前 1.2 秒向下点头两次（25°），随后保持直立，片段总长 3 秒且不循环。均为刚性节点动画；角色世界姿态仍只属于 `Character`。
 这不是骨骼蒙皮，尚未实现行走/攻击动画选择、动画混合、root motion、死亡或布娃娃。
@@ -170,22 +185,32 @@ NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2
 ## 本地模型试用
 
 玩家当前使用 `runtime/assets/lc-res/Modular Village/Prop_Barrel_1.obj`，NPC 保留方块占位模型。
-木桶的静态几何通过 OBJ 加载器读取，校正节点把底部放到脚底、水平居中，分别调整高度与水平尺寸，
-使默认姿态匹配玩家 `CharacterBody`。不修改导入顶点；`Eyes` 仍按身体配置以米表示。
+木桶的静态几何通过通用模型加载器读取，`characters.yaml` 中的节点局部变换把底部放到脚底、
+水平居中并设定尺寸；运行时不再自动按包围盒拟合。`Eyes` 和持握挂点也在角色 YAML 中以米配置。
+模型外观变换不修改玩法的 `CharacterBody` 或碰撞体。
 木桶挂在原有 `Head` 下，F2 会带动整个桶身摇动并保留相机挂点动画。
 木桶使用统一棕色材质，未导入原素材的 MTL 材质分组。
 
 武器使用本地 `weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
 经 `scripts/export-kingdom-longsword.py` 提取为同目录的 `KingdomLongsword.obj`。
-导出仅包含静态网格；运行时通过节点执行 Z-up 校正、单位缩放和握柄偏移，使用统一金属材质。
-Scene 独立拥有武器实例，`WorldPresentation` 拥有其 GPU 资源并提交玩家的身体世界矩阵；
+导出仅包含静态网格；`weapons.yaml` 中的模型节点定义局部旋转、缩放和握柄对齐，材质与挥动动画也由 YAML 指定。
+Scene 独立拥有武器实例，每个角色已装备的近战 `Weapon` 保存自身实例借用；没有装备或没有模型配置时不创建武器实例。
+玩家和 NPC 使用同一套装配与更新逻辑，远程武器尚未接入持握显示。
+`WorldPresentation` 拥有 GPU 资源，并在角色动画和世界矩阵更新后，将各自角色模型的持握挂点世界矩阵提交给武器；
 武器不改变 Character 的位置、碰撞或眼睛挂点。
-鼠标左键按下播放一次 0.55 秒的 `Swing`，包含蓄力、向前挥动和回位，再次按下从头播放。
-当前为可操作的模型展示，没有命中、伤害、连击或装备数据绑定。
+玩家鼠标左键按下生成 `CharacterIntent::swing_weapon`，AI 控制器也可填写同一请求。
+`Character::update()` 在处理 intent 时直接播放已装备近战武器配置的单次动作动画；
+玩家和 NPC 使用相同逻辑，没有显示模型或动作片段时不播放。Scene 每帧统一推进动画时间并采样姿态。
+默认 `Swing` 长 0.55 秒，包含蓄力、向前挥动和回位；Character 按 2 秒冷却接受新请求。
+冷却随模拟时间推进，无请求时也计时，冷却期间的连续请求不会重置动画。
+角色和武器各自的 YAML 选择外观；尚无命中、伤害或连击。
+字段、默认值和旧存档兼容行为见[模型配置](save-data.md#角色与武器的-model)。
+角色与武器的 `model()` 在没有表现时返回空指针；Scene 所有权与借用生命周期见[资源文档](resources.md#持久渲染场景)。
 
 上述素材仍属于不纳入 Git 的外部 `runtime/assets/`，缺失时加载明确失败；
 运行前需准备村庄素材，并执行 `python3 scripts/export-kingdom-longsword.py` 生成武器 OBJ。
-CPU 测试使用仓库内的独立几何夹具验证校正、挂点、武器跟随和单次播放，不依赖外部素材。
+CPU 测试使用仓库内的 YAML 和独立几何夹具验证局部变换、挂点、武器跟随、单次播放、
+法线贴图所需切线生成、非法配置拒绝及存档往返，不依赖外部素材。
 `./lc1_pbr_tests --player-models` 使用上述真实素材进行 GPU 回读，检查挥动后的画面变化，
 并在构建目录的 `artifacts/player-weapon-{rest,swing}.ppm` 保存两帧。
 

@@ -46,4 +46,12 @@ std::optional<std::size_t> ModelDefinition::find_node(std::string_view name) con
     return static_cast<std::size_t>(found - nodes_.begin());
 }
 
+std::optional<std::size_t> ModelDefinition::find_animatinon(std::string_view name) const
+{
+    auto const found = std::ranges::find(animations_, name, &AnimationClip::name);
+    if (found == animations_.end())
+        return std::nullopt;
+    return static_cast<std::size_t>(found - animations_.begin());
+}
+
 } // namespace lc1::scene

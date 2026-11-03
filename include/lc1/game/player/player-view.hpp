@@ -2,7 +2,7 @@
 
 #include "lc1/game/actions.hpp"
 #include "lc1/game/camera/map-camera-controller.hpp"
-#include "lc1/game/player/player-controller.hpp"
+#include "lc1/game/player/player-character-controller.hpp"
 #include "lc1/scene/camera.hpp"
 
 #include <optional>
@@ -15,13 +15,13 @@ class PlayerView {
   public:
     PlayerView(Continent const &continent, glm::vec3 player_position);
     void toggle(Character const &player);
-    // Handles view switching, lock and recenter before resolve_input() each frame.
+    // Handles view switching, lock and recenter before prepare_input() each frame.
     void update_view_mode(GameInputRouter const &input, bool keyboard_enabled,
                           Character const &player);
-    // Resolves the action-to-intent mapping without mutating the character; GameWorld applies it.
-    // Discards look motion on a view switch, before GameSession changes cursor capture.
-    CharacterIntent resolve_input(Character const &player, GameInputRouter const &input,
-                                  glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled);
+    // Prepares view-dependent input before the bound character controller updates.
+    // Discards look motion on a view switch before cursor capture changes.
+    void prepare_input(glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled);
+    PlayerCharacterInput const &character_input() const;
     // Call only while mouse input is enabled; pointer_active additionally gates edge pan.
     void update_pointer(float delta_seconds, InputState const &devices, glm::vec2 viewport_size,
                         bool pointer_active);
@@ -45,6 +45,7 @@ class PlayerView {
     glm::vec2 first_person_angles_{};
     bool view_changed_ = false;
     bool recenter_ = false;
+    PlayerCharacterInput character_input_;
 };
 
 } // namespace lc1

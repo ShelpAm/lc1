@@ -1,9 +1,11 @@
 #include "lc1/game/continent/continent.hpp"
+#include "character-input.hpp"
 #include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/camera.hpp"
 
@@ -207,7 +209,7 @@ void present_relief()
     lc1::Character walker{world, {.position = {70.0F, *approach, 32.0F}}, {}};
     for (int frame = 0; frame < 500; ++frame) {
         walker.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, false);
-        walker.update(1.0F / 60.0F, world, {});
+        apply_character_intent(walker, 1.0F / 60.0F, world, {});
     }
     check(walker.on_ground() && walker.position().y > 2.0F,
           "character climbs the present scene relief instead of staying at Y=0");
@@ -218,7 +220,7 @@ void present_relief()
     float const takeoff_height = walker.position().y;
     walker.request_jump();
     for (int frame = 0; frame < 300; ++frame)
-        walker.update(1.0F / 60.0F, world, {});
+        apply_character_intent(walker, 1.0F / 60.0F, world, {});
     check(walker.on_ground() && walker.position().y > takeoff_height - 1.0F,
           "jumping on a terrain slope lands back on the hill instead of falling through");
 
@@ -230,10 +232,10 @@ void present_relief()
         lc1::Character slope_jumper{world, {.position = {78.0F, *start, 32.0F}}, {}};
         slope_jumper.request_jump();
         for (int frame = 0; frame < 600; ++frame) {
-            slope_jumper.update(1.0F / 60.0F, world, {});
+            apply_character_intent(slope_jumper, 1.0F / 60.0F, world, {});
             slope_jumper.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, running);
         }
-        slope_jumper.update(1.0F / 60.0F, world, {});
+        apply_character_intent(slope_jumper, 1.0F / 60.0F, world, {});
         auto const landed_ground =
             world.ground_height({slope_jumper.position().x, slope_jumper.position().z});
         check(landed_ground && slope_jumper.on_ground() &&
@@ -252,7 +254,7 @@ void showcase_platform_jump()
     character.request_jump();
     bool reached_plinth = false;
     for (int frame = 0; frame < 180; ++frame) {
-        character.update(1.0F / 60.0F, world, {});
+        apply_character_intent(character, 1.0F / 60.0F, world, {});
         if (character.on_ground() && character.position().y > 0.7F) {
             reached_plinth = true;
             break;
@@ -275,7 +277,7 @@ void showcase_platform_jump()
     low_jumper.request_jump();
     bool reached_low_plinth = false;
     for (int frame = 0; frame < 180; ++frame) {
-        low_jumper.update(1.0F / 60.0F, low_world, {});
+        apply_character_intent(low_jumper, 1.0F / 60.0F, low_world, {});
         if (low_jumper.on_ground() && std::abs(low_jumper.position().y - 0.4F) < 0.01F) {
             reached_low_plinth = true;
             break;
@@ -293,7 +295,7 @@ void showcase_platform_jump()
 
     // Moving on the plinth must not treat the solid block underneath as an invalid start.
     descending.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, false);
-    descending.update(1.0F / 60.0F, world, {});
+    apply_character_intent(descending, 1.0F / 60.0F, world, {});
     check(descending.on_ground() && descending.position().y > 0.7F,
           "walking on a showcase plinth remains valid");
 
@@ -303,7 +305,7 @@ void showcase_platform_jump()
     descending.request_jump();
     bool reached_ground = false;
     for (int frame = 0; frame < 300; ++frame) {
-        descending.update(1.0F / 60.0F, world, {});
+        apply_character_intent(descending, 1.0F / 60.0F, world, {});
         descending.walk(1.0F / 60.0F, world, {1.0F, 0.0F, 0.0F}, true);
         if (descending.on_ground() && descending.position().y < 0.1F) {
             reached_ground = true;
@@ -339,7 +341,7 @@ void switchback_stairs()
     lc1::Character character{world, {.position = {29.0F, 0.0F, 65.2F}}, {}};
     auto step_towards = [&](glm::vec3 direction, auto stop) {
         for (int frame = 0; frame < 1600; ++frame) {
-            character.update(1.0F / 60.0F, world, {});
+            apply_character_intent(character, 1.0F / 60.0F, world, {});
             character.walk(1.0F / 60.0F, world, direction, false);
             if (stop(character.position()))
                 break;
@@ -409,15 +411,17 @@ void patrol_house_floors()
     auto const index = static_cast<std::size_t>(start - route.begin());
     for (std::size_t i = 0; i < route.size(); ++i)
         points.push_back({.position = route[(index + i) % route.size()]});
-    lc1::AiCharacterController controller{points, 0.4F};
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
+    npc.set_controller(
+        std::make_unique<lc1::AiCharacterController>(dialogs, &player, points, 0.4F));
     bool upper = false;
     bool middle = false;
     bool platform = false;
     bool returned = false;
     bool outside = false;
     for (int frame = 0; frame < 120 * 240; ++frame) {
-        auto const intent = controller.update(1.0F / 120.0F, npc);
-        npc.update(1.0F / 120.0F, world, intent);
+        npc.update(1.0F / 120.0F, world);
         check(lc1::WorldCollision{world}.can_stand(npc.position(), npc.half_width(), npc.height()),
               "house patrol never penetrates walls or ceilings");
         upper |= npc.position().y > 7.7F;

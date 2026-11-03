@@ -18,6 +18,7 @@ class ModelDefinition {
     std::size_t draw_count() const;
     // Returns the first matching node; names need not be unique.
     std::optional<std::size_t> find_node(std::string_view name) const;
+    std::optional<std::size_t> find_animatinon(std::string_view name) const;
 
   private:
     std::vector<ModelNode> nodes_;

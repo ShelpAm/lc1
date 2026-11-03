@@ -1,11 +1,13 @@
 #include "lc1/game/character/character.hpp"
 
 #include "lc1/error.hpp"
+#include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/game/world/interactable.hpp"
+#include "lc1/scene/scene.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -77,13 +79,14 @@ Faction const *Character::faction() const
     return config_.party->faction();
 }
 
-void Character::apply_intent(CharacterIntent const &intent)
+void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
 {
     if (!finite(intent.move) || (intent.body_yaw && !std::isfinite(*intent.body_yaw)) ||
         (intent.body_direction && !finite(*intent.body_direction)) ||
-        (intent.look && !finite(*intent.look)) ||
-        (intent.interaction_direction && !finite(*intent.interaction_direction)))
+        (intent.look && !finite(*intent.look)))
         fail("invalid character intent");
+
+    ambient_requests_blocked_ = intent.jump || intent.sprint || intent.move != glm::vec2{};
 
     // Pose changes come first so an intent that supplies both orientation and movement
     // applies them in a fixed order: body yaw, body direction, then look target.
@@ -99,27 +102,40 @@ void Character::apply_intent(CharacterIntent const &intent)
     if (intent.jump)
         request_jump();
 
-    // interact/interaction_direction need a world target, so GameWorld resolves them after
-    // this call. They are not pose changes and do not belong in Character.
+    weapon_attack_cooldown_ = std::max(0.0F, weapon_attack_cooldown_ - delta_seconds);
+    if (intent.swing_weapon) {
+        if (weapon_attack_cooldown_ <= 0) {
+            weapon_attack_cooldown_ = 2;
+            auto const slot = config_.weapon.find(WeaponType::MeleeWeapon);
+            if (slot != config_.weapon.end()) {
+                auto *model = slot->second->model();
+                assert(model);
+                auto const &name = slot->second->model_config().action_animation.value();
+                assert(name.size());
+                auto const animation = model->pose.model().find_animatinon(name);
+                if (!animation)
+                    fail("model is missing animation {}", name);
+                model->pose.play_animation(*animation, false);
+            }
+        }
+    }
 }
 
 CompanionOrder Character::companion_order() const
 {
-    return controller_ ? controller_->companion_order().value_or(CompanionOrder::None)
-                       : CompanionOrder::None;
+    auto const *ai = ai_controller();
+    return ai ? ai->companion_order().value_or(CompanionOrder::None) : CompanionOrder::None;
 }
 
-bool Character::accepts_ambient_requests(CharacterIntent const &intent) const
+bool Character::accepts_ambient_requests() const
 {
-    return on_ground() && !intent.jump && !intent.sprint && intent.move == glm::vec2{};
+    return on_ground() && !ambient_requests_blocked_;
 }
 
-void Character::update(float delta_seconds, Continent const &continent,
-                       CharacterIntent const &intent)
+void Character::update(float delta_seconds, Continent const &continent)
 {
-    if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
-        fail("invalid character update time");
-    apply_intent(intent);
+    auto const intent = controller_ ? controller_->update(delta_seconds, *this) : CharacterIntent{};
+    apply_intent(delta_seconds, intent);
     auto const velocity =
         walking_velocity({intent.move.x, 0.0F, intent.move.y}, intent.sprint, intent.face_movement);
     motion_.update(delta_seconds, WorldCollision{continent}, body_, transform_.position, velocity);
@@ -127,8 +143,6 @@ void Character::update(float delta_seconds, Continent const &continent,
 
 glm::vec3 Character::walking_velocity(glm::vec3 direction, bool running, bool face_movement)
 {
-    if (!finite(direction))
-        fail("invalid character walking input");
     direction.y = 0.0F;
     // double avoids overflow when normalizing large but finite input vectors.
     double const length =
@@ -149,6 +163,8 @@ void Character::walk(float delta_seconds, Continent const &continent, glm::vec3 
 {
     if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F)
         fail("invalid character walking time");
+    if (!finite(direction))
+        fail("invalid character walking input");
     move(continent, walking_velocity(direction, running, face_movement) * delta_seconds);
 }
 
@@ -273,6 +289,16 @@ CharacterController const *Character::controller() const
     return controller_.get();
 }
 
+AiCharacterController *Character::ai_controller()
+{
+    return dynamic_cast<AiCharacterController *>(controller_.get());
+}
+
+AiCharacterController const *Character::ai_controller() const
+{
+    return dynamic_cast<AiCharacterController const *>(controller_.get());
+}
+
 void Character::set_controller(std::unique_ptr<CharacterController> controller)
 {
     controller_ = std::move(controller);
@@ -291,6 +317,16 @@ game::Bag const &Character::bag() const
 game::Bag &Character::bag()
 {
     return bag_;
+}
+
+scene::SceneModel *Character::model()
+{
+    return model_;
+}
+
+scene::SceneModel const *Character::model() const
+{
+    return model_;
 }
 
 } // namespace lc1

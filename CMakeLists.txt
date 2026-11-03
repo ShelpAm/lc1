@@ -241,16 +241,17 @@ endif()
 add_library(lc1_game STATIC
     src/game/actions.cpp
 
+    src/game/character/model-config.cpp
     src/game/character/character-model.cpp
     src/game/character/character.cpp
     src/game/physics/character-motion.cpp
     src/game/physics/world-collision.cpp
-    src/game/character/character-controller.cpp
     src/game/character/bag.cpp
     src/game/character/equipment.cpp
     src/game/character/weapon.cpp
+    src/game/character/character-controller.cpp
     src/game/character/ai-character-controller.cpp
-    src/game/player/player-controller.cpp
+    src/game/player/player-character-controller.cpp
     src/game/player/player-view.cpp
     src/game/camera/map-camera-controller.cpp
 

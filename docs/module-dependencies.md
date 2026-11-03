@@ -29,7 +29,7 @@ flowchart TD
     session --> music[MusicBrowser]
     view --> world
     ui --> world
-    player --> controller["PlayerController · 输入解释"]
+    player --> controller["PlayerCharacterController · 输入解释"]
     controller --> intent["CharacterIntent · 一帧期望"]
     ai["AiCharacterController · 巡逻/伴随"] --> intent
     intent --> character[Character]
@@ -44,10 +44,10 @@ flowchart TD
     music --> audio["AudioContext · 由 WorldPresentation 拥有"]
 ```
 
-玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent, intent)` 决定能否执行、速度和
-最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 安装，
+玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent)` 统一调用控制器，决定动作能否执行、速度和
+最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 校验并下达，
 并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界不依赖
-`PlayerController`，会话负责把玩家 intent 与输入门控一起交给世界。
+`PlayerCharacterController`，会话负责绑定玩家输入源并在角色更新前准备输入门控，世界统一通过角色更新控制器。
 
 游戏实现位于 `include/lc1/game/` 与 `src/game/`，按 `character/`、`player/`、`world/`、
 `physics/`、`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。
