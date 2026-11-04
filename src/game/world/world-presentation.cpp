@@ -36,15 +36,15 @@ constexpr std::string_view font_file = "fonts/SourceHanSansCN-Regular.otf";
 // so every character the world or the HUD can draw has to be requested up front. Names come
 // from save records, which is where non-ASCII text enters the game; the remaining drawn text
 // is ASCII (`ascii_codepoints()`, the map's own names and the debug UI).
-std::u32string font_codepoints(GameWorld const &world)
+std::u32string font_codepoints(WorldSnapshot const &world)
 {
     std::u32string codepoints = text::ascii_codepoints();
     auto const append = [&codepoints](std::string_view name) {
         codepoints.append(text::decode_utf8(name));
     };
-    for (auto const *character : world.characters()) {
-        append(character->config().name);
-        append(character->faction()->name());
+    for (auto const &character : world.characters) {
+        append(character.name);
+        append(character.faction);
     }
     return codepoints;
 }
@@ -61,17 +61,16 @@ WorldPresentation::ModelResources::ModelResources(Device const &device,
 }
 
 WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
-                                     GameWorld &world, OutputSettings output)
-    : world_(&world), font_{device, text::GlyphAtlas{asset_root / font_file,
-                                                     {.codepoints = font_codepoints(world)}}},
+                                     Continent const &continent, WorldSnapshot const &world,
+                                     OutputSettings output)
+    : world_(&world), continent_(&continent),
+      font_{device,
+            text::GlyphAtlas{asset_root / font_file, {.codepoints = font_codepoints(world)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
-      continent_view_{device, white_, world.continent()},
-      showcase_{device, world.continent().spawn()}, output_(output)
+      continent_view_{device, white_, continent}, showcase_{device, continent.spawn()},
+      output_(output)
 {
-    std::vector<scene::SceneModel *> character_models;
-    character_models.reserve(world.characters().size());
-    std::vector<std::optional<std::size_t>> weapon_mounts;
-    std::vector<std::pair<Weapon *, scene::SceneModel *>> weapon_models;
+    character_models_.reserve(world.characters.size());
     auto const resources_for = [&](ModelConfig const &config,
                                    CharacterBody const &body) -> ModelResources & {
         auto const found = std::ranges::find_if(model_resources_, [&](auto const &entry) {
@@ -115,16 +114,16 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         model_resources_.push_back(std::move(resources));
         return *model_resources_.back();
     };
-    for (std::size_t i = 0; i < world.characters().size(); ++i) {
-        auto &character = *world.characters()[i];
-        auto const &config = character.config().model;
-        auto &resources = resources_for(config, character.body());
+    for (std::size_t i = 0; i < world.characters.size(); ++i) {
+        auto const &character = world.characters[i];
+        auto const &config = character.model;
+        auto &resources = resources_for(config, character.pose.body);
         auto *model = scene_.add_model(
             scene::SceneModel{.model = &resources.model,
                               .material = &resources.material,
-                              .world_transform = character.transform().model_matrix()});
-        character_models.push_back(model);
-        if (&character == &world.player()) {
+                              .world_transform = character.pose.transform().model_matrix()});
+
+        if (character.keyid == world.player().keyid) {
             nod_animation_index_ =
                 resources.model.definition().find_animatinon(*config.action_animation);
             if (!config.eyes.value().empty()) {
@@ -141,35 +140,44 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         }
 
         std::optional<std::size_t> mount;
-        auto const slot = character.config().weapon.find(WeaponType::MeleeWeapon);
-        if (slot != character.config().weapon.end() &&
-            !slot->second->model_config().path.value().empty()) {
+        scene::SceneModel *weapon_model = nullptr;
+        std::optional<std::size_t> attack_animation;
+        if (character.weapon_model && !character.weapon_model->path.value().empty()) {
             mount = resources.model.definition().find_node(config.weapon_mount.value());
             if (!mount)
-                fail("character {} model is missing weapon mount {}", character.config().keyid,
+                fail("character {} model is missing weapon mount {}", character.keyid,
                      config.weapon_mount.value());
-            auto const &weapon_config = slot->second->model_config();
-            auto &weapon_resources = resources_for(weapon_config, character.body());
-            auto *weapon_model = scene_.add_model(
+            auto const &weapon_config = *character.weapon_model;
+            auto &weapon_resources = resources_for(weapon_config, character.pose.body);
+            weapon_model = scene_.add_model(
                 scene::SceneModel{.model = &weapon_resources.model,
                                   .material = &weapon_resources.material,
                                   .world_transform = model->node_world_matrix(*mount)});
-            weapon_models.emplace_back(slot->second, weapon_model);
+            auto const &name = weapon_config.action_animation.value();
+            if (!name.empty()) {
+                attack_animation = weapon_resources.model.definition().find_animatinon(name);
+                if (!attack_animation)
+                    fail("model is missing animation {}", name);
+            }
         }
-        weapon_mounts.push_back(mount);
+        character_models_.push_back({.keyid = character.keyid,
+                                     .character = model,
+                                     .weapon = weapon_model,
+                                     .mount = mount,
+                                     .attack_animation = attack_animation,
+                                     .attack_sequence = character.attack_sequence});
     }
 
     scene::DirectionalLight const sun{
         .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.3F},
         .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
     scene::SphereLight const lamp{.base = {.color = glm::vec3{1.0F, 0.5F, 0.5F}, .intensity = 128},
-                                  .position =
-                                      world_->continent().spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
+                                  .position = continent_->spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
                                   .radius = 1.0F,
                                   .shadow_sample_count = 2};
     scene::SpotLight const spotlight{
         .base = {.color = glm::vec3{0.5F, 0.5F, 1.0F}, .intensity = 64},
-        .position = world_->continent().spawn() + glm::vec3{-3.0F, 10.0F, 0.0F},
+        .position = continent_->spawn() + glm::vec3{-3.0F, 10.0F, 0.0F},
         .direction = glm::normalize(glm::vec3{1.0F, -1.0F, 0.0F}),
         .inner_angle = glm::radians(15.0F),
         .outer_angle = glm::radians(30.0F)};
@@ -188,24 +196,22 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
     update_lighting();
 
     set_volume(50.0F);
-
-    // Publish borrows only after all potentially failing resource setup succeeds.
-    for (std::size_t i = 0; i < character_models.size(); ++i) {
-        world.characters()[i]->model_ = character_models[i];
-        world.characters()[i]->weapon_mount_index_ = weapon_mounts[i];
-    }
-    for (auto const &[weapon, model] : weapon_models)
-        weapon->model_ = model;
 }
 
-WorldPresentation::~WorldPresentation()
+scene::SceneModel const &WorldPresentation::character_model(std::uint32_t keyid) const
 {
-    for (auto *character : world_->characters()) {
-        character->model_ = nullptr;
-        character->weapon_mount_index_.reset();
-        for (auto const &[_, weapon] : character->config().weapon)
-            weapon->model_ = nullptr;
-    }
+    auto const found = std::ranges::find(character_models_, keyid, &CharacterModels::keyid);
+    if (found == character_models_.end())
+        fail("unknown character model {}", keyid);
+    return *found->character;
+}
+
+scene::SceneModel const *WorldPresentation::weapon_model(std::uint32_t keyid) const
+{
+    auto const found = std::ranges::find(character_models_, keyid, &CharacterModels::keyid);
+    if (found == character_models_.end())
+        fail("unknown character model {}", keyid);
+    return found->weapon;
 }
 
 scene::Scene const &WorldPresentation::scene() const
@@ -218,11 +224,12 @@ void WorldPresentation::update_instances()
     auto const showcase = showcase_.draws();
     for (std::size_t i = 0; i < showcase.size(); ++i)
         showcase_models_[i]->world_transform = showcase[i].world_transform;
-    for (auto *character : world_->characters()) {
-        character->model()->world_transform = character->transform().model_matrix();
-        if (character->weapon_mount_index_)
-            character->config().weapon.at(WeaponType::MeleeWeapon)->model()->world_transform =
-                character->model()->node_world_matrix(*character->weapon_mount_index_);
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto const &state = world_->characters[i];
+        auto &models = character_models_[i];
+        models.character->world_transform = state.pose.transform().model_matrix();
+        if (models.mount)
+            models.weapon->world_transform = models.character->node_world_matrix(*models.mount);
     }
 }
 
@@ -231,7 +238,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
 
-    if (world_->continent().identity().id == "present") {
+    if (continent_->identity().id == "present") {
         glm::vec3 const center{27.0F, 3.4F, 34.0F};
         labels.push_back({.text = "Patrol House",
                           .center = center,
@@ -239,27 +246,22 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
                           .normal = camera.position() - center});
     }
 
-    for (auto const *character : world_->characters())
-        labels.push_back(WorldTextItem{
-            .text = std::format("{} from {}", character->config().name,
-                                character->config().party->faction()->name()),
-            .center = character->position() + glm::vec3{0, character->height() + 0.5, 0},
-            .line_height = 0.3F,
-            .normal =
-                camera.position() - (character->position() + glm::vec3{0, character->height() + 0.5,
-                                                                       0}), // from center to cam
-        });
-
-    for (auto const *character : world_->characters()) {
-        auto const *dialog = world_->dialogs().find(*character);
-        if (!dialog || dialog->contains(world_->player()) || dialog->speaker() != character)
-            continue;
-        auto const center = character->position() + glm::vec3{0, character->height() + 1.0F, 0};
-        labels.push_back(WorldTextItem{.text = std::string{dialog->current_speech_text()},
-                                       .center = center,
-                                       .line_height = 0.25F,
-                                       .normal = camera.position() - center});
+    for (auto const &character : world_->characters) {
+        auto const center =
+            character.pose.position() + glm::vec3{0, character.pose.body.height + 0.5F, 0};
+        labels.push_back({.text = std::format("{} from {}", character.name, character.faction),
+                          .center = center,
+                          .line_height = 0.3F,
+                          .normal = camera.position() - center});
+        if (!character.speech.empty()) {
+            auto const speech_center = center + glm::vec3{0, 0.5F, 0};
+            labels.push_back({.text = character.speech,
+                              .center = speech_center,
+                              .line_height = 0.25F,
+                              .normal = camera.position() - speech_center});
+        }
     }
+
     return labels;
 }
 
@@ -276,9 +278,10 @@ void WorldPresentation::update_lighting()
 {
     // Hold the flashlight above ground and outside the mesh, on the aiming side.
     auto &flashlight = flashlight_->parameters;
-    flashlight.position = world_->player().position() + glm::vec3{0.0F, 1.3F, 0.0F} +
-                          world_->player().heading() * 0.5F + world_->player().right() * 0.5F;
-    flashlight.direction = world_->player().heading();
+    flashlight.position = world_->player().pose.position() + glm::vec3{0.0F, 1.3F, 0.0F} +
+                          world_->player().pose.heading() * 0.5F +
+                          world_->player().pose.right() * 0.5F;
+    flashlight.direction = world_->player().pose.heading();
     auto const select = [this](scene::SceneLight &light) {
         light.enabled = lighting_mode_ == 0 ||
                         (lighting_mode_ <= 4 && light.parameters.type == lighting_mode_ - 1);
@@ -290,11 +293,12 @@ void WorldPresentation::update_lighting()
 GameLocation WorldPresentation::location() const
 {
     // Location follows the character even while the camera is panned elsewhere.
-    glm::vec2 const position{world_->player().position().x, world_->player().position().z};
-    auto const *region = world_->continent().region_at(position);
-    auto const *place = world_->continent().location_at(position);
-    auto const *road = world_->continent().road_at(position);
-    auto const local = world_->player().position() - world_->continent().spawn();
+    glm::vec2 const position{world_->player().pose.position().x,
+                             world_->player().pose.position().z};
+    auto const *region = continent_->region_at(position);
+    auto const *place = continent_->location_at(position);
+    auto const *road = continent_->road_at(position);
+    auto const local = world_->player().pose.position() - continent_->spawn();
     bool const in_showcase = std::abs(local.x) < 24 && std::abs(local.z) < 23;
     return {.region = region->name,
             .place = in_showcase ? "Material Showcase"
@@ -311,7 +315,8 @@ std::string_view WorldPresentation::lighting_name() const
 void WorldPresentation::update(float delta_seconds, WorldPresentationInput const &input)
 {
     if (input.nod && nod_animation_index_)
-        world_->player().model()->pose.play_animation(*nod_animation_index_, false);
+        character_models_[world_->player_index].character->pose.play_animation(
+            *nod_animation_index_, false);
     if (input.cycle_lighting)
         lighting_mode_ = (lighting_mode_ + 1) % lighting_names.size();
     if (input.toggle_showcase_motion)
@@ -323,6 +328,15 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         showcase_time_ += delta_seconds;
     showcase_.update(showcase_time_);
     update_lighting();
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto &models = character_models_[i];
+        auto const sequence = world_->characters[i].attack_sequence;
+        if (sequence != models.attack_sequence) {
+            if (models.attack_animation)
+                models.weapon->pose.play_animation(*models.attack_animation, false);
+            models.attack_sequence = sequence;
+        }
+    }
     scene_.update_animations(delta_seconds);
     update_instances();
 }
@@ -339,9 +353,10 @@ void WorldPresentation::update_listener(scene::FpsCamera const &camera)
 glm::mat4 WorldPresentation::player_eye_transform() const
 {
     if (eyes_node_index_)
-        return world_->player().model()->node_world_matrix(*eyes_node_index_);
-    auto transform = world_->player().transform().model_matrix();
-    transform[3] = glm::vec4{world_->player().eye_position(), 1.0F};
+        return character_models_[world_->player_index].character->node_world_matrix(
+            *eyes_node_index_);
+    auto transform = world_->player().pose.transform().model_matrix();
+    transform[3] = glm::vec4{world_->player().pose.eye_position(), 1.0F};
     return transform;
 }
 

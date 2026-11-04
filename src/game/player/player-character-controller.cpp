@@ -20,9 +20,7 @@ bool finite(glm::vec3 value)
 
 } // namespace
 
-PlayerCharacterController::PlayerCharacterController(GameInputRouter const &input,
-                                                     PlayerCharacterInput const &frame)
-    : input_(&input), frame_(&frame)
+PlayerCharacterController::PlayerCharacterController(PlayerControls const &input) : input_(&input)
 {
 }
 
@@ -69,22 +67,35 @@ CharacterIntent PlayerCharacterController::third_person(glm::vec2 movement, glm:
     return intent;
 }
 
+PlayerControls PlayerCharacterController::read_input(GameInputRouter const &input,
+                                                     PlayerCharacterInput const &frame)
+{
+    auto view = frame;
+    if (!view.mouse_enabled)
+        view.look_delta = {};
+    return {.view = view,
+            .movement =
+                frame.keyboard_enabled
+                    ? glm::vec2{static_cast<float>(input.held(GameAction::MoveRight)) -
+                                    static_cast<float>(input.held(GameAction::MoveLeft)),
+                                static_cast<float>(input.held(GameAction::MoveForward)) -
+                                    static_cast<float>(input.held(GameAction::MoveBackward))}
+                    : glm::vec2{},
+            .sprint = frame.keyboard_enabled && input.held(GameAction::Sprint),
+            .jump = frame.keyboard_enabled && input.pressed(GameAction::Jump),
+            .swing_weapon = frame.mouse_enabled && input.pressed(GameAction::SwingWeapon)};
+}
+
 CharacterIntent PlayerCharacterController::update(float, Character const &character)
 {
-    auto const &input = *input_;
     auto const &[look_delta, keyboard_enabled, mouse_enabled, oblique, view_changed,
-                 restored_first_person_angles, view_heading] = *frame_;
-    auto const movement =
-        keyboard_enabled ? glm::vec2{static_cast<float>(input.held(GameAction::MoveRight)) -
-                                         static_cast<float>(input.held(GameAction::MoveLeft)),
-                                     static_cast<float>(input.held(GameAction::MoveForward)) -
-                                         static_cast<float>(input.held(GameAction::MoveBackward))}
-                         : glm::vec2{};
+                 restored_first_person_angles, view_heading] = input_->view;
+    auto const movement = input_->movement;
     bool const enabled = keyboard_enabled || mouse_enabled;
     CharacterIntent intent;
     if (!oblique) {
-        if (enabled || view_changed)
-            intent = first_person(character, movement, mouse_enabled ? look_delta : glm::vec2{},
+        if (enabled || view_changed || look_delta != glm::vec2{})
+            intent = first_person(character, movement, look_delta,
                                   view_changed ? restored_first_person_angles : std::nullopt);
     }
     else {
@@ -93,9 +104,9 @@ CharacterIntent PlayerCharacterController::update(float, Character const &charac
         if (view_changed)
             intent.look = glm::vec2{};
     }
-    intent.sprint = keyboard_enabled && input.held(GameAction::Sprint);
-    intent.jump = keyboard_enabled && input.pressed(GameAction::Jump);
-    intent.swing_weapon = mouse_enabled && input.pressed(GameAction::SwingWeapon);
+    intent.sprint = input_->sprint;
+    intent.jump = input_->jump;
+    intent.swing_weapon = input_->swing_weapon;
     return intent;
 }
 

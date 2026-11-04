@@ -40,14 +40,13 @@ struct WorldInteraction {
 // Not an authoritative server or a network replica. The roster is fixed between loads.
 class GameWorld {
   public:
-    GameWorld(Save const &save,
-              std::filesystem::path const &dialog_catalog = "runtime/dialogs/catalog.yaml");
-    GameWorld(Save const &save, WorldSetup setup,
-              std::filesystem::path const &dialog_catalog = "runtime/dialogs/catalog.yaml");
+    GameWorld(Save const &save, std::filesystem::path const &dialog_catalog);
+
     GameWorld(GameWorld const &) = delete;
     GameWorld &operator=(GameWorld const &) = delete;
     GameWorld(GameWorld &&) = delete;
     GameWorld &operator=(GameWorld &&) = delete;
+
     ~GameWorld() = default;
 
     Continent const &continent() const;
@@ -79,12 +78,7 @@ class GameWorld {
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
     Character *find_interaction_target(glm::vec3 forward) const;
 
-    // Resources registry
-    std::unordered_map<std::uint32_t, game::Resource> resources_;
-
-    Continent continent_;
-    std::optional<PatrolSetup> example_patrol_;
-    std::vector<SerializedResourceStack> initial_player_resources_;
+    WorldSetup setup_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Faction>> factions_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Equipment>> equipments_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Weapon>> weapons_;

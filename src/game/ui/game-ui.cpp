@@ -1,10 +1,13 @@
 #include "lc1/game/ui/game-ui.hpp"
 
 #include "lc1/game/party/party.hpp"
+#include "lc1/game/resources/catalog.hpp"
+#include "lc1/game/resources/resource-stack.hpp"
 #include "lc1/game/ui/music-browser.hpp"
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/text/text-layout.hpp"
 #include <algorithm>
+#include <cassert>
 #include <format>
 #include <imgui.h>
 #include <ranges>
@@ -14,9 +17,9 @@ namespace {
 void inventory_list(game::Bag const &bag)
 {
     std::vector<game::ResourceStack> items;
-    for (auto const &stack : bag.resource_stacks())
-        items.push_back(stack);
-    std::ranges::sort(items, {}, [](auto const &item) { return item.resource->keyid; });
+    for (auto const &[keyid, quantity] : bag.quantities())
+        items.push_back({keyid, quantity});
+    std::ranges::sort(items, {}, &game::ResourceStack::keyid);
     auto const *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(
         {viewport->WorkPos.x + viewport->WorkSize.x - 24.0F, viewport->WorkPos.y + 180.0F},
@@ -42,20 +45,24 @@ void inventory_list(game::Bag const &bag)
             ImGui::TableSetupColumn("Weight (kg)", ImGuiTableColumnFlags_WidthFixed, 65.0F);
             ImGui::TableHeadersRow();
             for (auto const &item : items) {
+                auto const *definition = game::find_resource(item.keyid);
+                // World bags only ever hold definitions from the built-in catalog: the save
+                // loader rejects unknown keyids and the demonstration setup does the same.
+                assert(definition);
+                auto const &resource = *definition;
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(item.resource->name.data(),
-                                       item.resource->name.data() + item.resource->name.size());
+                ImGui::TextUnformatted(resource.name.data(),
+                                       resource.name.data() + resource.name.size());
                 if (ImGui::IsItemHovered()) {
                     ImGui::BeginTooltip();
-                    ImGui::TextDisabled("Weight per item: %.2f kg", item.resource->weight / 1000.0);
+                    ImGui::TextDisabled("Weight per item: %.2f kg", resource.weight / 1000.0);
                     ImGui::EndTooltip();
                 }
                 ImGui::TableNextColumn();
                 ImGui::Text("%u", item.quantity);
                 ImGui::TableNextColumn();
-                ImGui::Text("%.2f",
-                            static_cast<double>(item.quantity) * item.resource->weight / 1000.0);
+                ImGui::Text("%.2f", static_cast<double>(item.quantity) * resource.weight / 1000.0);
             }
             ImGui::EndTable();
         }
@@ -183,7 +190,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
     return actions;
 }
 
-std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFont const &font,
+std::vector<ScreenTextItem> GameUi::screen_labels(WorldSnapshot const &world, GpuFont const &font,
                                                   FrameExtent extent, GameLocation location) const
 {
     auto const [w, h] = extent;
@@ -191,26 +198,23 @@ std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFon
     std::vector<ScreenTextItem> labels;
 
     labels.push_back(ScreenTextItem{
-        .text = std::format("{} | {} / {}", world.player().config().name, location.region,
-                            location.place),
+        .text = std::format("{} | {} / {}", world.player().name, location.region, location.place),
         .position = {24.0F, 46.0F},
         .line_height = 22.0F,
     });
 
     labels.push_back(ScreenTextItem{
-        .text =
-            std::format("Party: {} companions", world.player().config().party->members().size()),
+        .text = std::format("Party: {} companions", world.companion_count),
         .position = {24.0F, 78.0F},
         .line_height = 22.0F,
     });
     labels.push_back(
         ScreenTextItem{.text = save_status_, .position = {24.0F, 108.0F}, .line_height = 22.0F});
 
-    auto const *dialog = world.dialogs().find(world.player());
-    if (world.interaction_target() && !dialog) {
+    auto const *dialog = world.dialog ? &*world.dialog : nullptr;
+    if (!world.interaction_target.empty() && !dialog) {
         ScreenTextItem interact_text{
-            .text = std::format("Press F to interact with {}",
-                                world.interaction_target()->config().name),
+            .text = std::format("Press F to interact with {}", world.interaction_target),
             .line_height = font.atlas().line_height_for_em(32),
         };
         auto const metrics =
@@ -221,8 +225,7 @@ std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFon
 
     if (dialog) {
         ScreenTextItem item{
-            .text = std::format("{}: {}", dialog->speaker()->config().name,
-                                dialog->current_speech_text()),
+            .text = std::format("{}: {}", dialog->speaker, dialog->speech),
             .line_height = font.atlas().line_height_for_em(32),
         };
         auto const metrics = text::measure_text(font.atlas(), item.text, item.line_height);
@@ -231,20 +234,19 @@ std::vector<ScreenTextItem> GameUi::screen_labels(GameWorld const &world, GpuFon
 
         labels.push_back(ScreenTextItem{
             .text = "F: End conversation", .position = {24.0F, 138.0F}, .line_height = 22.0F});
-        if (dialog->respondent() == &world.player())
-            for (auto const &[index, response] :
-                 std::views::zip(std::views::iota(0), dialog->candidate_responses())) {
-                ScreenTextItem response_item{
-                    .text = std::format("{}. {}", index + 1, response),
-                    .line_height = font.atlas().line_height_for_em(24),
-                };
-                auto const response_metrics =
-                    font.atlas().measure(response_item.text, response_item.line_height);
-                response_item.position = {(extent.width - response_metrics.width) * 0.5F,
-                                          extent.height * 0.7 + metrics.height +
-                                              index * response_metrics.height};
-                labels.push_back(response_item);
-            }
+        for (auto const &[index, response] :
+             std::views::zip(std::views::iota(0), dialog->responses)) {
+            ScreenTextItem response_item{
+                .text = std::format("{}. {}", index + 1, response),
+                .line_height = font.atlas().line_height_for_em(24),
+            };
+            auto const response_metrics =
+                font.atlas().measure(response_item.text, response_item.line_height);
+            response_item.position = {(extent.width - response_metrics.width) * 0.5F,
+                                      extent.height * 0.7 + metrics.height +
+                                          index * response_metrics.height};
+            labels.push_back(response_item);
+        }
     }
 
     return labels;

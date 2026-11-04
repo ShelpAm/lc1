@@ -7,6 +7,7 @@
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/game/session/save.hpp"
+#include "lc1/game/world/game-world.hpp"
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/scene/gpu-model.hpp"
@@ -597,21 +598,21 @@ void player_models_test(lc1::Device const &device)
     save(rest, "artifacts/player-weapon-rest.ppm");
     save(swing, "artifacts/player-weapon-swing.ppm");
 
-    // Exercise the production YAML -> world -> presentation path and its borrow lifetime.
-    lc1::GameWorld initial{data};
+    // Exercise production YAML -> world snapshot -> presentation-owned models.
+    lc1::GameWorld initial{data, "runtime/dialogs/catalog.yaml"};
     auto snapshot = initial.snapshot();
     auto &material = snapshot.weapons.front().model.value().material.value();
     material.metallic_roughness_texture = material.base_color_texture.value();
     material.emissive_texture = material.base_color_texture.value();
     auto const slot = std::filesystem::path{"artifacts/player-models-save"};
     lc1::Save::write(slot, snapshot);
-    lc1::GameWorld world{lc1::Save{slot}};
-    auto *equipped = world.player().config().weapon.at(lc1::WeaponType::MeleeWeapon);
+    lc1::GameWorld world{lc1::Save{slot}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
     {
-        lc1::WorldPresentation presentation{device, "runtime/assets", world, {}};
-        check(world.player().model() && equipped->model(),
-              "objects borrow their YAML-created models");
-        auto const &pbr = *equipped->model()->material;
+        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state, {}};
+        auto const *equipped = presentation.weapon_model(world.player().config().keyid);
+        check(equipped, "presentation owns YAML-created weapon models");
+        auto const &pbr = *equipped->material;
         check(pbr.base_color.texture && pbr.metallic_roughness.texture && pbr.emissive.texture,
               "YAML material loads external textures");
         check(pbr.base_color.texture->color_space() == lc1::TextureColorSpace::Srgb &&
@@ -626,18 +627,26 @@ void player_models_test(lc1::Device const &device)
             auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
             if (slot == bearer->config().weapon.end())
                 continue;
-            auto &pose = slot->second->model()->pose;
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
+            auto const &pose = presentation.weapon_model(bearer->config().keyid)->pose;
             check(pose.playback() && pose.playback()->time == 0,
-                  "Character update starts player and NPC weapon animation immediately");
-            pose.update_animation(0.1F);
+                  "accepted attack snapshot starts player and NPC weapon animations");
+            presentation.update(0.1F, {});
             apply_character_intent(*bearer, 0, world.continent(), {});
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
             check(pose.playback()->time > 0.09F,
                   "an empty intent does not restart the weapon animation");
             apply_character_intent(*bearer, 0, world.continent(), swing_intent);
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
             check(pose.playback()->time > 0.09F,
                   "continuous swing requests cannot restart an attack during cooldown");
             apply_character_intent(*bearer, 2.0F, world.continent(), {});
             apply_character_intent(*bearer, 0, world.continent(), swing_intent);
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
             check(pose.playback()->time == 0,
                   "cooldown expires even without requests and allows the next swing");
             lc1::AiCharacterController ai{
@@ -647,27 +656,31 @@ void player_models_test(lc1::Device const &device)
                 auto const request = ai.update(0.02F, *bearer);
                 check(request.swing_weapon, "nearby AI keeps requesting swings while stationary");
                 apply_character_intent(*bearer, 0.02F, world.continent(), request);
-                pose.update_animation(0.02F);
+                state = lc1::capture_world(world);
+                presentation.update(0.02F, {});
             }
             check(pose.playback()->time > 0.19F,
                   "AI requests let the weapon advance through the visible part of the swing");
             apply_character_intent(*bearer, 2.0F, world.continent(), swing_intent);
         }
+        state = lc1::capture_world(world);
         presentation.update(0.28F, {.nod = true});
         std::vector<lc1::scene::SceneModel const *> weapon_models;
         for (auto const *bearer : world.characters()) {
             auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
             if (slot == bearer->config().weapon.end())
                 continue;
-            auto const *model = slot->second->model();
+            auto const *model = presentation.weapon_model(bearer->config().keyid);
             check(model && !std::ranges::contains(weapon_models, model),
                   "each player's or NPC's equipped weapon has its own scene instance");
             check(model->pose.playback() && model->pose.playback()->time > 0.27F,
                   "player and NPC weapon swings advance through character intent");
             weapon_models.push_back(model);
-            auto const mount = *bearer->model()->model->definition().find_node(
-                bearer->config().model.weapon_mount.value());
-            auto const expected = bearer->model()->node_world_matrix(mount);
+            auto const mount = *presentation.character_model(bearer->config().keyid)
+                                    .model->definition()
+                                    .find_node(bearer->config().model.weapon_mount.value());
+            auto const expected =
+                presentation.character_model(bearer->config().keyid).node_world_matrix(mount);
             for (int column = 0; column < 4; ++column)
                 for (int row = 0; row < 4; ++row)
                     near(model->world_transform[column][row], expected[column][row],
@@ -676,8 +689,7 @@ void player_models_test(lc1::Device const &device)
         check(weapon_models.size() == 3, "default player and both armed NPCs display weapons");
         check(weapon_models[1]->model == weapon_models[2]->model,
               "NPC weapons share GPU resources while retaining independent scene instances");
-        check(equipped->model()->pose.playback()->time > 0.27F,
-              "configured action animation advances");
+        check(equipped->pose.playback()->time > 0.27F, "configured action animation advances");
         auto configured_frame = renderer.make_frame_resources(presentation.object_capacity());
         for (auto const *bearer : world.characters()) {
             if (bearer == &world.player())
@@ -686,7 +698,7 @@ void player_models_test(lc1::Device const &device)
             if (slot == bearer->config().weapon.end())
                 continue;
             lc1::scene::Scene isolated;
-            isolated.add_model(*bearer->model());
+            isolated.add_model(presentation.character_model(bearer->config().keyid));
             isolated.add_light(lc1::scene::to_light(
                 lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 3},
                                              .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
@@ -694,7 +706,7 @@ void player_models_test(lc1::Device const &device)
             camera.look_at(bearer->position() + glm::vec3{0.1F, 1, -0.3F});
             auto const unarmed = capture(device, renderer, configured_frame, camera, isolated,
                                          {.width = 800, .height = 600});
-            isolated.add_model(*slot->second->model());
+            isolated.add_model(*presentation.weapon_model(bearer->config().keyid));
             auto const armed = capture(device, renderer, configured_frame, camera, isolated,
                                        {.width = 800, .height = 600});
             std::size_t changed = 0;
@@ -712,11 +724,6 @@ void player_models_test(lc1::Device const &device)
         capture(device, renderer, configured_frame, camera, presentation.scene(),
                 {.width = 800, .height = 600});
         device.wait_idle();
-    }
-    for (auto const *bearer : world.characters()) {
-        check(!bearer->model(), "presentation teardown clears every character model borrow");
-        for (auto const &[_, weapon] : bearer->config().weapon)
-            check(!weapon->model(), "presentation teardown clears every weapon model borrow");
     }
     std::filesystem::remove(slot / "checkpoint.yaml");
     std::filesystem::remove(slot);

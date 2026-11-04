@@ -10,7 +10,7 @@
   `released` 必须与 `!held` 相与；`pressed` 不做同样屏蔽。保留 GLFW ↔ Key 映射的完整性和唯一性断言。
 - `poll_events()` 先调用 `begin_frame()` 再处理 GLFW 事件；`wait_events()` 不构成帧边界。
   游戏动作忽略 `GLFW_REPEAT`；失焦释放全部按键；捕获变化、重新聚焦、指针重新进入均重置鼠标位移基线。
-- GameSession 在更新入口解析一次动作，先处理视角切换，再准备玩家输入帧；切换帧丢弃观察位移。玩家控制器更新时读取装配阶段绑定的路由器和输入帧。
+- GameSession 在更新入口解析一次动作，先处理视角切换，再准备玩家输入帧；切换帧丢弃观察位移。主线程把路由结果和视角帧复制为 `PlayerControls` 消息；模拟线程的玩家控制器读取绑定的值输入，不访问路由器或设备。
   GameSession 根据菜单和视角状态直接调用 `Window::set_cursor_captured()`，由 Window 在捕获变化时重置基线。控制模式、焦点和 context 分别参与玩法门控，
   不能用是否捕获光标来反推输入是否启用。
 - F2 按下时触发玩家单次点头，按住不重复；沿用玩法键盘输入门控。
@@ -22,3 +22,5 @@
   地图相机接收有限的方向／滚轮和已验证的模拟时间，不在控制器中吞掉 NaN／Inf。
 
 通用路由由 `lc1_input_tests` 验证，会话与视角时序由 `lc1_game_world_tests`、`lc1_player_view_tests` 验证。
+
+跨线程输入的 tick、合并和一次性消费约定见[固定步长模拟](code-layout.md#固定步长模拟与线程交换)。

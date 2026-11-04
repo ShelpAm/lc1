@@ -3,7 +3,7 @@
 #include "lc1/audio/audio.hpp"
 #include "lc1/game/continent/view.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
-#include "lc1/game/world/game-world.hpp"
+#include "lc1/game/world/world-snapshot.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/scene/gpu-model.hpp"
 #include "lc1/scene/model-instance.hpp"
@@ -27,22 +27,26 @@ struct GameLocation {
 
 // Manages GPU resources.
 //
-// Owns presentation resources. Device and world must outlive this immovable presentation;
+// Owns presentation resources. Device, continent and snapshot outlive this presentation;
 // submitted GPU work must complete before teardown. Character transforms live only in GameWorld.
 class WorldPresentation {
   public:
     WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
-                      GameWorld &world, OutputSettings output);
+                      Continent const &continent, WorldSnapshot const &world,
+                      OutputSettings output);
 
     WorldPresentation(WorldPresentation const &) = delete;
     WorldPresentation &operator=(WorldPresentation const &) = delete;
     WorldPresentation(WorldPresentation &&) = delete;
     WorldPresentation &operator=(WorldPresentation &&) = delete;
 
-    ~WorldPresentation();
+    ~WorldPresentation() = default;
+
+    scene::SceneModel const &character_model(std::uint32_t keyid) const;
+    scene::SceneModel const *weapon_model(std::uint32_t keyid) const;
 
     // Advance animation before the camera reads its mount, then update the listener afterwards.
-    // Time is the finite, nonnegative simulation delta already accepted by GameWorld.
+    // Time is the finite, nonnegative render delta accepted by GameSession.
     void update(float delta_seconds, WorldPresentationInput const &input);
     void update_listener(scene::FpsCamera const &camera);
     glm::mat4 player_eye_transform() const;
@@ -68,7 +72,20 @@ class WorldPresentation {
     void update_lighting();
     void update_instances();
 
-    GameWorld *world_; // Required non-null borrow, outlives this presentation.
+    // Main-thread snapshot and immutable continent borrows; both outlive this presentation.
+    WorldSnapshot const *world_;
+    Continent const *continent_;
+
+    struct CharacterModels {
+        std::uint32_t keyid;
+        scene::SceneModel *character;
+        scene::SceneModel *weapon;
+        std::optional<std::size_t> mount;
+        std::optional<std::size_t> attack_animation;
+        std::uint64_t attack_sequence;
+    };
+
+    std::vector<CharacterModels> character_models_;
     GpuFont const font_;
     GpuTexture const white_;
     ContinentView const continent_view_;

@@ -2,12 +2,12 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
+#include "lc1/game/character/character-pose.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/game/world/interactable.hpp"
-#include "lc1/scene/scene.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -103,21 +103,10 @@ void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
         request_jump();
 
     weapon_attack_cooldown_ = std::max(0.0F, weapon_attack_cooldown_ - delta_seconds);
-    if (intent.swing_weapon) {
-        if (weapon_attack_cooldown_ <= 0) {
-            weapon_attack_cooldown_ = 2;
-            auto const slot = config_.weapon.find(WeaponType::MeleeWeapon);
-            if (slot != config_.weapon.end()) {
-                auto *model = slot->second->model();
-                assert(model);
-                auto const &name = slot->second->model_config().action_animation.value();
-                assert(name.size());
-                auto const animation = model->pose.model().find_animatinon(name);
-                if (!animation)
-                    fail("model is missing animation {}", name);
-                model->pose.play_animation(*animation, false);
-            }
-        }
+    if (intent.swing_weapon && weapon_attack_cooldown_ <= 0) {
+        weapon_attack_cooldown_ = 2;
+        if (config_.weapon.contains(WeaponType::MeleeWeapon))
+            ++attack_sequence_;
     }
 }
 
@@ -204,24 +193,23 @@ void Character::set_look_angles(float yaw_degrees, float pitch_degrees)
 
 glm::vec3 Character::look_direction() const
 {
-    float const pitch = glm::radians(look_pitch_);
-    return heading() * std::cos(pitch) + glm::vec3{0.0F, std::sin(pitch), 0.0F};
+    return CharacterPose{*this}.look_direction();
 }
 
 glm::vec3 Character::heading() const
 {
-    return horizontal_direction(body_yaw() + look_yaw_);
+    return CharacterPose{*this}.heading();
 }
 
 glm::vec3 Character::right() const
 {
-    return glm::cross(heading(), glm::vec3{0.0F, 1.0F, 0.0F});
+    return CharacterPose{*this}.right();
 }
 
 glm::vec3 Character::eye_position() const
 {
     // Character-space metres; independent of the source model's origin and units.
-    return position() + glm::vec3{0.0F, body_.eye_height, 0.0F};
+    return CharacterPose{*this}.eye_position();
 }
 
 CharacterConfig const &Character::config() const
@@ -319,14 +307,9 @@ game::Bag &Character::bag()
     return bag_;
 }
 
-scene::SceneModel *Character::model()
+std::uint64_t Character::attack_sequence() const
 {
-    return model_;
-}
-
-scene::SceneModel const *Character::model() const
-{
-    return model_;
+    return attack_sequence_;
 }
 
 } // namespace lc1

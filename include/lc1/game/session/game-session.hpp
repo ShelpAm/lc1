@@ -2,9 +2,9 @@
 
 #include "lc1/game/actions.hpp"
 #include "lc1/game/player/player-view.hpp"
+#include "lc1/game/session/game-simulation.hpp"
 #include "lc1/game/ui/game-ui.hpp"
 #include "lc1/game/ui/music-browser.hpp"
-#include "lc1/game/world/game-world.hpp"
 #include "lc1/game/world/world-presentation.hpp"
 #include <utility>
 
@@ -17,15 +17,20 @@ class GameSession {
   public:
     GameSession(Device const &device, std::filesystem::path const &asset_root, Save const &save,
                 OutputSettings output, Window *window);
+
     GameSession(GameSession const &) = delete;
     GameSession &operator=(GameSession const &) = delete;
     GameSession(GameSession &&) = delete;
     GameSession &operator=(GameSession &&) = delete;
+
     ~GameSession() = default;
 
-    // Resolves actions once, then updates view mode, simulation and presentation.
+    // Resolves actions once, submits value input and presents the latest completed tick.
     // Applies cursor capture directly through the borrowed Window after UI actions.
     void update(float delta_seconds, InputState const &input_state);
+
+    // Called when no drawable frame exists, so stale held controls cannot keep moving.
+    void release_controls();
 
     void set_aspect_ratio(float aspect_ratio);
 
@@ -37,8 +42,8 @@ class GameSession {
 
     bool quit_requested() const;
 
-    // Read-only borrows; valid for this session's lifetime. Mutations use session operations.
-    GameWorld const &world() const;
+    // Main-thread views. World snapshot contents are replaced on the next update().
+    WorldSnapshot const &world() const;
 
     WorldPresentation const &world_presentation() const;
 
@@ -55,8 +60,10 @@ class GameSession {
 
     Window *window_; // Required non-null borrow; Application's Window outlives this.
     GameInputRouter input_router_;
-    // Owners precede borrowers: view/player view borrow world, music borrows view's audio context.
-    GameWorld world_;
+    // Owners precede borrowers: presentation reads the local snapshot, music borrows its audio
+    // context.
+    GameSimulation simulation_;
+    WorldSnapshot snapshot_;
     WorldPresentation world_presentation_;
     PlayerView player_view_;
     MusicBrowser music_;

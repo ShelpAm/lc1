@@ -17,13 +17,8 @@
 #include <optional>
 #include <string>
 
-namespace lc1::scene {
-struct SceneModel;
-}
-
 namespace lc1 {
 
-class WorldPresentation;
 class AiCharacterController;
 
 class Continent;
@@ -73,8 +68,7 @@ class Character {
 
     CharacterConfig const &config() const;
 
-    scene::SceneModel *model();
-    scene::SceneModel const *model() const;
+    std::uint64_t attack_sequence() const;
 
     CharacterBody const &body() const;
 
@@ -141,8 +135,6 @@ class Character {
     game::Bag const &bag() const;
 
   private:
-    friend class WorldPresentation;
-
     // Resolves the requested actions before physics. Called only by update().
     void apply_intent(float delta_seconds, CharacterIntent const &intent);
     glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement);
@@ -150,9 +142,7 @@ class Character {
     // Party updates both sides of membership together during recruitment.
     friend class Party;
 
-    // Optional Scene-owned borrow; WorldPresentation clears it before Scene teardown.
-    scene::SceneModel *model_ = nullptr;
-    std::optional<std::size_t> weapon_mount_index_;
+    std::uint64_t attack_sequence_ = 0;
 
     CharacterConfig config_;
     CharacterBody body_;

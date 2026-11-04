@@ -150,6 +150,13 @@ void blacksmith_forging()
     check(custom.add(crystal, 4) && custom.quantity_of(crystal.keyid) == 4 &&
               custom.total_weight() == 500 && !custom.add(crystal, 1),
           "new resource records work without an enum or subclass");
+    std::vector<std::uint32_t> catalog_keyids;
+    for (auto const *resource : resources)
+        catalog_keyids.push_back(resource->keyid);
+    std::ranges::sort(catalog_keyids);
+    check(std::ranges::adjacent_find(catalog_keyids) == catalog_keyids.end() &&
+              find_resource(wood.keyid) == &wood && !find_resource(crystal.keyid),
+          "catalog keyids stay unique so a lookup cannot hide a definition");
     Recipe crystal_recipe{{{&crystal, 4}}, {{&moneta, 10}}};
     check(craft(custom, crystal_recipe) && custom.quantity_of(crystal.keyid) == 0 &&
               custom.quantity_of(moneta.keyid) == 10 && custom.total_weight() == 100,
@@ -907,22 +914,26 @@ void bound_player_controller()
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     lc1::PlayerCharacterInput frame{.keyboard_enabled = true};
     lc1::Character player{world, {.position = world.spawn()}, {}};
-    player.set_controller(std::make_unique<lc1::PlayerCharacterController>(input, frame));
+    auto controls = lc1::PlayerCharacterController::read_input(input, frame);
+    player.set_controller(std::make_unique<lc1::PlayerCharacterController>(controls));
     auto *const controller = player.controller();
 
     devices.on_key(lc1::Key::W, true);
     input.update(devices);
+    controls = lc1::PlayerCharacterController::read_input(input, frame);
     player.update(0.1F, world);
     check(near(player.position(), world.spawn() + glm::vec3{0, 0, -0.45F}),
           "the installed player controller reads bound actions through Character update");
 
     auto const stopped = player.position();
     frame.keyboard_enabled = false;
+    controls = lc1::PlayerCharacterController::read_input(input, frame);
     player.update(0.1F, world);
     check(near(player.position(), stopped), "the bound input gate is read on each update");
 
     frame.keyboard_enabled = true;
     frame.view_heading = {1, 0, 0};
+    controls = lc1::PlayerCharacterController::read_input(input, frame);
     player.update(0.1F, world);
     check(player.controller() == controller &&
               near(player.position(), stopped + glm::vec3{0.45F, 0, 0}),
@@ -932,6 +943,7 @@ void bound_player_controller()
     devices.on_key(lc1::Key::W, false);
     input.update(devices);
     auto const before_release = player.position();
+    controls = lc1::PlayerCharacterController::read_input(input, frame);
     player.update(0.1F, world);
     check(near(player.position(), before_release), "bound action releases stop movement");
 }

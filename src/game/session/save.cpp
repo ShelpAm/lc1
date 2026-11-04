@@ -343,8 +343,8 @@ SerializedCharacterState serialize_character_state(Character const &character)
         .patrol = character.ai_controller() && character.ai_controller()->patrolling(),
         .companion_order = order,
         .bag_capacity = character.bag().max_weight()};
-    for (auto const &stack : character.bag().resource_stacks())
-        record.bag.push_back({stack.resource->keyid, stack.quantity});
+    for (auto const &[keyid, quantity] : character.bag().quantities())
+        record.bag.push_back({keyid, quantity});
     std::ranges::sort(record.bag, {}, &SerializedResourceStack::keyid);
     return record;
 }
@@ -512,9 +512,8 @@ void Save::validate_references() const
         game::Bag bag{state.bag_capacity};
         std::unordered_set<std::uint32_t> resources;
         for (auto const &stack : state.bag) {
-            auto const resource =
-                std::ranges::find(game::resources, stack.keyid, &game::Resource::keyid);
-            if (resource == game::resources.end())
+            auto const *resource = game::find_resource(stack.keyid);
+            if (!resource)
                 fail("character {} bag refers to unknown resource {}", id, stack.keyid);
             if (stack.quantity == 0 || !resources.insert(stack.keyid).second)
                 fail("character {} bag contains a zero quantity or duplicate resource {}", id,

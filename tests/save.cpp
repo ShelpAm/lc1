@@ -432,7 +432,8 @@ void model_configuration_round_trip()
     check(snapshot.characters.front().model.value() == *character &&
               snapshot.weapons.front().model.value() == *weapon,
           "runtime objects retain model configuration for saving without a device");
-    check(!world.characters().front()->model(), "headless characters have no scene borrow");
+    check(world.characters().front()->attack_sequence() == 0,
+          "headless characters start without attacks");
 
     data.characters.back().weapon[data.weapons.front().type] = data.weapons.front().keyid;
     rejects_write([&] { lc1::Save::write(scratch.directory(), data); },

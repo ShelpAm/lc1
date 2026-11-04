@@ -412,12 +412,14 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
 
         if (auto directory = game_->take_load_request()) {
             load_game(*directory);
-            stopwatch.tick(); // Loading time does not advance the new world's simulation.
+            stopwatch.tick(); // Do not feed loading time to camera/presentation.
         }
 
         // Recreate only at the top of a frame, before acquiring an image.
-        if (!prepare_swapchain())
+        if (!prepare_swapchain()) {
+            game_->release_controls();
             continue;
+        }
 
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();

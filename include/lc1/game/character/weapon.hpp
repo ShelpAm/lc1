@@ -5,13 +5,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace lc1::scene {
-struct SceneModel;
-}
-
 namespace lc1 {
-
-class WorldPresentation;
 
 enum class WeaponType : std::uint8_t {
     MeleeWeapon,
@@ -36,15 +30,7 @@ class Weapon {
 
     ModelConfig const &model_config() const;
 
-    scene::SceneModel *model();
-    scene::SceneModel const *model() const;
-
   private:
-    friend class WorldPresentation;
-
-    // Optional Scene-owned borrow; WorldPresentation clears it before Scene teardown.
-    scene::SceneModel *model_ = nullptr;
-
     std::uint32_t keyid_;
     WeaponType type_;
     WeaponProperty property_;

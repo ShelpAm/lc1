@@ -4,7 +4,6 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
-#include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/player/player-view.hpp"
 #include "lc1/game/resources/catalog.hpp"
@@ -220,10 +219,10 @@ void reload_world()
 void scenario_inventory()
 {
     lc1::Save const seed{"saves/01"};
-    lc1::GameWorld world{seed, lc1::demo::world_setup(seed.continent()), "dialogs/catalog.yaml"};
+    lc1::GameWorld world{seed, "dialogs/catalog.yaml"};
     auto &bag = world.player().bag();
     check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 8100,
-          "explicit demonstration setup supplies a bounded initial inventory");
+          "temporary demonstration setup supplies a bounded initial inventory");
     update_world(world, 0, {});
     update_world(world, 1.0F, {});
     check(bag.total_weight() == 8100, "simulation does not refill demonstration supplies");
@@ -231,8 +230,7 @@ void scenario_inventory()
     Checkpoint checkpoint;
     lc1::Save::write(checkpoint.directory(), world.snapshot());
     lc1::Save const saved{checkpoint.directory()};
-    lc1::GameWorld restored{saved, lc1::demo::world_setup(saved.continent()),
-                            "dialogs/catalog.yaml"};
+    lc1::GameWorld restored{saved, "dialogs/catalog.yaml"};
     check(restored.player().bag().quantity_of(lc1::game::wood.keyid) == 1 &&
               restored.player().bag().total_weight() == 7100,
           "checkpoint restores consumed inventory without applying initial supplies again");
@@ -255,8 +253,7 @@ void restored_house_patrol()
         state.patrol = true;
     }
     lc1::Save::write(checkpoint.directory(), data);
-    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, lc1::demo::world_setup(data.continent),
-                         "dialogs/catalog.yaml"};
+    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
     check(find(world, example).position().y == 7.8F,
           "house patrol restores the saved floor without teleporting");
     bool descended = false;
@@ -320,11 +317,12 @@ void control_physics_camera_order()
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     input.update(devices);
     view.update_view_mode(input, true, world.player());
-    world.player().set_controller(
-        std::make_unique<lc1::PlayerCharacterController>(input, view.character_input()));
+    lc1::PlayerControls controls;
+    world.player().set_controller(std::make_unique<lc1::PlayerCharacterController>(controls));
     view.prepare_input({}, true, true);
     check(world.player().position() == before_control && world.player().on_ground(),
           "resolving view input does not mutate world state");
+    controls = lc1::PlayerCharacterController::read_input(input, view.character_input());
     world.update(0.1F, {});
     view.update_camera(0.1F, world.player());
     check(!world.player().on_ground() && world.player().position().y > 0,
@@ -338,6 +336,7 @@ void control_physics_camera_order()
     input.update(devices);
     view.update_view_mode(input, false, world.player());
     view.prepare_input({500, 500}, false, false);
+    controls = lc1::PlayerCharacterController::read_input(input, view.character_input());
     world.update(0, {});
     check(world.player().position() == before && world.player().body_yaw() == 0,
           "disabled controls cannot move or turn the player");

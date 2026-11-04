@@ -42,14 +42,4 @@ ModelConfig const &Weapon::model_config() const
     return model_config_;
 }
 
-scene::SceneModel *Weapon::model()
-{
-    return model_;
-}
-
-scene::SceneModel const *Weapon::model() const
-{
-    return model_;
-}
-
 } // namespace lc1

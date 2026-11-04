@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lc1/game/world/game-world.hpp"
+#include "lc1/game/world/world-snapshot.hpp"
 #include "lc1/platform/window.hpp"
 #include "lc1/vk/render/text-pass.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
@@ -48,7 +48,7 @@ class GameUi {
 
     void set_save_status(std::string status);
 
-    std::vector<ScreenTextItem> screen_labels(GameWorld const &world, GpuFont const &font,
+    std::vector<ScreenTextItem> screen_labels(WorldSnapshot const &world, GpuFont const &font,
                                               FrameExtent extent, GameLocation location) const;
 
   private:

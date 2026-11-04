@@ -22,6 +22,15 @@ struct PlayerCharacterInput {
     glm::vec3 view_heading{0, 0, -1};
 };
 
+// Device-independent input copied into the simulation at a tick boundary.
+struct PlayerControls {
+    PlayerCharacterInput view;
+    glm::vec2 movement{};
+    bool sprint = false;
+    bool jump = false;
+    bool swing_weapon = false;
+};
+
 // Turns player actions into a CharacterIntent. It owns device-to-action mapping, mouse
 // look and the choice between camera-relative and body-relative movement. It does not
 // know whether the character may move, sprint or jump: Character applies those rules.
@@ -29,8 +38,11 @@ struct PlayerCharacterInput {
 // camera rather than the character.
 class PlayerCharacterController : public CharacterController {
   public:
-    // Both input sources are required borrows and must outlive controller updates.
-    PlayerCharacterController(GameInputRouter const &input, PlayerCharacterInput const &frame);
+    // Required input borrow, owned by the simulation and updated before each tick.
+    PlayerCharacterController(PlayerControls const &input);
+
+    static PlayerControls read_input(GameInputRouter const &input,
+                                     PlayerCharacterInput const &frame);
 
     CharacterIntent update(float delta_seconds, Character const &character) override;
 
@@ -43,8 +55,7 @@ class PlayerCharacterController : public CharacterController {
     static CharacterIntent third_person(glm::vec2 movement, glm::vec3 view_heading);
 
   private:
-    GameInputRouter const *input_;
-    PlayerCharacterInput const *frame_;
+    PlayerControls const *input_;
 };
 
 } // namespace lc1

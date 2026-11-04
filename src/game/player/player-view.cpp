@@ -41,7 +41,7 @@ void PlayerView::follow_first_person(glm::vec3 eye_position, glm::vec3 look_dire
     camera_.look_at(eye_position + look_direction);
 }
 
-void PlayerView::toggle(Character const &player)
+void PlayerView::toggle(CharacterPose const &player)
 {
     if (!oblique_)
         first_person_angles_ = {player.body_yaw() + player.look_yaw(), player.look_pitch()};
@@ -60,7 +60,7 @@ void PlayerView::toggle(Character const &player)
 }
 
 void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_enabled,
-                                  Character const &player)
+                                  CharacterPose const &player)
 {
     if (keyboard_enabled && input.pressed(GameAction::ToggleCameraView))
         toggle(player);
@@ -105,7 +105,7 @@ void PlayerView::update_pointer(float delta_seconds, InputState const &devices,
                         continent_->bounds());
 }
 
-void PlayerView::update_camera(float delta_seconds, Character const &player,
+void PlayerView::update_camera(float delta_seconds, CharacterPose const &player,
                                std::optional<glm::mat4> eye_transform)
 {
     if (!oblique_) {

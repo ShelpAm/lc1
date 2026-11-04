@@ -9,7 +9,8 @@ inline lc1::CharacterIntent resolve_player_input(lc1::PlayerView &view,
                                                  bool mouse_enabled)
 {
     view.prepare_input(look_delta, keyboard_enabled, mouse_enabled);
-    lc1::PlayerCharacterController controller{input, view.character_input()};
+    auto controls = lc1::PlayerCharacterController::read_input(input, view.character_input());
+    lc1::PlayerCharacterController controller{controls};
     lc1::CharacterController &base = controller;
     return base.update(0, character);
 }

@@ -36,7 +36,7 @@
 ## 身份与队伍关系
 
 `Character::config()` 只返回只读配置，外部不能改写角色编号、所属队伍或装备槽映射。
-角色和队伍禁止复制、移动；注册表、队伍、对话和表现中的借用因此保持对象地址稳定。
+角色和队伍禁止复制、移动；注册表、队伍和对话中的借用因此保持对象地址稳定。
 独立的 `CharacterMotion` 仍可移动，它不保存角色位置指针。
 
 `Party::restore_roster()` 是一次性装配入口，完整校验后提交名单，不能用于覆盖运行中的队伍。
@@ -128,7 +128,7 @@ XZ 坐标上重叠。`ContinentBlock::walkable_top` 标记可站立的体块顶�
 巡逻 AI 在玩家距离不超过 3 米时持续请求挥砍，由 Character 决定执行时机；等待或抵达路点也执行该判断。
 Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取当前队长。
 控制器用 `State` 枚举区分待机、巡逻、跟随、等待和对话，通过 `switch` 执行对应行为；
-构造时绑定只读 `DialogSystem`，每帧自行查询该角色的活动对话，进入对话或恢复原状态；
+构造时绑定只读 `DialogSystem`，每个模拟 tick 自行查询该角色的活动对话，进入对话或恢复原状态；
 对话期间暂停原行为和攻击，巡逻等待计时也暂停。只在本次更新内借用对话和伙伴。
 对话系统必须比控制器长寿。世界先安装 NPC 的 AI，再恢复队员命令。
 `Party` 只校验权限并向现有 AI 下令，不创建或清空控制器，也不依赖对话系统。
@@ -137,26 +137,22 @@ Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取�
 控制流程是 `PlayerCharacterController / AiCharacterController -> CharacterIntent -> Character`。
 控制器只表达“想做什么”，不直接移动角色、扣状态或决定最终速度。
 
-`PlayerView` 拥有视角状态、记忆观察角和相机；它先更新相机基并准备 `PlayerCharacterInput`；
-`PlayerCharacterController` 从绑定的 `GameInputRouter` 读取 `GameAction`。`PlayerCharacterController` 负责：
+`PlayerView` 在主线程拥有视角状态、记忆观察角和相机，读取 `CharacterPose` 值副本。
+它准备 `PlayerCharacterInput`，主线程通过 `PlayerCharacterController::read_input()`
+把 `GameInputRouter` 的动作复制为 `PlayerControls`。输入消息不借用路由器、窗口或相机。
+模拟线程把消息写入已绑定的输入值，玩家控制器在 `Character::update()` 中读取它：
 
 - 第一人称：鼠标增量转绝对 yaw/pitch，移动方向跟随观察水平方向，身体随视角转向。
 - 第三人称：WASD 按相机水平方向解释，角色朝移动方向转身。
-- 把 Sprint、Jump、SwingWeapon 的按下/按住状态填入 intent；Interact 由会话提交给世界。
+- Sprint 为持续状态，Jump 和 SwingWeapon 为一次性请求；Interact 由世界处理。
 
-相机锁定和回中留在 `PlayerView`，因为它们改变相机而不是角色；
-`update_pointer()` 解析滚轮及逻辑屏幕边缘，`MapCameraController` 只提供锁定、缩放、回中、
-平移和跟随算法，不接收输入打包结构。
-
-M 切换只改变视角状态；恢复身体/观察角的 intent 在接下来的世界更新中执行。
-`GameSession` 装配时将动作路由器和 `PlayerView` 的输入帧绑定到 `PlayerCharacterController`，
-并将控制器交给玩家角色持有。每帧先准备视角、观察增量和输入门控；控制器更新时主动读取绑定的输入源。
+相机锁定、回中、缩放和边缘平移留在主线程的 `PlayerView`/`MapCameraController`。
+M 切换只改变视角状态，身体/观察角由下一个模拟 tick 的 intent 更新；
+切换帧丢弃观察位移。主线程从已完成 tick 的快照跟随角色，不直接修改模拟中的玩家。
 `GameWorld::update()` 对所有角色统一调用 `Character::update(elapsed, continent)`；
 角色通过 `CharacterController::update()` 取得 intent，执行角色规则和物理。
-没有控制器时使用空 intent，物理仍然推进。测试同样通过安装控制器提供动作。
-会话将交互按键通过 `WorldInteraction` 提交给世界，角色更新不返回 intent。
-`update_camera()` 随后读取最终姿态，因此跳跃和相机跟随在同一帧生效。
-两种视角使用同一个角色，保留斜视角缩放与锁定状态。
+没有控制器时使用空 intent，物理仍然推进；测试通过绑定控制器提供动作。
+固定 tick、输入合并和线程生命周期以[代码边界](code-layout.md#固定步长模拟与线程交换)为准。
 
 环境对话请求也由角色规则决定：`Character::accepts_ambient_requests()` 要求角色着地、
 本帧没有移动、冲刺或跳跃请求；会话另外用 `player_input_enabled` 表示 UI/焦点
@@ -171,7 +167,7 @@ AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、�
 ## 动画与后续蒙皮边界
 
 Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段；
-`Character` 保存自身 Scene 实例的借用，并在处理挥砍 intent 时触发武器动画。
+`Character` 不借用 Scene；接受挥砍请求后增加 `attack_sequence`，由表现层读取快照触发武器动画。
 `WorldPresentation` 装配模型、设置初始待机动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
 NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 播放一次 `Nod`（再次按下从头播放）：
 前 1.2 秒向下点头两次（25°），随后保持直立，片段总长 3 秒且不循环。均为刚性节点动画；角色世界姿态仍只属于 `Character`。
@@ -194,18 +190,19 @@ NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2
 武器使用本地 `weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
 经 `scripts/export-kingdom-longsword.py` 提取为同目录的 `KingdomLongsword.obj`。
 导出仅包含静态网格；`weapons.yaml` 中的模型节点定义局部旋转、缩放和握柄对齐，材质与挥动动画也由 YAML 指定。
-Scene 独立拥有武器实例，每个角色已装备的近战 `Weapon` 保存自身实例借用；没有装备或没有模型配置时不创建武器实例。
+Scene 独立拥有武器实例，表现层按角色 ID 保存关联；`Weapon` 不保存实例借用。没有装备或没有模型配置时不创建武器实例。
 玩家和 NPC 使用同一套装配与更新逻辑，远程武器尚未接入持握显示。
 `WorldPresentation` 拥有 GPU 资源，并在角色动画和世界矩阵更新后，将各自角色模型的持握挂点世界矩阵提交给武器；
 武器不改变 Character 的位置、碰撞或眼睛挂点。
 玩家鼠标左键按下生成 `CharacterIntent::swing_weapon`，AI 控制器也可填写同一请求。
-`Character::update()` 在处理 intent 时直接播放已装备近战武器配置的单次动作动画；
-玩家和 NPC 使用相同逻辑，没有显示模型或动作片段时不播放。Scene 每帧统一推进动画时间并采样姿态。
+`Character::update()` 在冷却允许且装备近战武器时增加攻击序号，无需加载模型即可执行；
+玩家和 NPC 使用相同规则。表现层检测快照中的序号变化后播放配置的单次动作动画，
+没有显示模型或动作片段时不播放。Scene 每个渲染帧统一推进动画时间并采样姿态。
 默认 `Swing` 长 0.55 秒，包含蓄力、向前挥动和回位；Character 按 2 秒冷却接受新请求。
 冷却随模拟时间推进，无请求时也计时，冷却期间的连续请求不会重置动画。
 角色和武器各自的 YAML 选择外观；尚无命中、伤害或连击。
 字段、默认值和旧存档兼容行为见[模型配置](save-data.md#角色与武器的-model)。
-角色与武器的 `model()` 在没有表现时返回空指针；Scene 所有权与借用生命周期见[资源文档](resources.md#持久渲染场景)。
+角色与武器没有 `model()` 接口；模型查询属于 `WorldPresentation`，Scene 所有权与借用生命周期见[资源文档](resources.md#持久渲染场景)。
 
 上述素材仍属于不纳入 Git 的外部 `runtime/assets/`，缺失时加载明确失败；
 运行前需准备村庄素材，并执行 `python3 scripts/export-kingdom-longsword.py` 生成武器 OBJ。
@@ -233,13 +230,17 @@ CPU 测试使用仓库内的 YAML 和独立几何夹具验证局部变换、挂�
 当前初始值为钱币 10 g、木材 1000 g、生铁 2000 g、铁盔 2500 g，属于可调整的玩法参数。
 `Bag` 构造时显式指定上限，角色配置为 10000 g（10 kg），通过 `total_weight()` 和 `max_weight()` 查询。
 添加按数量乘单件重量检查负重，同时检查数量溢出；乘法使用 64 位中间值。
-移除按实际存储的资源定义扣除重量。制作在候选背包先消耗再添加，成功才提交数量和重量，
+移除按调用方传入的定义扣除重量。制作在候选背包先消耗再添加，成功才提交数量和重量，
 失败保持原状，因此满载时也可以制作减轻负重的配方。配方输入／输出重量以克记录。
 现有铁盔配方原料总重 12.2 kg，超过默认背包上限，默认背包无法凑齐该配方。
-UI 可以换算 kg 显示；列表只读真实背包。
+UI 可以换算 kg 显示；列表只读真实背包，按编号从内置目录取名称和重量。
 
 资源定义为普通 `struct Resource { keyid, name, category, weight }`，不使用资源子类或
 `ResourceType` 枚举。内置定义集中在 `game/resources/catalog.hpp`，新增普通资源只需增加记录。
-世界按 `keyid` 保存资源值，背包按 ID 索引数量与只读定义借用；资源定义必须比借用活得久，
-入包后不能修改重量。名称由 `Resource` 的 `std::string` 拥有，内置定义使用 `inline const`，配方借用静态定义，世界定义在角色之前创建、之后销毁。
+`Bag` 的条目只保存 `ResourceStack { keyid, quantity }`，不保存定义借用：`add` 和 `remove`
+按调用方传入的只读定义计算重量，所以同一编号的定义必须一致，背包因此不附带任何生命周期要求，
+条目可以直接比较、复制和写入存档。`catalog.hpp` 的 `find_resource(keyid)` 是唯一的编号到定义
+解析入口，编号按升序排列并由 `static_assert` 保证唯一，解析使用二分查找；调用方在入口校验编号
+存在，之后可以假定解析成功。名称由 `Resource` 的 `std::string` 拥有，内置定义使用 `inline const`，
+配方仍借用这些进程期常量。
 资源分类仍为枚举，配方用对应定义构造；列表显示定义名称，按 ID 排序。未引入 YAML 资源加载或新存档格式。
