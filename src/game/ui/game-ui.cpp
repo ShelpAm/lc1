@@ -7,6 +7,7 @@
 #include "lc1/text/text-layout.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <format>
 #include <imgui.h>
@@ -14,13 +15,31 @@
 
 namespace lc1 {
 namespace {
+constexpr ImVec4 accent{0.83F, 0.69F, 0.43F, 1.0F};
+
+void panel_heading(char const *title)
+{
+    ImGui::TextColored(accent, "%s", title);
+    ImGui::Separator();
+    ImGui::Spacing();
+}
+
+void unavailable_button(char const *label, char const *reason)
+{
+    ImGui::BeginDisabled();
+    ImGui::Button(label);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", reason);
+}
+
 std::vector<game::ResourceStack> inventory_items(game::Bag const &bag, int category)
 {
     std::vector<game::ResourceStack> items;
     for (auto const &[keyid, quantity] : bag.quantities()) {
-        auto const *definition = game::find_resource(keyid);
-        assert(definition);
-        if (category == 0 || static_cast<int>(definition->category) == category - 1)
+        auto const *resource = game::find_resource(keyid);
+        assert(resource);
+        if (category == 0 || static_cast<int>(resource->category) == category - 1)
             items.push_back({keyid, quantity});
     }
     std::ranges::sort(items, {}, &game::ResourceStack::keyid);
@@ -55,22 +74,21 @@ void inventory_list(game::Bag const &bag)
             ImGui::TableSetupColumn("Weight (kg)", ImGuiTableColumnFlags_WidthFixed, 65.0F);
             ImGui::TableHeadersRow();
             for (auto const &item : items) {
-                auto const *definition = game::find_resource(item.keyid);
-                assert(definition);
-                auto const &resource = *definition;
+                auto const *resource = game::find_resource(item.keyid);
+                assert(resource);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(resource.name.data(),
-                                       resource.name.data() + resource.name.size());
+                ImGui::TextUnformatted(resource->name.data(),
+                                       resource->name.data() + resource->name.size());
                 if (ImGui::IsItemHovered()) {
                     ImGui::BeginTooltip();
-                    ImGui::TextDisabled("Weight per item: %.2f kg", resource.weight / 1000.0);
+                    ImGui::TextDisabled("Weight per item: %.2f kg", resource->weight / 1000.0);
                     ImGui::EndTooltip();
                 }
                 ImGui::TableNextColumn();
                 ImGui::Text("%u", item.quantity);
                 ImGui::TableNextColumn();
-                ImGui::Text("%.2f", static_cast<double>(item.quantity) * resource.weight / 1000.0);
+                ImGui::Text("%.2f", static_cast<double>(item.quantity) * resource->weight / 1000.0);
             }
             ImGui::EndTable();
         }
@@ -87,6 +105,120 @@ void inventory_list(game::Bag const &bag)
     ImGui::End();
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(3);
+}
+
+game::Resource const *inventory_panel(game::Bag const &bag, ImVec2 size, int &category,
+                                      std::optional<std::uint32_t> &resource_id)
+{
+    game::Resource const *selected = nullptr;
+    if (ImGui::BeginChild("Inventory panel", size, ImGuiChildFlags_Borders)) {
+        panel_heading("INVENTORY");
+        float const footer =
+            ImGui::GetFrameHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y;
+        if (ImGui::BeginChild("Categories", {78, -footer})) {
+            constexpr std::array names{"All", "Currency", "Materials", "Equipment"};
+            for (int i = 0; i < static_cast<int>(names.size()); ++i)
+                if (ImGui::Selectable(names[i], category == i, 0, {0, 32}))
+                    category = i;
+        }
+        ImGui::EndChild();
+        ImGui::SameLine();
+        auto const items = inventory_items(bag, category);
+        auto chosen = std::ranges::find_if(
+            items, [&](auto const &item) { return resource_id == item.keyid; });
+        if (chosen != items.end())
+            selected = game::find_resource(chosen->keyid);
+        else if (!items.empty())
+            selected = game::find_resource(items.front().keyid);
+
+        if (ImGui::BeginChild("Items", {0, -footer})) {
+            for (auto const &item : items) {
+                auto const *resource = game::find_resource(item.keyid);
+                assert(resource);
+                ImGui::PushID(static_cast<int>(resource->keyid));
+                auto const label =
+                    std::format("{}\nx{}   {:.2f} kg", resource->name, item.quantity,
+                                static_cast<double>(item.quantity) * resource->weight / 1000.0);
+                if (ImGui::Selectable(label.c_str(), selected == resource, 0, {0, 54}))
+                    selected = resource;
+                if (ImGui::BeginPopupContextItem("Item actions")) {
+                    if (ImGui::MenuItem("Details"))
+                        selected = resource;
+                    ImGui::BeginDisabled();
+                    ImGui::MenuItem("Discard");
+                    ImGui::EndDisabled();
+                    ImGui::TextDisabled("Item disposal is not available yet.");
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
+            }
+            if (items.empty())
+                ImGui::TextWrapped("No items in this category.");
+        }
+        ImGui::EndChild();
+
+        auto const used = bag.total_weight();
+        auto const capacity = bag.max_weight();
+        auto const weight = std::format("{:.2f} / {:.2f} kg", used / 1000.0, capacity / 1000.0);
+        ImGui::ProgressBar(capacity ? static_cast<float>(used) / capacity : 0.0F, {-1, 0},
+                           weight.c_str());
+        unavailable_button("Transfer", "Inventory transfers are not available yet.");
+    }
+    ImGui::EndChild();
+    resource_id = selected ? std::optional{selected->keyid} : std::nullopt;
+    return selected;
+}
+
+void character_preview(std::string_view name, ImVec2 size)
+{
+    if (ImGui::BeginChild("Character preview", size, ImGuiChildFlags_Borders)) {
+        panel_heading("APPEARANCE");
+        ImGui::TextUnformatted(name.empty() ? "Unknown player" : name.data());
+        auto const origin = ImGui::GetCursorScreenPos();
+        auto const available = ImGui::GetContentRegionAvail();
+        float const height = std::max(100.0F, available.y - ImGui::GetTextLineHeightWithSpacing());
+        float const unit = std::min(available.x / 4.0F, height / 8.0F);
+        ImVec2 const center{origin.x + available.x * 0.5F, origin.y + height * 0.5F};
+        auto *draw = ImGui::GetWindowDrawList();
+        auto const body_color = IM_COL32(155, 159, 155, 255);
+        draw->AddCircleFilled({center.x, center.y - unit * 2.6F}, unit * 0.65F, body_color);
+        draw->AddRectFilled({center.x - unit * 0.8F, center.y - unit * 1.75F},
+                            {center.x + unit * 0.8F, center.y + unit * 0.7F}, body_color,
+                            unit * 0.25F);
+        for (float side : {-1.0F, 1.0F}) {
+            draw->AddLine({center.x + side * unit, center.y - unit * 1.5F},
+                          {center.x + side * unit * 1.35F, center.y + unit * 0.7F}, body_color,
+                          unit * 0.35F);
+            draw->AddLine({center.x + side * unit * 0.4F, center.y + unit * 0.5F},
+                          {center.x + side * unit * 0.55F, center.y + unit * 3.1F}, body_color,
+                          unit * 0.5F);
+        }
+        ImGui::Dummy({available.x, height});
+        ImGui::TextDisabled("Silhouette preview");
+    }
+    ImGui::EndChild();
+}
+
+void equipment_details(game::Bag const &bag, game::Resource const *resource, ImVec2 size)
+{
+    if (ImGui::BeginChild("Equipment details", size, ImGuiChildFlags_Borders)) {
+        panel_heading("EQUIPMENT");
+        if (resource) {
+            ImGui::TextWrapped("%s", resource->name.c_str());
+            ImGui::TextUnformatted(std::format("Category: {}", resource->category).c_str());
+            ImGui::Text("Unit weight: %.2f kg", resource->weight / 1000.0);
+            ImGui::Text("Quantity: %u", bag.quantity_of(resource->keyid));
+        }
+        else {
+            ImGui::TextWrapped("Select an inventory item to inspect it.");
+        }
+        ImGui::Spacing();
+        unavailable_button("Equip", "Resource items are not linked to wearable equipment yet.");
+        ImGui::SameLine();
+        unavailable_button("Save preset", "Equipment presets are not available yet.");
+        unavailable_button("Apply preset", "Equipment presets are not available yet.");
+    }
+    ImGui::EndChild();
 }
 
 } // namespace
@@ -281,61 +413,86 @@ void GameUi::toggle_player_info()
 void GameUi::player_info(GameUiInfo const &info)
 {
     auto const *viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(
-        {viewport->WorkPos.x + viewport->WorkSize.x * 0.5F,
-         viewport->WorkPos.y + viewport->WorkSize.y * 0.5F},
-        ImGuiCond_FirstUseEver, {0.5F, 0.5F});
-    ImGui::SetNextWindowSize({880.0F, 620.0F}, ImGuiCond_FirstUseEver);
+    ImVec2 const max_size{std::max(1.0F, viewport->WorkSize.x - 24.0F),
+                          std::max(1.0F, viewport->WorkSize.y - 24.0F)};
+    ImGui::SetNextWindowPos({viewport->WorkPos.x + viewport->WorkSize.x * 0.5F,
+                             viewport->WorkPos.y + viewport->WorkSize.y * 0.5F},
+                            ImGuiCond_FirstUseEver, {0.5F, 0.5F});
+    ImGui::SetNextWindowSize({std::min(1240.0F, max_size.x), std::min(780.0F, max_size.y)},
+                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(
+        {std::min(760.0F, max_size.x), std::min(580.0F, max_size.y)}, max_size);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16, 16});
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 5.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {12, 8});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(24, 28, 31, 255));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(35, 40, 43, 255));
+    ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(104, 86, 55, 255));
 
-    if (ImGui::Begin("Character & inventory", &player_info_opened_)) {
-        ImGui::TextUnformatted(info.player_name.empty() ? "Unknown player" : info.player_name.data());
-        if (!info.player_faction.empty())
-            ImGui::Text("Faction: %s", info.player_faction.data());
-        ImGui::Text("Companions: %zu", info.companion_count);
-        ImGui::Separator();
+    if (ImGui::Begin("Character & inventory", &player_info_opened_,
+                     ImGuiWindowFlags_HorizontalScrollbar)) {
+        auto available = ImGui::GetContentRegionAvail();
+        available.x = std::max(720.0F, available.x);
+        float const gap = ImGui::GetStyle().ItemSpacing.x;
+        float const left = (available.x - gap * 2) * 0.34F;
+        float const middle = (available.x - gap * 2) * 0.28F;
+        float const right = available.x - gap * 2 - left - middle;
+        float const top = std::clamp(available.y * 0.29F, 150.0F, 210.0F);
+        float const bottom = std::max(240.0F, available.y - top - ImGui::GetStyle().ItemSpacing.y);
 
-        constexpr std::array categories{"All", "Currency", "Materials", "Equipment"};
-        for (int i = 0; i < static_cast<int>(categories.size()); ++i) {
-            if (i > 0)
-                ImGui::SameLine();
-            if (ImGui::Selectable(categories[i], inventory_category_ == i))
-                inventory_category_ = i;
+        if (ImGui::BeginChild("Party info", {left, top}, ImGuiChildFlags_Borders)) {
+            panel_heading("PARTY");
+            ImGui::TextUnformatted("Party members");
+            ImGui::Text("Companions: %zu", info.companion_count);
+            ImGui::Spacing();
+            ImGui::BulletText("%s", info.player_name.empty() ? "Unknown player"
+                                                             : info.player_name.data());
+            if (info.companion_count > 0)
+                ImGui::TextDisabled("Companion details are shown in world labels.");
+            else
+                ImGui::TextDisabled("No companions.");
         }
+        ImGui::EndChild();
 
-        auto const items = inventory_items(info.bag, inventory_category_);
-        if (ImGui::BeginTable("player-items", 3,
-                              ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
-                                  ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Qty", ImGuiTableColumnFlags_WidthFixed, 80.0F);
-            ImGui::TableSetupColumn("Weight (kg)", ImGuiTableColumnFlags_WidthFixed, 120.0F);
-            ImGui::TableHeadersRow();
-            for (auto const &item : items) {
-                auto const *resource = game::find_resource(item.keyid);
-                assert(resource);
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                if (ImGui::Selectable(resource->name.c_str(), selected_resource_ == item.keyid,
-                                      ImGuiSelectableFlags_SpanAllColumns))
-                    selected_resource_ = item.keyid;
-                ImGui::TableNextColumn();
-                ImGui::Text("%u", item.quantity);
-                ImGui::TableNextColumn();
-                ImGui::Text("%.2f", static_cast<double>(item.quantity) * resource->weight / 1000.0);
-            }
-            ImGui::EndTable();
+        ImGui::SameLine();
+        if (ImGui::BeginChild("Details", {middle, top}, ImGuiChildFlags_Borders)) {
+            panel_heading("CHARACTER");
+            ImGui::TextUnformatted(info.player_name.empty() ? "Unknown player"
+                                                            : info.player_name.data());
+            ImGui::Text("Age: --   Level: --");
+            ImGui::Spacing();
+            ImGui::TextWrapped("Faction: %s",
+                               info.player_faction.empty() ? "None" : info.player_faction.data());
+            ImGui::TextUnformatted("Party: Active player party");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Background");
+            ImGui::TextWrapped("No background provided.");
         }
-        if (items.empty())
-            ImGui::TextDisabled("No items in this category.");
+        ImGui::EndChild();
 
-        auto const used_weight = info.bag.total_weight();
-        auto const capacity = info.bag.max_weight();
-        auto const label =
-            std::format("Weight: {:.2f} / {:.2f} kg", used_weight / 1000.0, capacity / 1000.0);
-        ImGui::ProgressBar(capacity == 0 ? 0.0F : static_cast<float>(used_weight) / capacity,
-                           {-1.0F, 18.0F}, label.c_str());
+        ImGui::SameLine();
+        if (ImGui::BeginChild("Attributes", {right, top}, ImGuiChildFlags_Borders)) {
+            panel_heading("ATTRIBUTES");
+            ImGui::TextUnformatted("Health: --");
+            ImGui::TextUnformatted("Armor: --");
+            ImGui::TextUnformatted("Strength: --    Agility: --");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Order: --");
+            ImGui::TextDisabled("-- = not available yet");
+        }
+        ImGui::EndChild();
+
+        auto const *resource =
+            inventory_panel(info.bag, {left, bottom}, inventory_category_, selected_resource_);
+        ImGui::SameLine();
+        character_preview(info.player_name, {middle, bottom});
+        ImGui::SameLine();
+        equipment_details(info.bag, resource, {right, bottom});
     }
     ImGui::End();
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(3);
 }
 
 } // namespace lc1
