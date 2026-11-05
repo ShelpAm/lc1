@@ -124,8 +124,8 @@ XZ 坐标上重叠。`ContinentBlock::walkable_top` 标记可站立的体块顶�
 
 ## 控制与视角
 
-巡逻控制器构造时接收可选的 `player` 借用，用于现有的近距离挥砍判断；传入的玩家必须比控制器长寿。
-巡逻 AI 在玩家距离不超过 3 米时持续请求挥砍，由 Character 决定执行时机；等待或抵达路点也执行该判断。
+巡逻控制器构造时接收一组可选的 `action_targets` 借用，用于现有近距离挥砍演示；所有目标必须比控制器长寿。世界装配时传入全部玩家角色，不再指定唯一玩家。
+巡逻 AI 在任一演示目标距离不超过 3 米时持续请求挥砍，由 Character 决定执行时机；等待或抵达路点也执行该判断。
 Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取当前队长。
 控制器用 `State` 枚举区分待机、巡逻、跟随、等待和对话，通过 `switch` 执行对应行为；
 构造时绑定只读 `DialogSystem`，每个模拟 tick 自行查询该角色的活动对话，进入对话或恢复原状态；
@@ -144,7 +144,7 @@ Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取�
 
 - 第一人称：鼠标增量转绝对 yaw/pitch，移动方向跟随观察水平方向，身体随视角转向。
 - 第三人称：WASD 按相机水平方向解释，角色朝移动方向转身。
-- Sprint 为持续状态，Jump 和 SwingWeapon 为一次性请求；Interact 由世界处理。
+- Sprint 为持续状态，Jump、SwingWeapon 和 Nod 为一次性请求；Interact 和对话选项由世界处理。
 
 相机锁定、回中、缩放和边缘平移留在主线程的 `PlayerView`/`MapCameraController`。
 M 切换只改变视角状态，身体/观察角由下一个模拟 tick 的 intent 更新；
@@ -155,7 +155,7 @@ M 切换只改变视角状态，身体/观察角由下一个模拟 tick 的 inte
 固定 tick、输入合并和线程生命周期以[代码边界](code-layout.md#固定步长模拟与线程交换)为准。
 
 环境对话请求也由角色规则决定：`Character::accepts_ambient_requests()` 要求角色着地、
-本帧没有移动、冲刺或跳跃请求；会话另外用 `player_input_enabled` 表示 UI/焦点
+本帧没有移动、冲刺或跳跃请求；会话另外用每个玩家的 `PlayerControls::view.keyboard_enabled` 表示 UI/焦点
 是否把输入交给玩家。两者分开，避免把输入门控写进角色规则。
 AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、跟随与攻击，
 生成面向伙伴的 intent。没有巡逻或队员命令的 NPC 也使用静止 AI。
@@ -169,7 +169,7 @@ AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、�
 Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段；
 `Character` 不借用 Scene；接受挥砍请求后增加 `attack_sequence`，由表现层读取快照触发武器动画。
 `WorldPresentation` 装配模型、设置初始待机动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
-NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 播放一次 `Nod`（再次按下从头播放）：
+NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 经角色 intent 增加 `nod_sequence`，所有观察者播放一次 `Nod`（再次按下从头播放）：
 前 1.2 秒向下点头两次（25°），随后保持直立，片段总长 3 秒且不循环。均为刚性节点动画；角色世界姿态仍只属于 `Character`。
 这不是骨骼蒙皮，尚未实现行走/攻击动画选择、动画混合、root motion、死亡或布娃娃。
 占位模型的 `Eyes` 是 `Head` 下的无网格挂点，默认世界位置等于脚底加身体配置的眼睛高度。

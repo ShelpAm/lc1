@@ -10,6 +10,7 @@
 #include "lc1/scene/camera.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -414,7 +415,7 @@ void patrol_house_floors()
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
     npc.set_controller(
-        std::make_unique<lc1::AiCharacterController>(dialogs, &player, points, 0.4F));
+        std::make_unique<lc1::AiCharacterController>(dialogs, std::array{&player}, points, 0.4F));
     bool upper = false;
     bool middle = false;
     bool platform = false;

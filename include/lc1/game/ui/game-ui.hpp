@@ -48,8 +48,9 @@ class GameUi {
 
     void set_save_status(std::string status);
 
-    std::vector<ScreenTextItem> screen_labels(WorldSnapshot const &world, GpuFont const &font,
-                                              FrameExtent extent, GameLocation location) const;
+    std::vector<ScreenTextItem> screen_labels(WorldSnapshot const &world, PlayerId observer,
+                                              GpuFont const &font, FrameExtent extent,
+                                              GameLocation location) const;
 
   private:
     enum class State { MainMenu, InSettings, InGame };

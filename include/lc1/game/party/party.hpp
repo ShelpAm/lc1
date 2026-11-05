@@ -41,12 +41,14 @@ class Party {
 
     std::vector<Character *> const &captives() const;
 
-    // Only the leader commands ordinary members. Captives and other parties are excluded.
+    // Only the leader commands AI-controlled ordinary members. Captives and other parties are
+    // excluded.
     bool can_command(Character const &commander, Character const &member) const;
     void command(Character const &commander, Character &member, CompanionOrder order);
 
     bool can_recruit(Character const &recruiter, Character const &candidate) const;
     // Requires can_recruit(). Transfers membership and releases our own captives.
+    // Human controls are preserved; AI recruits follow the new leader.
     // All borrowed characters and their parties must outlive this operation.
     void recruit(Character &recruiter, Character &candidate);
 

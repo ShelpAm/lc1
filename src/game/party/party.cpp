@@ -64,7 +64,8 @@ bool Party::can_command(Character const &commander, Character const &member) con
 {
     return leader_ == &commander && commander.config().party == this &&
            member.config().party == this && &commander != &member &&
-           std::ranges::contains(members_, &member) && !std::ranges::contains(captives_, &member);
+           std::ranges::contains(members_, &member) && !std::ranges::contains(captives_, &member) &&
+           member.ai_controller();
 }
 
 void Party::command(Character const &commander, Character &member, CompanionOrder order)
@@ -73,10 +74,7 @@ void Party::command(Character const &commander, Character &member, CompanionOrde
         (order != CompanionOrder::Follow && order != CompanionOrder::Wait))
         fail("character {} cannot command character {} in party {}", commander.config().keyid,
              member.config().keyid, keyid_);
-    auto *ai = member.ai_controller();
-    if (!ai)
-        fail("character {} needs an AI controller to receive orders", member.config().keyid);
-    ai->set_order(order);
+    member.ai_controller()->set_order(order);
 }
 
 bool Party::can_recruit(Character const &recruiter, Character const &candidate) const
@@ -100,16 +98,15 @@ void Party::recruit(Character &recruiter, Character &candidate)
              candidate.config().keyid, keyid_);
     auto *source = candidate.config_.party;
     auto *ai = candidate.ai_controller();
-    if (!ai)
-        fail("character {} needs an AI controller to be recruited", candidate.config().keyid);
     // Allocate before mutating the source so allocation failure preserves membership.
     members_.push_back(&candidate);
     if (source != this)
         std::erase(source->members_, &candidate);
     std::erase(source->captives_, &candidate);
     candidate.config_.party = this;
-    // Newly recruited members follow their new leader; the previous patrol is discarded.
-    ai->set_order(CompanionOrder::Follow);
+    // AI recruits follow the new leader; human recruits keep their input controller.
+    if (ai)
+        ai->set_order(CompanionOrder::Follow);
 }
 
 } // namespace lc1

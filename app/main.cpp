@@ -4,11 +4,13 @@
 
 #include <spdlog/spdlog.h>
 
+#include <charconv>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <print>
+#include <string_view>
 
 namespace {
 
@@ -40,6 +42,15 @@ int main()
             config.asset_root = asset_root;
         if (auto const *save_root = std::getenv("LC1_SAVE_ROOT"))
             config.save_root = save_root;
+
+        if (auto const *player = std::getenv("LC1_PLAYER_ID")) {
+            std::string_view const text{player};
+            auto const [end, error] =
+                std::from_chars(text.data(), text.data() + text.size(), config.local_player.value);
+            if (error != std::errc{} || end != text.data() + text.size() ||
+                config.local_player.value == 0)
+                lc1::fail("LC1_PLAYER_ID must be a nonzero player id");
+        }
 
         lc1::app::Application application{config};
         application.run([] { return interrupted != 0; });

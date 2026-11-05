@@ -10,6 +10,7 @@ lc1 是 C++23 / Vulkan 1.4 的本地 RPG / 策略沙盒原型。已有可行走�
 | 编译、运行、测试 | [构建指南](../BUILD.zh-cn.md) | [CI](ci.md)、[开发环境排障](development-environment.md) |
 | 理解整体架构、决定代码放哪 | [代码边界](code-layout.md) | [模块依赖图](module-dependencies.md) |
 | 修改角色、移动或视角 | [角色与坐标修正](character.md) | [大陆与相机设计](continent.md) |
+| 修改玩家身份、多玩家输入或观察者 | [玩家与多人模拟](players.md) | [代码边界](code-layout.md)、[存档](save-data.md) |
 | 修改设备输入、动作绑定或焦点行为 | [输入约定](input.md) | [会话时序](code-layout.md#每帧时序) |
 | 修改资源加载、缓存或卸载 | [资源管理](resources.md) | [Vulkan 分层](vulkan-layers.md) |
 | 修改重力、角色碰撞或运动步长 | [角色物理](physics.md) | [角色与坐标修正](character.md) |

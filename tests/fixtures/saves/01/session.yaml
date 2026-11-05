@@ -1,2 +1,4 @@
-player: 1
+players:
+  - keyid: 1
+    character: 1
 example: 2

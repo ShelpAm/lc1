@@ -19,10 +19,10 @@ CMake 目标 `copy_saves` 每次构建都将种子文件复制进运行树，覆
 名称为 1–128 字节，不能包含路径分隔符、控制字符、跨平台保留标点，也不能以空格开头或以空格、句点结尾；
 不允许通过名称写到上级或嵌套目录。退出不会自动保存。
 
-`Application` 用临时 `Save` 构造 `GameSession`，会话内部的 `GameSimulation` 拥有 `GameWorld`，后者在构造或调用 `load(Save const&)` 时消费 Save，
+`Application` 用临时 `Save` 构造自己拥有的 `GameSimulation`，再将模拟借给 `GameSession`；模拟拥有 `GameWorld`，后者在构造或调用 `load(Save const&)` 时消费 Save，
 按依赖顺序装配势力、装备、武器、队伍和角色，不保留对 Save 的引用。
 Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运行对象和快照。
-两者都可以脱离 device、窗口和音频单独构造与测试。玩家和 AI 示例身份仍由 `session.yaml` 指明。
+两者都可以脱离 device、窗口和音频单独构造与测试。`session.yaml` 保存玩家到角色的绑定及 AI 示例；本地观察者由应用配置选择，见[玩家与多人模拟](players.md)。
 
 ## 文件与记录
 
@@ -36,7 +36,7 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `session.yaml` | `SerializedSession` | 角色 |
 | `continent.yaml` | `ContinentIdentity` | 大陆内容 |
 
-七个文件是初始数据。实际写回使用单个 `checkpoint.yaml`，包含版本号 `version: 4`、
+七个文件是初始数据。实际写回使用单个 `checkpoint.yaml`，包含版本号 `version: 5`、
 `continent`、`session`、`factions`、`equipments`、`weapons`、`parties`、`characters` 和 `states`，
 将角色所属队伍和双方成员列表一起提交，避免多文件写到一半形成矛盾数据。
 每类记录按编号排序输出。进度文件损坏时明确报错，不静默回退到初始世界。
@@ -45,7 +45,7 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 字段必须写全：读取使用
 `rfl::NoOptionals`，缺少原有玩法字段会解析失败，空列表要显式写成 `[]`。
 角色和武器新增的 `model` 及其可选子字段通过 `rfl::DefaultVal` 提供默认值，不放宽原有字段检查；
-该变化是版本 4 的兼容扩展，旧 checkpoint 不会从种子文件自动补入新模型配置。
+模型配置是版本 4 引入的兼容扩展，旧 checkpoint 不会从种子文件自动补入新模型配置。
 
 `keyid` 是身份，名称只是显示。同类编号非零、在本文件内唯一；重排文件或改名不影响引用。
 编号重复时 `Save` 在读取阶段就明确报错，不会静默保留其中一条。
@@ -107,9 +107,9 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `weapon` | 武器槽位，每项为 `[武器类型, 武器编号]` 对 |
 | `model` | 模型节点、动画、局部变换和材质，见下文 |
 
-编号 `1` 和 `2` 不是特殊编号。谁是玩家由 `session.yaml` 决定，`GameWorld` 不再写死任何
-编号：玩家可以是任意一条角色记录，也可以整支队伍换人。种子数据里 `runtime/saves/01/session.yaml`
-把 1 号定为玩家、2 号定为 AI 示例。
+玩家 ID 与角色编号独立。`session.yaml` 的每条绑定指定一个玩家及其受控角色，
+玩家可绑定任意已有角色；种子绑定玩家 1 → 角色 1，并指定角色 2 为 AI 示例。
+角色 1、2 都不是引擎特殊编号。
 
 ### 角色与武器的 `model`
 
@@ -153,37 +153,37 @@ Save 在入口校验配置数值、显式节点和动画，不加载外部素材
 
 ### 会话 `session.yaml`
 
-| 字段 | 含义 |
-|---|---|
-| `player` | 玩家控制的角色编号，非零且必须存在 |
-| `example` | AI 示例角色编号；`0` 表示这份存档没有 AI 示例 |
-
-这个文件只保存“这份存档由谁在玩”，不是世界数据：世界规则（势力、队伍、角色）仍各自成文。
-身份之所以放在这里而不是当作角色记录的布尔标记，是因为它是存档槽的状态，而不是角色自身的
-属性；放成标记就必须反复校验“有且仅有一个 true”。
-
-这个文件是单个映射，而不是世界数据文件使用的序列：
+`SerializedSession` 保存持久身份绑定，不指定谁是本地观察者：
 
 ```yaml
-player: 1
+players:
+  - keyid: 1
+    character: 1
+  - keyid: 2
+    character: 100024
 example: 2
 ```
+
+`players[].keyid` 是非零且唯一的玩家编号，`character` 必须指向已有角色，
+同一角色不能重复绑定。`players: []` 是合法的纯 NPC 世界。
+`example` 是 AI 演示角色编号，`0` 表示没有；它不能同时被玩家控制。
+文件仍为单个映射，世界记录仍为各自的序列。新种子必须使用这个格式。
+checkpoint 版本 1–4 保留读取迁移，旧 `player` 角色编号迁为玩家 1 的角色绑定，
+其余世界、队员命令、背包和模型数据按各版本既有规则恢复。新写入统一为版本 5。
 
 ## 读取、校验与装配
 
 `Save` 先把七个文件全部读成记录，再校验，最后才由 `GameWorld` 建对象：
 
 1. `Save` 读七个文件，检查同类编号重复。
-2. `Save::validate_references` 检查每个引用：会话的 `player`、`example`，队伍的 `faction`、
-   `leader`、`members`、`captives`，以及角色的 `party`、`equipment`、`weapon`。`player`
-   为 `0` 或指向不存在的角色、`example` 与玩家同一个人，都在这一步失败。悬空引用是数据错误，
+2. `Save::validate_references` 检查每个引用：会话的各条 `players` 绑定、`example`，队伍的 `faction`、
+   `leader`、`members`、`captives`，以及角色的 `party`、`equipment`、`weapon`。玩家编号为零或重复、角色重复绑定或不存在、`example` 与任一玩家角色相同，都在这一步失败。悬空引用是数据错误，
    在碰任何运行期对象之前就失败。
 3. `GameWorld::build_world` 按依赖顺序建对象：势力 → 装备/武器 → 队伍 → 角色。因为第 2
    步已经保证引用成立，这里的查表不会再失败。
 4. `GameWorld::link_party_members` 最后通过 `Party::restore_roster()` 一次性链接每队的队长、成员和俘虏。
-5. `GameWorld` 用 `save.player()` 从建好的角色表里取出玩家，用 `save.example()` 取出 AI
-   示例（`0` 时跳过）。随后 `GameSession` 构造 `PlayerView`；视角需要玩家的起始位置，
-   所以它不能在世界建好之前初始化。
+5. `GameWorld` 从玩家绑定表装配各自的控制器，用 `save.example()` 取出 AI 示例（`0` 时跳过）。
+   `GameSession` 根据应用选定的玩家建立 Connection，并以该角色的位置构造本地 `PlayerView`。
 
 `GameWorld::load(Save const&)` 先清空对话、冷却和交互目标，释放角色名单借用，再按依赖的
 逆序销毁旧角色、队伍及其资源，随后执行与构造相同的完整装配和状态恢复。
@@ -191,7 +191,7 @@ example: 2
 旧角色、队伍、装备、武器、势力及活动对话的指针和引用均失效，调用方必须重新查询。
 这是先清空再构建的接口：构建失败不恢复旧世界，必须成功重试 `load()` 后才能查询或更新世界。
 游戏内读档由 Application 在下一帧开始、取得交换链图像前执行：先等待 GPU 空闲，
-再构造完整候选 GameSession 和对应容量的帧资源。候选成功后先释放旧帧资源，再替换会话，
+再构造完整候选 GameSimulation、GameSession 和对应容量的帧资源。候选成功后先释放旧帧资源，再替换会话及模拟，
 最后安装新帧资源；相机恢复默认斜视角并设置当前窗口宽高比，字体按新角色名单重建。
 因此 UI 读档也支持不同大陆，不使用同大陆限定的世界层 `load()`。
 解析、世界装配或候选资源构造失败时保留旧会话并显示错误；Vulkan 系统错误沿现有异常路径退出。
@@ -206,7 +206,7 @@ example: 2
 `GameWorld::snapshot()` 从当前运行对象生成 `SerializedWorld`，不读取启动时的旧 `Save`。
 运行中的保存由主线程提交请求，模拟线程在完整 tick 结束后生成该快照，再由主线程写盘；
 不从表现快照拼装存档，也不跨线程遍历运行对象。tick 和输入确认编号属于本次会话，不改变 checkpoint 格式。
-`GameSession` 将 F6 转为打开命名窗口，窗口确认后通过私有 `save(name)` 将快照交给 `Save::write`，
+`GameSession` 将 F6 转为打开命名窗口，窗口确认后向宿主 Application 提交槽位路径；Application 请求 checkpoint 并交给 `Save::write`，
 并把成功或失败反馈给界面；只有确认按钮产生实际写入。
 会话持有存档目录的副本，不借用 `Save`。
 
@@ -231,10 +231,10 @@ example: 2
 读取检查坐标与角度有限、观察角在角色允许范围内；运行期构建角色时再检查大陆边界和碰撞。
 招募会停止示例巡逻并设为 `Follow`；跟随／等待与巡逻分别保存，重启后恢复同一命令。
 命令只允许用于有队长的队伍中的普通成员，不能与巡逻同时启用；队长、俘虏及无队长队伍不可携带命令。
-玩家角色仍由玩家控制，其保存的队员命令不驱动自动移动。
+玩家角色仍由玩家控制；入口拒绝为玩家角色恢复 AI 队员命令。招募玩家只变更队伍关系，不替换控制器或添加跟随命令。
 
 读取 `version: 1` 时按旧的必填字段解析，保留姿态和巡逻，并将所有命令迁移为 `None`；
-下次写入为 version 4。version 2 的 `companion_order` 必填，version 3 另需大陆字段；version 4 还要求每个角色的背包容量和堆叠列表，其他版本明确拒绝。
+下次写入为 version 5。version 2 的 `companion_order` 必填，version 3 另需大陆字段；version 4 还要求每个角色的背包容量和堆叠列表，version 5 使用玩家绑定表，其他版本明确拒绝。
 旧 version 1–3 按各自完整的必填结构解析，迁移为空背包、10 kg 容量，不补发演示物资。
 成员关系校验适用于所有版本进度，不自动修正不一致的历史数据。
 当前不保存跳跃速度、巡逻当前路点、对话和相机模式／缩放；重启默认使用斜视角，空中角色以
@@ -292,6 +292,6 @@ version: 1
 `load()` 只接受与现有大陆相同的标识和内容版本；不匹配时在清理旧世界前拒绝。
 切换大陆需重建会话，以协调地图显示与相机借用。
 
-旧 version 1、2 进度按原有必填结构解析，迁移为 `present` version 1，写回为格式 version 4。
+旧 version 1、2 进度按原有必填结构解析，迁移为 `present` version 1，写回为格式 version 5。
 version 3 必须显式包含大陆字段。种子安装会覆盖运行树的 `continent.yaml`；已有 checkpoint 中的大陆选择仍优先生效。
 当前未实现随机生成、地图文件加载或内容版本迁移；改变地图空间布局时需显式考虑内容版本兼容性。

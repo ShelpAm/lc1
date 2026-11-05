@@ -39,8 +39,7 @@ void GameWorld::load(Save const &save)
         fail("saved patrol requires a scenario route");
     // Release participant and roster borrows before destroying their owners.
     dialogs_.reset();
-    interaction_target_ = nullptr;
-    player_ = nullptr;
+    players_.clear();
     example_ = nullptr;
     dialog_participants_.clear();
     visible_characters_.clear();
@@ -51,13 +50,20 @@ void GameWorld::load(Save const &save)
     factions_.clear();
 
     build_world(save);
-    player_ = character_by_id(save.player(), "player");
-    if (save.states().empty())
-        for (auto const &stack : setup_.initial_player_resources) {
-            auto const *resource = game::find_resource(stack.keyid);
-            if (!resource || !player_->bag().add(*resource, stack.quantity))
-                fail("invalid initial player resource {}", stack.keyid);
-        }
+    std::vector<Character *> controlled;
+    for (auto const &binding : save.players()) {
+        auto *character = character_by_id(binding.character, "player binding");
+        auto &player =
+            players_.emplace(PlayerId{binding.keyid}, WorldPlayer{character, {}}).first->second;
+        controlled.push_back(character);
+        character->set_controller(std::make_unique<PlayerCharacterController>(player.controls));
+        if (save.states().empty())
+            for (auto const &stack : setup_.initial_player_resources) {
+                auto const *resource = game::find_resource(stack.keyid);
+                if (!resource || !character->bag().add(*resource, stack.quantity))
+                    fail("invalid initial player resource {}", stack.keyid);
+            }
+    }
     if (save.has_example()) {
         example_ = character_by_id(save.example(), "AI example");
         if (setup_.example_patrol &&
@@ -77,17 +83,16 @@ void GameWorld::load(Save const &save)
                                                                        waypoints.size());
             }
             example_->set_controller(std::make_unique<AiCharacterController>(
-                dialogs_, player_, std::move(waypoints), setup_.example_patrol->arrival_radius));
+                dialogs_, controlled, std::move(waypoints), setup_.example_patrol->arrival_radius));
         }
     }
 
-    for (auto const &[_, character] : characters_)
-        if (character.get() != player_) {
-            if (!character->controller())
-                character->set_controller(std::make_unique<AiCharacterController>(dialogs_));
-            character->set_interactable(
-                std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
-        }
+    for (auto const &[_, character] : characters_) {
+        if (!character->controller())
+            character->set_controller(std::make_unique<AiCharacterController>(dialogs_));
+        character->set_interactable(
+            std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
+    }
     for (auto const &[id, state] : save.states()) {
         if (state.companion_order != CompanionOrder::None) {
             auto *character = character_by_id(id, "companion order");
@@ -194,16 +199,18 @@ void GameWorld::build_world(Save const &save)
 
 SerializedWorld GameWorld::snapshot() const
 {
-    SerializedWorld world{.version = 4,
-                          .continent = setup_.continent.identity(),
-                          .session = {.player = player_->config().keyid,
-                                      .example = example_ ? example_->config().keyid : 0},
-                          .factions = {},
-                          .equipments = {},
-                          .weapons = {},
-                          .parties = {},
-                          .characters = {},
-                          .states = {}};
+    SerializedWorld world{
+        .version = 5,
+        .continent = setup_.continent.identity(),
+        .session = {.players = {}, .example = example_ ? example_->config().keyid : 0},
+        .factions = {},
+        .equipments = {},
+        .weapons = {},
+        .parties = {},
+        .characters = {},
+        .states = {}};
+    for (auto const &[id, player] : players_)
+        world.session.players.push_back({id.value, player.character->config().keyid});
     for (auto const &[id, faction] : factions_)
         world.factions.push_back({.keyid = id, .name = faction->name()});
     for (auto const &[id, equipment] : equipments_)
@@ -249,7 +256,7 @@ Character *GameWorld::character_by_id(std::uint32_t keyid, std::string_view what
     return character->second.get();
 }
 
-Character *GameWorld::find_interaction_target(glm::vec3 forward) const
+Character *GameWorld::find_interaction_target(Character &actor) const
 {
     constexpr float min_alignment = 0.70710678F;
 
@@ -260,15 +267,15 @@ Character *GameWorld::find_interaction_target(glm::vec3 forward) const
     for (auto const &[id, character] : characters_) {
         auto *candidate = character.get();
 
-        if (candidate == player_)
+        if (candidate == &actor)
             continue;
 
         auto const *interaction = candidate->interactable();
 
-        if (!interaction || !interaction->can_interact(*player_))
+        if (!interaction || !interaction->can_interact(actor))
             continue;
 
-        auto const offset = candidate->position() - player_->position();
+        auto const offset = candidate->position() - actor.position();
 
         // Use full distance to avoid preferring distant characters on other floors.
         float const distance_squared = glm::dot(offset, offset);
@@ -282,7 +289,7 @@ Character *GameWorld::find_interaction_target(glm::vec3 forward) const
 
         auto const direction = horizontal_offset / std::sqrt(horizontal_distance_squared);
 
-        float const alignment = glm::dot(forward, direction);
+        float const alignment = glm::dot(actor.body_heading(), direction);
 
         if (alignment < min_alignment)
             continue;
@@ -303,8 +310,10 @@ Character *GameWorld::find_interaction_target(glm::vec3 forward) const
     return best;
 }
 
-void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
+void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> const &inputs)
 {
+    for (auto const &[id, input] : inputs)
+        players_.at(id).controls = input;
     // Leaders move before followers, with stable keyid order inside each phase. The player
     // participates in the first phase, so its intent is applied before followers decide.
     for (auto *character : dialog_participants_)
@@ -314,19 +323,33 @@ void GameWorld::update(float delta_seconds, WorldInteraction const &interaction)
         if (character->companion_order() == CompanionOrder::Follow)
             character->update(delta_seconds, setup_.continent);
 
-    // Interaction
-    interaction_target_ = find_interaction_target(player_->body_heading());
-    if (auto *dialog = dialogs_.find(*player_)) {
-        if (interaction.interact)
-            dialogs_.interrupt(*player_);
-        else
-            dialog->respond(*player_, interaction.response_index);
+    // Resolve each player's actions in stable player-id order, then advance dialogue once.
+    std::vector<DialogPlayer> dialog_players;
+    dialog_players.reserve(players_.size());
+    for (auto &[_, player] : players_) {
+        auto &actor = *player.character;
+        auto &input = player.controls;
+        player.interaction_target = find_interaction_target(actor);
+        if (auto *dialog = dialogs_.find(actor)) {
+            if (input.interact)
+                dialogs_.interrupt(actor);
+            else
+                dialog->respond(actor, input.response_index);
+        }
+        else if (input.interact && player.interaction_target) {
+            player.interaction_target->interactable()->interact(actor);
+        }
+        dialog_players.push_back(
+            {&actor, input.view.keyboard_enabled && actor.accepts_ambient_requests()});
+        input.jump = false;
+        input.swing_weapon = false;
+        input.nod = false;
+        input.interact = false;
+        input.response_index = -1;
+        input.view.look_delta = {};
+        input.view.view_changed = false;
     }
-    else if (interaction.interact && interaction_target_) {
-        interaction_target_->interactable()->interact(*player_);
-    }
-    dialogs_.update(delta_seconds, dialog_participants_, player_,
-                    interaction.player_input_enabled && player_->accepts_ambient_requests());
+    dialogs_.update(delta_seconds, dialog_participants_, dialog_players);
 }
 
 } // namespace lc1
@@ -338,14 +361,19 @@ Continent const &GameWorld::continent() const
     return setup_.continent;
 }
 
-Character &GameWorld::player()
+Character &GameWorld::player(PlayerId id)
 {
-    return *player_;
+    return *players_.at(id).character;
 }
 
-Character const &GameWorld::player() const
+Character const &GameWorld::player(PlayerId id) const
 {
-    return *player_;
+    return *players_.at(id).character;
+}
+
+std::map<PlayerId, WorldPlayer> const &GameWorld::players() const
+{
+    return players_;
 }
 
 std::span<Character *const> GameWorld::characters()
@@ -363,9 +391,9 @@ DialogSystem const &GameWorld::dialogs() const
     return dialogs_;
 }
 
-Character const *GameWorld::interaction_target() const
+Character const *GameWorld::interaction_target(PlayerId id) const
 {
-    return interaction_target_;
+    return players_.at(id).interaction_target;
 }
 
 } // namespace lc1

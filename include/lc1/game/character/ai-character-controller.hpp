@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace lc1 {
@@ -22,7 +23,8 @@ struct Waypoint {
 class AiCharacterController : public CharacterController {
   public:
     explicit AiCharacterController(DialogSystem const &dialogs);
-    explicit AiCharacterController(DialogSystem const &dialogs, Character *player,
+    explicit AiCharacterController(DialogSystem const &dialogs,
+                                   std::span<Character *const> action_targets,
                                    std::vector<Waypoint> path, float arrival_radius = 0.5F);
     void set_order(CompanionOrder order);
 
@@ -38,8 +40,8 @@ class AiCharacterController : public CharacterController {
 
     // Required read-only borrow; dialogs must outlive this controller.
     DialogSystem const *dialogs_;
-    // Optional read-only borrow; when supplied, the player must outlive this controller.
-    Character *player_ = nullptr;
+    // Optional read-only borrows; supplied demo targets outlive this controller.
+    std::vector<Character *> action_targets_;
     State state_ = State::Idle;
     State resume_state_ = State::Idle;
     std::vector<Waypoint> path_;

@@ -190,31 +190,34 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
     return actions;
 }
 
-std::vector<ScreenTextItem> GameUi::screen_labels(WorldSnapshot const &world, GpuFont const &font,
-                                                  FrameExtent extent, GameLocation location) const
+std::vector<ScreenTextItem> GameUi::screen_labels(WorldSnapshot const &world, PlayerId observer,
+                                                  GpuFont const &font, FrameExtent extent,
+                                                  GameLocation location) const
 {
     auto const [w, h] = extent;
+    auto const &player = world.players.at(observer);
 
     std::vector<ScreenTextItem> labels;
 
     labels.push_back(ScreenTextItem{
-        .text = std::format("{} | {} / {}", world.player().name, location.region, location.place),
+        .text = std::format("{} | {} / {}", world.player(observer).name, location.region,
+                            location.place),
         .position = {24.0F, 46.0F},
         .line_height = 22.0F,
     });
 
     labels.push_back(ScreenTextItem{
-        .text = std::format("Party: {} companions", world.companion_count),
+        .text = std::format("Party: {} companions", player.companion_count),
         .position = {24.0F, 78.0F},
         .line_height = 22.0F,
     });
     labels.push_back(
         ScreenTextItem{.text = save_status_, .position = {24.0F, 108.0F}, .line_height = 22.0F});
 
-    auto const *dialog = world.dialog ? &*world.dialog : nullptr;
-    if (!world.interaction_target.empty() && !dialog) {
+    auto const *dialog = player.dialog ? &*player.dialog : nullptr;
+    if (!player.interaction_target.empty() && !dialog) {
         ScreenTextItem interact_text{
-            .text = std::format("Press F to interact with {}", world.interaction_target),
+            .text = std::format("Press F to interact with {}", player.interaction_target),
             .line_height = font.atlas().line_height_for_em(32),
         };
         auto const metrics =

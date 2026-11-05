@@ -15,6 +15,7 @@
 #include "lc1/tangent-space.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -99,7 +100,7 @@ void blacksmith_forging()
     lc1::Dialog dialog{script};
     dialog.start(player, smith);
     dialog.respond(player, 0);
-    dialog.update(1.5F, &player, 1.5F);
+    dialog.update(1.5F, false, 1.5F);
     check(dialog.response_id(0) == "forge", "exact ingredients allow forging");
     check(bag.remove(moneta, 1), "remove one coin before choosing the stale response");
     dialog.respond(player, 0);
@@ -124,7 +125,7 @@ void blacksmith_forging()
     dialog.clear();
     dialog.start(player, smith);
     dialog.respond(player, 0);
-    dialog.update(1.5F, &player, 1.5F);
+    dialog.update(1.5F, false, 1.5F);
     dialog.respond(player, 0);
     dialog.respond(player, 0);
     check(bag.quantity_of(iron_helmet.keyid) == 1 && bag.quantity_of(moneta.keyid) == 0 &&
@@ -250,7 +251,7 @@ void choose(lc1::Dialog &dialog, lc1::Character &character, int index)
 {
     dialog.respond(character, index);
     if (dialog.displaying_response())
-        dialog.update(1.5F, &character, 1.5F);
+        dialog.update(1.5F, false, 1.5F);
 }
 
 void companion_orders()
@@ -288,7 +289,7 @@ void companion_orders()
     rejects([&] { party.command(leader, member, lc1::CompanionOrder::None); },
             "orders cannot re-enable a discarded patrol");
     member.set_controller(std::make_unique<lc1::AiCharacterController>(
-        dialogs, &leader,
+        dialogs, std::array{&leader},
         std::vector<lc1::Waypoint>{{.position = {-8, 0, 0}}, {.position = {-12, 0, 0}}}));
     auto *const member_controller = member.controller();
     party.command(leader, member, lc1::CompanionOrder::Follow);
@@ -344,13 +345,13 @@ void companion_orders()
     choose_id("follow");
     check(member.companion_order() == lc1::CompanionOrder::Follow && dialog.displaying_response(),
           "the authored follow response issues an order");
-    dialog.update(1.5F, &leader, 1.5F);
+    dialog.update(1.5F, false, 1.5F);
     check(!dialog.target(), "a companion command closes after displaying the response");
     dialog.start(leader, member);
     choose_id("wait");
     check(member.companion_order() == lc1::CompanionOrder::Wait,
           "the authored wait response issues an order");
-    dialog.update(1.5F, &leader, 1.5F);
+    dialog.update(1.5F, false, 1.5F);
     dialog.start(leader, member);
     party.change_leader(&far_leader);
     choose_id("follow");
@@ -416,7 +417,7 @@ void recruitment_dialog()
         character->set_controller(std::make_unique<lc1::AiCharacterController>(dialogs));
     other.restore_roster(&stranger, {&outsider, &reordered_recruit}, {&captive});
     npc.set_controller(std::make_unique<lc1::AiCharacterController>(
-        dialogs, &player, std::vector<lc1::Waypoint>{{.position = world.spawn()}}));
+        dialogs, std::array{&player}, std::vector<lc1::Waypoint>{{.position = world.spawn()}}));
 
     // Exercise authored transitions and reordered choices before changing party state.
     auto script = lc1::DialogScript::load("runtime/dialogs/recruit.yaml");
@@ -1001,7 +1002,7 @@ void controller_intent_boundary()
     lc1::Character npc{world, {.position = world.spawn()}, {}};
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::AiCharacterController controller{
-        dialogs, &player,
+        dialogs, std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn() + glm::vec3{4, 0, 0}}}};
     player.move(world, {1, 0, 0});
@@ -1023,7 +1024,7 @@ void patrol_swing_requests()
     lc1::Character npc{world, {.position = world.spawn()}, {}};
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::AiCharacterController moving{
-        dialogs, &player,
+        dialogs, std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn() + glm::vec3{4, 0, 0}}}};
     check(moving.update(0.1F, npc).swing_weapon, "a nearby player requests a swing");
@@ -1034,11 +1035,11 @@ void patrol_swing_requests()
     player.move(world, {-4, 0, 0});
     check(moving.update(0.1F, npc).swing_weapon, "reentering range requests a new swing");
     lc1::AiCharacterController stationary{
-        dialogs, &player,
+        dialogs, std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn(), .wait_seconds = 2}}};
     check(stationary.update(0.1F, npc).swing_weapon, "single waypoint patrols can request a swing");
     lc1::AiCharacterController waiting{
-        dialogs, &player,
+        dialogs, std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn(), .wait_seconds = 2}}};
     check(waiting.update(0.1F, npc).swing_weapon,

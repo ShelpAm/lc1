@@ -1,14 +1,23 @@
 #include "lc1/game/session/game-simulation.hpp"
+#include "lc1/error.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
 #include <chrono>
 #include <utility>
 
 namespace lc1 {
 GameSimulation::GameSimulation(Save const &save, std::filesystem::path const &dialog_catalog)
     : world_(save, dialog_catalog),
-      snapshot_(std::make_shared<WorldSnapshot const>(capture_world(world_)))
+      snapshot_(std::make_shared<WorldSnapshot const>(capture_world(world_))),
+      previous_snapshot_(snapshot_)
 {
-    world_.player().set_controller(std::make_unique<PlayerCharacterController>(controls_));
+    spdlog::info("[save] {}: {} factions, {} parties, {} characters, {} equipment, {} weapons",
+                 save.directory().string(), save.factions().size(), save.parties().size(),
+                 save.characters().size(), save.equipments().size(), save.weapons().size());
+    for (auto const &[id, _] : world_.players())
+        inputs_.emplace(id, PlayerInput{});
     thread_ = std::jthread([this](std::stop_token stop) { run(stop); });
 }
 
@@ -19,30 +28,54 @@ GameSimulation::~GameSimulation()
     thread_.join();
 }
 
-InputStamp GameSimulation::submit(SimulationInput input)
+GameSimulation::Connection::Connection(GameSimulation &simulation, PlayerId id)
+    : simulation_(&simulation), id_(id)
+{
+}
+
+InputStamp GameSimulation::Connection::submit(PlayerControls input) const
+{
+    return simulation_->submit(id_, std::move(input));
+}
+
+PlayerId GameSimulation::Connection::player_id() const
+{
+    return id_;
+}
+
+GameSimulation::Connection GameSimulation::connect(PlayerId id)
+{
+    // Player roster and bindings are immutable for this simulation's lifetime.
+    if (!inputs_.contains(id))
+        fail("unknown player {}", id.value);
+    return Connection{*this, id};
+}
+
+InputStamp GameSimulation::submit(PlayerId id, PlayerControls input)
 {
     std::scoped_lock lock{mutex_};
     if (failure_)
         std::rethrow_exception(failure_);
+    auto &slot = inputs_.at(id);
     // Several render frames may arrive before the next tick. Keep the newest held state,
     // accumulate mouse motion, and retain edges across a subsequent release/UI-gated frame.
-    if (pending_input_) {
-        auto const &previous = *pending_input_;
-        input.player.jump |= previous.player.jump;
-        input.player.swing_weapon |= previous.player.swing_weapon;
-        input.interaction.interact |= previous.interaction.interact;
-        if (input.interaction.response_index < 0)
-            input.interaction.response_index = previous.interaction.response_index;
-        if (!input.player.view.view_changed) {
-            input.player.view.look_delta += previous.player.view.look_delta;
-            input.player.view.view_changed = previous.player.view.view_changed;
-            input.player.view.restored_first_person_angles =
-                previous.player.view.restored_first_person_angles;
+    if (slot.pending) {
+        auto const &previous = *slot.pending;
+        input.jump |= previous.jump;
+        input.swing_weapon |= previous.swing_weapon;
+        input.nod |= previous.nod;
+        input.interact |= previous.interact;
+        if (input.response_index < 0)
+            input.response_index = previous.response_index;
+        if (!input.view.view_changed) {
+            input.view.look_delta += previous.view.look_delta;
+            input.view.view_changed = previous.view.view_changed;
+            input.view.restored_first_person_angles = previous.view.restored_first_person_angles;
         }
     }
-    pending_input_ = std::move(input);
-    pending_stamp_ = {.sequence = ++sequence_, .tick = tick_ + 1};
-    return pending_stamp_;
+    slot.pending = std::move(input);
+    slot.pending_stamp = {.sequence = ++slot.sequence, .tick = tick_ + 1};
+    return slot.pending_stamp;
 }
 
 std::shared_ptr<WorldSnapshot const> GameSimulation::snapshot() const
@@ -53,9 +86,27 @@ std::shared_ptr<WorldSnapshot const> GameSimulation::snapshot() const
     return snapshot_;
 }
 
+WorldSnapshot GameSimulation::presentation_snapshot() const
+{
+    std::shared_ptr<WorldSnapshot const> previous;
+    std::shared_ptr<WorldSnapshot const> current;
+    std::chrono::steady_clock::time_point time;
+    {
+        std::lock_guard lock{mutex_};
+        if (failure_)
+            std::rethrow_exception(failure_);
+        previous = previous_snapshot_;
+        current = snapshot_;
+        time = snapshot_time_;
+    }
+    auto const elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - time);
+    float const alpha = std::clamp(elapsed.count() * tick_rate, 0.0F, 1.0F);
+    return interpolate_world(*previous, *current, alpha);
+}
+
 std::future<SerializedWorld> GameSimulation::checkpoint()
 {
-    std::lock_guard lock{mutex_};
+    std::scoped_lock lock{mutex_};
     if (failure_)
         std::rethrow_exception(failure_);
     std::promise<SerializedWorld> request;
@@ -77,8 +128,7 @@ void GameSimulation::run(std::stop_token stop)
         constexpr std::chrono::duration<double> period{1.0 / tick_rate};
         auto deadline =
             std::chrono::time_point_cast<std::chrono::duration<double>>(Clock::now()) + period;
-        WorldInteraction interaction;
-        InputStamp applied{};
+        std::map<PlayerId, PlayerControls> controls;
         while (!stop.stop_requested()) {
             std::uint64_t tick;
             {
@@ -87,23 +137,30 @@ void GameSimulation::run(std::stop_token stop)
                 if (stop.stop_requested())
                     break;
                 tick = ++tick_;
-                if (pending_input_) {
-                    controls_ = std::move(pending_input_->player);
-                    interaction = pending_input_->interaction;
-                    applied = pending_stamp_;
-                    pending_input_.reset();
+                controls.clear();
+                for (auto &[id, slot] : inputs_) {
+                    if (slot.pending) {
+                        controls.emplace(id, std::move(*slot.pending));
+                        slot.applied = slot.pending_stamp;
+                        slot.pending.reset();
+                    }
                 }
                 requests.swap(checkpoint_requests_);
             }
-            world_.update(step_seconds, interaction);
+            world_.update(step_seconds, controls);
             auto state = capture_world(world_);
             state.tick = tick;
-            state.input_sequence = applied.sequence;
-            state.input_tick = applied.tick;
+            for (auto const &[id, slot] : inputs_) {
+                auto &player = state.players.at(id);
+                player.input_sequence = slot.applied.sequence;
+                player.input_tick = slot.applied.tick;
+            }
             auto published = std::make_shared<WorldSnapshot const>(std::move(state));
             {
                 std::lock_guard lock{mutex_};
+                previous_snapshot_ = std::move(snapshot_);
                 snapshot_ = std::move(published);
+                snapshot_time_ = std::chrono::time_point_cast<Clock::duration>(deadline);
             }
             if (!requests.empty()) {
                 auto const saved = world_.snapshot();
@@ -111,12 +168,6 @@ void GameSimulation::run(std::stop_token stop)
                     request.set_value(saved);
                 requests.clear();
             }
-            controls_.jump = false;
-            controls_.swing_weapon = false;
-            controls_.view.look_delta = {};
-            controls_.view.view_changed = false;
-            interaction.interact = false;
-            interaction.response_index = -1;
             // Advance the original deadline: a delayed worker catches up without changing
             // the timestep or discarding simulation time. Rendering never waits for it.
             deadline += period;

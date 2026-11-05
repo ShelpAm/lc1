@@ -69,6 +69,7 @@ class Character {
     CharacterConfig const &config() const;
 
     std::uint64_t attack_sequence() const;
+    std::uint64_t nod_sequence() const;
 
     CharacterBody const &body() const;
 
@@ -143,6 +144,7 @@ class Character {
     friend class Party;
 
     std::uint64_t attack_sequence_ = 0;
+    std::uint64_t nod_sequence_ = 0;
 
     CharacterConfig config_;
     CharacterBody body_;

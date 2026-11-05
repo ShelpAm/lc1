@@ -62,8 +62,8 @@ WorldPresentation::ModelResources::ModelResources(Device const &device,
 
 WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
                                      Continent const &continent, WorldSnapshot const &world,
-                                     OutputSettings output)
-    : world_(&world), continent_(&continent),
+                                     OutputSettings output, PlayerId observer)
+    : world_(&world), continent_(&continent), observer_(observer),
       font_{device,
             text::GlyphAtlas{asset_root / font_file, {.codepoints = font_codepoints(world)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
@@ -123,9 +123,8 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                               .material = &resources.material,
                               .world_transform = character.pose.transform().model_matrix()});
 
-        if (character.keyid == world.player().keyid) {
-            nod_animation_index_ =
-                resources.model.definition().find_animatinon(*config.action_animation);
+        if (character.keyid == world.player(observer_).keyid) {
+            observed_model_index_ = i;
             if (!config.eyes.value().empty()) {
                 eyes_node_index_ = resources.model.definition().find_node(config.eyes.value());
                 if (!eyes_node_index_)
@@ -165,7 +164,10 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .weapon = weapon_model,
                                      .mount = mount,
                                      .attack_animation = attack_animation,
-                                     .attack_sequence = character.attack_sequence});
+                                     .attack_sequence = character.attack_sequence,
+                                     .nod_animation = resources.model.definition().find_animatinon(
+                                         *config.action_animation),
+                                     .nod_sequence = character.nod_sequence});
     }
 
     scene::DirectionalLight const sun{
@@ -253,7 +255,8 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
                           .center = center,
                           .line_height = 0.3F,
                           .normal = camera.position() - center});
-        if (!character.speech.empty()) {
+        if (!character.speech.empty() && character.keyid != world_->player(observer_).keyid &&
+            character.dialog_partner != world_->player(observer_).keyid) {
             auto const speech_center = center + glm::vec3{0, 0.5F, 0};
             labels.push_back({.text = character.speech,
                               .center = speech_center,
@@ -278,10 +281,10 @@ void WorldPresentation::update_lighting()
 {
     // Hold the flashlight above ground and outside the mesh, on the aiming side.
     auto &flashlight = flashlight_->parameters;
-    flashlight.position = world_->player().pose.position() + glm::vec3{0.0F, 1.3F, 0.0F} +
-                          world_->player().pose.heading() * 0.5F +
-                          world_->player().pose.right() * 0.5F;
-    flashlight.direction = world_->player().pose.heading();
+    flashlight.position = world_->player(observer_).pose.position() + glm::vec3{0.0F, 1.3F, 0.0F} +
+                          world_->player(observer_).pose.heading() * 0.5F +
+                          world_->player(observer_).pose.right() * 0.5F;
+    flashlight.direction = world_->player(observer_).pose.heading();
     auto const select = [this](scene::SceneLight &light) {
         light.enabled = lighting_mode_ == 0 ||
                         (lighting_mode_ <= 4 && light.parameters.type == lighting_mode_ - 1);
@@ -293,12 +296,12 @@ void WorldPresentation::update_lighting()
 GameLocation WorldPresentation::location() const
 {
     // Location follows the character even while the camera is panned elsewhere.
-    glm::vec2 const position{world_->player().pose.position().x,
-                             world_->player().pose.position().z};
+    glm::vec2 const position{world_->player(observer_).pose.position().x,
+                             world_->player(observer_).pose.position().z};
     auto const *region = continent_->region_at(position);
     auto const *place = continent_->location_at(position);
     auto const *road = continent_->road_at(position);
-    auto const local = world_->player().pose.position() - continent_->spawn();
+    auto const local = world_->player(observer_).pose.position() - continent_->spawn();
     bool const in_showcase = std::abs(local.x) < 24 && std::abs(local.z) < 23;
     return {.region = region->name,
             .place = in_showcase ? "Material Showcase"
@@ -314,9 +317,6 @@ std::string_view WorldPresentation::lighting_name() const
 
 void WorldPresentation::update(float delta_seconds, WorldPresentationInput const &input)
 {
-    if (input.nod && nod_animation_index_)
-        character_models_[world_->player_index].character->pose.play_animation(
-            *nod_animation_index_, false);
     if (input.cycle_lighting)
         lighting_mode_ = (lighting_mode_ + 1) % lighting_names.size();
     if (input.toggle_showcase_motion)
@@ -330,6 +330,12 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
     update_lighting();
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
+        auto const nod = world_->characters[i].nod_sequence;
+        if (nod != models.nod_sequence) {
+            if (models.nod_animation)
+                models.character->pose.play_animation(*models.nod_animation, false);
+            models.nod_sequence = nod;
+        }
         auto const sequence = world_->characters[i].attack_sequence;
         if (sequence != models.attack_sequence) {
             if (models.attack_animation)
@@ -350,13 +356,13 @@ void WorldPresentation::update_listener(scene::FpsCamera const &camera)
     audio_listener_.set_orientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
 }
 
-glm::mat4 WorldPresentation::player_eye_transform() const
+glm::mat4 WorldPresentation::observer_eye_transform() const
 {
     if (eyes_node_index_)
-        return character_models_[world_->player_index].character->node_world_matrix(
+        return character_models_[observed_model_index_].character->node_world_matrix(
             *eyes_node_index_);
-    auto transform = world_->player().pose.transform().model_matrix();
-    transform[3] = glm::vec4{world_->player().pose.eye_position(), 1.0F};
+    auto transform = world_->player(observer_).pose.transform().model_matrix();
+    transform[3] = glm::vec4{world_->player(observer_).pose.eye_position(), 1.0F};
     return transform;
 }
 

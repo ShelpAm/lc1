@@ -2,6 +2,7 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/world/game-world.hpp"
+#include "lc1/game/world/world-snapshot.hpp"
 
 #include <rfl/yaml.hpp>
 
@@ -12,6 +13,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -119,21 +121,22 @@ void check_rejected(std::string_view name, std::string_view file, std::string_vi
 void seed_names_the_player()
 {
     lc1::Save const save{seed_directory()};
-    check(save.characters().contains(save.player()), "the seed player must be a character record");
-    check(save.characters().at(save.player()).name == "player",
+    check(save.characters().contains(save.player(lc1::PlayerId{1})),
+          "the seed player must be a character record");
+    check(save.characters().at(save.player(lc1::PlayerId{1})).name == "player",
           "the seed save is played as the player record");
     check(save.has_example(), "the seed save has an AI demonstration");
     check(save.characters().contains(save.example()),
           "the seed example must be a character record");
-    check(save.example() != save.player(), "the example must not be the player");
+    check(save.example() != save.player(lc1::PlayerId{1}), "the example must not be the player");
 }
 
 void an_existing_character_can_be_the_player()
 {
     ScratchSave scratch{"any-character"};
-    scratch.write("session.yaml", "player: 100024\nexample: 0\n");
+    scratch.write("session.yaml", "players: [{keyid: 1, character: 100024}]\nexample: 0\n");
     lc1::Save const save{scratch.directory()};
-    check(save.player() == 100024, "the player keyid comes from the session file");
+    check(save.player(lc1::PlayerId{1}) == 100024, "the player keyid comes from the session file");
     check(!save.has_example(), "example 0 means the save has no AI demonstration");
 }
 
@@ -141,9 +144,40 @@ void an_existing_character_can_be_the_player()
 void a_save_without_an_example_loads()
 {
     ScratchSave scratch{"no-example"};
-    scratch.write("session.yaml", "player: 100024\nexample: 0\n");
+    scratch.write("session.yaml", "players: [{keyid: 1, character: 100024}]\nexample: 0\n");
     lc1::Save const save{scratch.directory()};
-    check(save.player() == 100024 && !save.has_example(), "an omitted example is not required");
+    check(save.player(lc1::PlayerId{1}) == 100024 && !save.has_example(),
+          "an omitted example is not required");
+}
+
+void multiple_player_bindings()
+{
+    ScratchSave scratch{"players"};
+    scratch.write(
+        "session.yaml",
+        "players: [{keyid: 17, character: 1}, {keyid: 29, character: 100024}]\nexample: 2\n");
+    lc1::Save save{scratch.directory()};
+    check(save.players().size() == 2 && save.player(lc1::PlayerId{17}) == 1 &&
+              save.player(lc1::PlayerId{29}) == 100024,
+          "player identity is independent of character identity");
+    lc1::GameWorld world{save, "dialogs/catalog.yaml"};
+    lc1::Save::write(scratch.directory(), world.snapshot());
+    lc1::Save restored{scratch.directory()};
+    check(restored.players().size() == 2 && restored.player(lc1::PlayerId{29}) == 100024,
+          "checkpoint round trip preserves every player binding");
+    std::filesystem::remove(scratch.directory() / "checkpoint.yaml");
+    scratch.write(
+        "session.yaml",
+        "players: [{keyid: 17, character: 1}, {keyid: 17, character: 100024}]\nexample: 2\n");
+    check_rejected_in(scratch, "player keyid must be nonzero and unique");
+    scratch.write("session.yaml",
+                  "players: [{keyid: 17, character: 1}, {keyid: 29, character: 1}]\nexample: 2\n");
+    check_rejected_in(scratch, "character 1 has multiple players");
+    scratch.write("session.yaml", "players: []\nexample: 2\n");
+    lc1::GameWorld npc_world{lc1::Save{scratch.directory()}, "dialogs/catalog.yaml"};
+    npc_world.update(0.1F, {});
+    check(npc_world.players().empty() && lc1::capture_world(npc_world).players.empty(),
+          "world simulation and snapshots support no connected local player");
 }
 
 void invalid_sessions_are_rejected()
@@ -152,15 +186,19 @@ void invalid_sessions_are_rejected()
     // where the record itself is malformed: a bare "did it throw" check would also pass if
     // the rule under test never ran.
     check_rejected("missing-player", "session.yaml", "example: 2\n",
-                   "Field named 'player' not found");
-    check_rejected("zero-player", "session.yaml", "player: 0\nexample: 2\n",
-                   "session.yaml must name the player");
-    check_rejected("unknown-player", "session.yaml", "player: 4711\nexample: 2\n",
-                   "session player refers to unknown character 4711");
-    check_rejected("unknown-example", "session.yaml", "player: 1\nexample: 4711\n",
+                   "Field named 'players' not found");
+    check_rejected("zero-player", "session.yaml",
+                   "players: [{keyid: 0, character: 1}]\nexample: 2\n",
+                   "player keyid must be nonzero and unique");
+    check_rejected("unknown-player", "session.yaml",
+                   "players: [{keyid: 1, character: 4711}]\nexample: 2\n",
+                   "player binding refers to unknown character 4711");
+    check_rejected("unknown-example", "session.yaml",
+                   "players: [{keyid: 1, character: 1}]\nexample: 4711\n",
                    "session example refers to unknown character 4711");
-    check_rejected("example-is-player", "session.yaml", "player: 1\nexample: 1\n",
-                   "session example 1 is also the player");
+    check_rejected("example-is-player", "session.yaml",
+                   "players: [{keyid: 1, character: 1}]\nexample: 1\n",
+                   "session example 1 is also player-controlled");
     check_rejected("sequence-session", "session.yaml",
                    "- player: 1\n  example: 2\n- player: 2\n  example: 0\n",
                    "cannot read save file");
@@ -238,7 +276,8 @@ void named_save_slots()
     std::filesystem::copy(seed_directory(), root / "Seed");
     check(lc1::Save::slots(root) == std::vector<std::string>{"Alpha", "Beta", "Seed", "旅途"},
           "slots include named checkpoints and complete seeds in stable name order");
-    check(lc1::Save{unicode}.player() == data.session.player, "Unicode named saves reload");
+    check(lc1::Save{unicode}.player(lc1::PlayerId{1}) == data.session.players.front().character,
+          "Unicode named saves reload");
     auto changed = data;
     changed.states.front().x = 8.0F;
     lc1::Save::write(alpha, changed);
@@ -323,7 +362,7 @@ void checkpoint_round_trip()
     lc1::Save::write(scratch.directory(), data);
 
     auto invalid = data;
-    invalid.version = 5;
+    invalid.version = 6;
     rejects_write([&] { lc1::Save::write(scratch.directory(), invalid); },
                   "unsupported checkpoint version");
     invalid = data;
@@ -451,13 +490,35 @@ void model_configuration_round_trip()
 void legacy_checkpoints_are_upgraded()
 {
     ScratchSave scratch{"legacy"};
-    auto const data = checkpoint_data();
+    auto data = checkpoint_data();
+    data.states.front().bag_capacity = 16000;
+    data.states.front().bag = {{1, 20}};
     lc1::Save::write(scratch.directory(), data);
     auto stream = std::ifstream{scratch.directory() / "checkpoint.yaml"};
+    std::string modern{std::istreambuf_iterator<char>{stream}, {}};
+    stream.close();
+    auto const session_start = modern.find("session:\n");
+    auto session_end = modern.find('\n', session_start) + 1;
+    while (session_end < modern.size() && modern[session_end] == ' ')
+        session_end = modern.find('\n', session_end) + 1;
+    modern.replace(session_start, session_end - session_start,
+                   std::format("session:\n  player: {}\n  example: {}\n",
+                               data.session.players.front().character, data.session.example));
+    auto v4 = modern;
+    v4.replace(v4.find("version: 5"), std::string_view{"version: 5"}.size(), "version: 4");
+    scratch.write("checkpoint.yaml", v4);
+    auto const migrated_v4 = lc1::Save{scratch.directory()}.data();
+    check(migrated_v4.version == 5 && migrated_v4.session.players.front().keyid == 1 &&
+              migrated_v4.session.players.front().character ==
+                  data.session.players.front().character &&
+              migrated_v4.states.front().bag_capacity == data.states.front().bag_capacity &&
+              migrated_v4.states.front().bag.front().quantity == 20,
+          "version 4 gains independent player identity and preserves character state");
+    std::istringstream legacy_stream{modern};
     std::string legacy;
     bool continent_fields = false;
     bool bag_fields = false;
-    for (std::string line; std::getline(stream, line);) {
+    for (std::string line; std::getline(legacy_stream, line);) {
         if (line == "continent:") {
             continent_fields = true;
             continue;
@@ -477,17 +538,17 @@ void legacy_checkpoints_are_upgraded()
             legacy += line + "\n";
     }
     stream.close();
-    auto const version = legacy.find("version: 4");
-    check(version != std::string::npos, "checkpoint writer emits version 4");
-    legacy.replace(version, std::string_view{"version: 4"}.size(), "version: 1");
+    auto const version = legacy.find("version: 5");
+    check(version != std::string::npos, "checkpoint writer emits version 5");
+    legacy.replace(version, std::string_view{"version: 5"}.size(), "version: 1");
     scratch.write("checkpoint.yaml", legacy);
     auto const upgraded = lc1::Save{scratch.directory()}.data();
-    check(upgraded.version == 4 &&
+    check(upgraded.version == 5 &&
               upgraded.states.front().companion_order == lc1::CompanionOrder::None &&
               upgraded.states.at(1).patrol,
           "version 1 checkpoints preserve patrol and gain no implicit follow orders");
     lc1::Save::write(scratch.directory(), upgraded);
-    check(lc1::Save{scratch.directory()}.data().version == 4,
+    check(lc1::Save{scratch.directory()}.data().version == 5,
           "upgraded saves can be written and reloaded");
     check(upgraded.continent == lc1::ContinentIdentity{"present", 1},
           "legacy checkpoints select present continent revision 1");
@@ -507,7 +568,7 @@ void legacy_checkpoints_are_upgraded()
     v3 += "continent:\n  id: prototype\n  version: 1\n";
     scratch.write("checkpoint.yaml", v3);
     auto const upgraded_v3 = lc1::Save{scratch.directory()}.data();
-    check(upgraded_v3.version == 4 && upgraded_v3.continent.id == "prototype" &&
+    check(upgraded_v3.version == 5 && upgraded_v3.continent.id == "prototype" &&
               std::ranges::all_of(upgraded_v3.states,
                                   [](auto const &state) {
                                       return state.bag.empty() && state.bag_capacity == 10000;
@@ -572,7 +633,7 @@ int main(int argc, char **argv)
     try {
         if (argc == 2) {
             lc1::Save const save{argv[1]};
-            check(save.characters().contains(save.player()),
+            check(save.characters().contains(save.player(lc1::PlayerId{1})),
                   "the runtime player must be a character record");
             std::cout << "runtime save checks passed\n";
             return EXIT_SUCCESS;
@@ -587,6 +648,7 @@ int main(int argc, char **argv)
         an_existing_character_can_be_the_player();
         a_save_without_an_example_loads();
         invalid_sessions_are_rejected();
+        multiple_player_bindings();
         dangling_world_references_are_rejected();
         inconsistent_world_records_are_rejected();
         named_save_slots();

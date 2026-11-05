@@ -131,6 +131,8 @@ Debug 默认启用 Vulkan 验证和同步验证，Conan 也默认安装对应验
 `with_validation_layers=False` 只控制依赖安装，不会关闭程序的 Debug 验证逻辑。
 在明确不使用验证的诊断场景，可通过 `LC1_NO_VALIDATION=1` 启动；该运行结果不能作为验证层检查通过的证据。
 
+`LC1_PLAYER_ID` 选择本地玩家绑定，默认 `1`，与角色编号独立。绑定约定见[玩家与多人模拟](docs/players.md)。
+
 ## Windows 构建
 
 ### Linux 上交叉编译

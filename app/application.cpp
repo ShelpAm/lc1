@@ -189,18 +189,20 @@ PFN_vkVoidFunction load_imgui_vulkan_function(char const *name, void *user_data)
 
 } // namespace
 
-Application::Application(ApplicationConfig const &config)
-    : window_{1280, 720, "lc1"},
-      instance_{make_instance(loader_, window_, config.enable_validation)},
+Application::Application(ApplicationConfig config)
+    : config_(std::move(config)), window_{1280, 720, "lc1"},
+      instance_{make_instance(loader_, window_, config_.enable_validation)},
       surface_{instance_, window_}, device_{make_device(instance_, surface_)},
       surface_format_{
           pick_surface_format(device_.raii_physical().getSurfaceFormatsKHR(surface_.raii()))},
       renderer_{device_,
                 {surface_format_.format},
                 std::min(device_.max_sample_count(), vk::SampleCountFlagBits::e4)},
-      asset_root_(config.asset_root),
-      game_(std::make_unique<GameSession>(device_, asset_root_, Save{config.save_root},
-                                          output_settings(surface_format_.format), &window_)),
+      simulation_(std::make_unique<GameSimulation>(Save{config_.save_root},
+                                                   config_.dialog_root / "catalog.yaml")),
+      game_(std::make_unique<GameSession>(
+          device_, config_.asset_root, *simulation_, config_.save_root,
+          output_settings(surface_format_.format), &window_, config_.local_player)),
       frame_loop_(std::make_unique<FrameLoop<FrameResources>>(device_, [this] {
           return renderer_.make_frame_resources(game_->world_presentation().object_capacity());
       }))
@@ -321,13 +323,32 @@ bool Application::prepare_swapchain()
     return true;
 }
 
+void Application::save_game(std::filesystem::path const &directory)
+{
+    try {
+        Save::write(directory, simulation_->checkpoint().get());
+        game_->save_completed(directory);
+    }
+    catch (Error const &error) {
+        spdlog::error("[save] {}", error.diagnostic());
+        game_->save_failed(std::format("Save failed: {}", error.what()));
+    }
+    catch (std::exception const &error) {
+        spdlog::error("[save] {}", error.what());
+        game_->save_failed(std::format("Save failed: {}", error.what()));
+    }
+}
+
 void Application::load_game(std::filesystem::path const &directory)
 {
     // Drain all slots before creating uploads or releasing any resources borrowed by a frame.
     device_.wait_idle();
     try {
-        auto next = std::make_unique<GameSession>(device_, asset_root_, Save{directory},
-                                                  game_->world_presentation().output(), &window_);
+        auto simulation =
+            std::make_unique<GameSimulation>(Save{directory}, config_.dialog_root / "catalog.yaml");
+        auto next = std::make_unique<GameSession>(device_, config_.asset_root, *simulation,
+                                                  directory, game_->world_presentation().output(),
+                                                  &window_, config_.local_player);
         auto frames = std::make_unique<FrameLoop<FrameResources>>(device_, [&] {
             return renderer_.make_frame_resources(next->world_presentation().object_capacity());
         });
@@ -339,6 +360,7 @@ void Application::load_game(std::filesystem::path const &directory)
         // Old per-frame snapshots must die before the session resources they borrow.
         frame_loop_.reset();
         game_ = std::move(next);
+        simulation_ = std::move(simulation);
         frame_loop_ = std::move(frames);
     }
     catch (Error const &error) {
@@ -368,7 +390,7 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
             .font = &presentation.font(),
             .world = presentation.world_labels(camera),
             .screen =
-                game_->ui().screen_labels(game_->world(), presentation.font(),
+                game_->ui().screen_labels(game_->world(), game_->player_id(), presentation.font(),
                                           window_.framebuffer_extent(), presentation.location()),
         };
         RenderGraph graph;
@@ -410,6 +432,10 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
         if (window_.should_close() || stop_requested())
             break;
 
+        if (auto directory = game_->take_save_request()) {
+            save_game(*directory);
+            stopwatch.tick();
+        }
         if (auto directory = game_->take_load_request()) {
             load_game(*directory);
             stopwatch.tick(); // Do not feed loading time to camera/presentation.

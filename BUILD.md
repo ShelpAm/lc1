@@ -154,6 +154,9 @@ only controls dependency installation; it does not disable the application's Deb
 validation behavior. For diagnostics explicitly performed without validation, set
 `LC1_NO_VALIDATION=1`. Such a run is not evidence of passing validation checks.
 
+`LC1_PLAYER_ID` selects the local player binding (default `1`), independently of character
+keyids. See [player identities and local multiplayer](docs/players.md) for the binding contract.
+
 ## Windows builds
 
 ### Cross-compiling on Linux

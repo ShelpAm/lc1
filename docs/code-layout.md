@@ -48,7 +48,7 @@
 ## 本地会话的职责
 
 `GameSession` 是本地原型的协调者，不是服务器 `GameMode`，也不是网络复制状态。
-它组合以下对象；当前仍编入 `lc1_game`。本地模拟与表现通过值消息交换，尚无网络传输。
+它组合以下对象；当前仍编入 `lc1_game`。本地模拟与表现通过值消息交换，支持多玩家绑定，尚无网络传输。身份、绑定和观察者约定见[玩家与多人模拟](players.md)。
 
 | 对象 | 职责与边界 |
 |---|---|
@@ -58,7 +58,7 @@
 | `PlayerView` | 拥有视角模式、记忆观察角和相机；准备视角输入，读取角色快照与模型挂点更新相机 |
 | `GameUi` | 菜单、调试面板、保存反馈及屏幕文字；返回命名保存、读档请求和音量变化，由会话执行 |
 | `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldPresentation` 的音频 context |
-| `GameSession` | 读取输入、按焦点/context/ImGui capture 门控、协调各阶段、执行命名保存、向 Application 提交读档请求、直接设置窗口标题和光标捕获，并向 Application 提供退出状态和表现数据 |
+| `GameSession` | 读取输入、按焦点/context/ImGui capture 门控、协调各阶段、向 Application 提交命名保存及读档请求、直接设置窗口标题和光标捕获，并向 Application 提供退出状态和表现数据 |
 
 `Character` 位于 `game/character/character.*`，内部唯一的 `scene::Transform` 保存脚底位置和身体朝向。
 它不保存 Scene 或模型实例借用；攻击成功只增加动作序号。`Party` 同样只处理成员、招募和命令，不负责绘制。
@@ -85,7 +85,7 @@ Application 通过 `GameSession::world()`、`world_presentation()`、`player_vie
 背包格式和旧存档迁移见[存档](save-data.md)。
 
 `DialogCatalog` 拥有 YAML 内容和状态入口规则，`Dialog` 表示一场交流，`DialogSystem` 管理
-并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、向 AI 提供对话伙伴及执行交互动作；AI 控制器决定对话期间的行为；
+并发会话、NPC 发起和冷却。`GameWorld` 负责对话参与者注册、按玩家处理交互、向 AI 提供对话伙伴；AI 控制器决定对话期间的行为；
 `WorldPresentation` 和 `GameUi` 只读这些状态来生成世界/屏幕文字。
 玩家名与区域/地点 HUD 也由 `GameUi::screen_labels()` 统一生成，Application 只负责提交文本绘制。
 `GameSession` 在构造及每帧更新中直接调用借用的 `Window` 设置标题和光标捕获；`Window::set_title()` 缓存标题，
@@ -103,14 +103,14 @@ Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::u
 2. 根据菜单、窗口焦点、context 和 ImGui capture 计算输入门控，调用 `PlayerView::update_view_mode()` 处理视角切换、锁定与回中。
 3. `PlayerView` 在切换帧丢弃旧光标模式下累计的鼠标位移，避免切入第一人称时镜头跳动。
 4. `PlayerView::prepare_input()` 准备视角、观察增量和输入门控；会话用 `PlayerCharacterController::read_input()`
-   把动作路由结果复制成不借用设备的 `PlayerControls`，连同 `WorldInteraction` 提交给模拟线程。
-5. 会话在本帧开始获取一次不可变快照，复制到自己的 `WorldSnapshot`；UI、相机、表现和 Application
+   把角色控制、交互和对话选项统一复制成不借用设备的 `PlayerControls`，提交给模拟线程。
+5. 会话在本帧开始获取一次表现快照，保存到自己的 `WorldSnapshot`；UI、相机、表现和 Application
    都读取这一份状态，不访问模拟线程的角色、控制器、队伍或对话对象。
 6. `PlayerView::update_pointer()` 在鼠标门控允许时处理滚轮与边缘平移；`WorldPresentation::update()`
    按渲染帧时间推进 Scene 动画，用快照更新角色和武器实例，再由 `PlayerView::update_camera()`
    读取角色快照与最终 `Eyes` 挂点更新相机。音频监听器随后读取最终相机。
 7. `GameUi::update()` 构建 UI 并返回开始、退出、保存及音量请求；会话接通开始操作，
-   会话把 F6/F9 转为打开保存/读档窗口，通过私有 `save(name)` 请求模拟线程的存档快照并写盘，随后反馈结果；Application 在下一帧开始处理读档并执行退出。主菜单/设置屏蔽玩法输入，世界继续模拟；返回主菜单会释放光标。
+   会话把 F6/F9 转为打开保存/读档窗口，将确认的槽位请求交给 Application；Application 在下一帧开始执行宿主保存/读档并反馈结果，同时处理退出。主菜单/设置屏蔽玩法输入，世界继续模拟；返回主菜单会释放光标。
    菜单切换后的玩法门控在下一帧生效。
 8. 会话在处理 UI 返回的开始、退出及音量请求后，直接调用 `Window::set_cursor_captured()`，按菜单和视角状态应用光标捕获。捕获变化由 Window 重置设备鼠标基线；
    本帧视角切换已丢弃旧位移，下一次光标位置事件建立新基线。边缘推屏仅在斜视角且窗口光标已释放时允许。
@@ -125,23 +125,28 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 ## 固定步长模拟与线程交换
 
 `GameSimulation` 拥有一个 `std::jthread` 和世界，使用 `steady_clock` 的绝对截止时间，
-每个 tick 调用一次 `GameWorld::update(1/60, interaction)`。角色控制器、物理、AI、冷却和对话
+每个 tick 调用一次 `GameWorld::update(1/60, controls)`。角色控制器、物理、AI、冷却和对话
 在同一个固定步长推进；角色名单按 keyid 排序，非跟随者先更新、跟随者后更新。
 工作线程延误时按原有截止时间补步，不改变步长或丢弃模拟时间。主线程卡顿不会暂停世界；
 若持续算不过来，模拟会落后于现实时间，不承诺跨机器浮点确定性。
 
-输入在下一次尚未开始的 tick 消费，提交返回 `InputStamp { sequence, tick }`。
-快照包含完成的 `tick`、已消费的最新 `input_sequence` 及对应的 `input_tick`；tick 从会话零开始，
-用于描述本次模拟进度，不写入现有存档格式，也不是网络协议。
+输入通过已绑定玩家的 Connection 在下一次尚未开始的 tick 消费，各玩家分别计序，提交返回 `InputStamp { sequence, tick }`。
+快照包含完成的 `tick`；每个 `PlayerSnapshot` 包含该玩家已消费的最新 `input_sequence` 及对应的 `input_tick`；tick 从会话零开始，
+用于描述本次模拟进度，不写入存档格式，也不是网络协议。
 多个渲染帧落在同一 tick 前时，保留最新移动/冲刺/门控状态，累加鼠标位移，
-合并跳跃、攻击、交互的按下请求并保留最后一个对话选项。同一 tick 内同类请求合并成一次；
+合并跳跃、攻击、点头、交互的按下请求并保留最后一个对话选项。同一 tick 内同类请求合并成一次；
 一次性输入消费后清空，持续状态保持到新消息到达。视角切换清除旧视角累计的观察位移。
-窗口没有可绘制的交换链图像时，Application 显式释放持续控制输入，世界仍继续模拟。
+窗口没有可绘制的交换链图像时，Application 只释放当前本地玩家的持续控制输入，其他玩家和世界仍继续模拟。
 
 输入、快照指针和存档请求由短时间持有的同一个 mutex 保护；推进世界、复制快照和序列化
 在锁外执行。快照全部拥有值，不包含指向活动世界的借用；主线程可继续持有旧快照。
-大陆在会话内不变，允许两线程共享只读访问。表现目前使用最新完成 tick 的姿态，
-尚无帧间插值、客户端预测或回滚。
+大陆在会话内不变，允许两线程共享只读访问。模拟同时保留相邻两个已完成 tick 的不可变快照及最新 tick 的计划时间。
+会话按 `steady_clock` 的渲染采样时间生成延后一 tick（约 16.7 ms）的表现快照：
+位置线性插值、身体 yaw 按最短弧插值、相对观察角线性插值；比例限制在 [0, 1]，
+尚无新 tick 时最多到达最新姿态，不外推。启动时两端均为初始快照；读档创建新模拟，自然重置两端。
+角色名单在模拟生命周期内固定且按 keyid 排序，插值按对应索引进行。
+模型、武器挂点、世界文字、光照和相机读取同一份表现姿态；背包、对话、攻击序号及输入确认取最新 tick，
+插值结果不写回模拟或存档。尚无客户端预测或回滚。
 
 存档请求在模拟线程完成一步后生成 `SerializedWorld`，主线程等待结果再写盘。
 工作线程异常通过快照查询、输入提交或存档 future 重新抛给主线程，沿既有错误处理路径退出/反馈。
@@ -151,16 +156,19 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 ## 生命周期与资源
 
 Application 负责窗口/Vulkan 生命周期、原始输入接入、交换链和 ImGui 后端；
-`GameSession` 拥有游戏动作路由器并在更新入口统一解析，借用非空且比会话长寿的 `Window`，
+`GameSession` 持有显式绑定的本地玩家 Connection，拥有游戏动作路由器并在更新入口统一解析，借用非空且比会话长寿的 `Window`，
 查询窗口状态并直接设置标题和光标捕获。窗口由 Application 拥有，不限制会话调用其公开操作。
-Application 通过 `unique_ptr` 拥有 `GameSession`，通过临时 `Save` 提供初始数据；`GameWorld` 构造和 `load()` 时消费 Save，不保留借用。
+Application 分别通过 `unique_ptr` 拥有 `GameSimulation` 和 `GameSession`，会话借用非空的模拟对象。
+Application 用临时 `Save` 构造模拟，再将模拟与存档目录传入会话；`GameWorld` 构造和 `load()` 时消费 Save，不保留借用。
 世界可以只用 Save、大陆和对话目录构造、更新、生成快照，无需创建窗口或设备。
 
-会话成员按 `GameSimulation → WorldSnapshot → WorldPresentation → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
+Application 按 `GameSimulation → GameSession → FrameLoop` 构造并逆序销毁；会话不拥有模拟。
+会话成员按 `WorldSnapshot → WorldPresentation → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
 模拟对象拥有世界和线程；表现与 UI 只读主线程快照，音频 context 先于音源存在。
 模型实例关联只保存在表现层，约束见[持久渲染场景](resources.md#持久渲染场景)。角色名单在两次 `load()` 之间固定，
 不支持逐个添加/删除；`load()` 在销毁角色前清空活动对话并重建名单，旧对象借用全部失效。
-游戏内读档在 GPU 空闲后构造候选会话和帧资源，成功才替换，失败保留旧会话。
+游戏内读档在 GPU 空闲后构造候选模拟、会话和帧资源，成功后依次替换帧资源、会话和模拟，
+确保旧会话在旧模拟之前销毁；构造失败保留原有对象。
 世界层重新加载的失败语义及表现层协调要求见[存档与装配](save-data.md)。
 `GameSession`、`GameSimulation`、`GameWorld`、`WorldPresentation` 和 `MusicBrowser` 禁止复制/移动。
 
@@ -199,7 +207,7 @@ GPU 渲染和窗口交互需要单独验证。动作枚举、context、默认绑
 服务端 `GameMode` 拥有并推进权威规则和状态。客户端 `GameClient` 负责与服务端通信，
 `ClientGameState` 只保存表现与允许的预测所需的本地副本；`GameModeView` 或等价表现代码
 从副本生成 UI 与渲染数据，不直接与服务端通信。客户端发送动作请求，服务端校验后发布状态结果。
-当前 `GameSimulation` 已提供本地固定 tick 和线程间值消息边界，但未实现连接、权限或网络复制。
+当前 `GameSimulation` 已提供固定 tick、玩家身份绑定与线程间值消息边界，但未实现网络连接、认证、权限或网络复制。
 `GameWorld` 与 `GameSession` 不冒充上述网络对象；只有明确实施联网功能时才增加网络边界，
 不预先添加占位路由或空类。
 

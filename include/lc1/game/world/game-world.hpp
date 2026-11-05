@@ -6,8 +6,10 @@
 #include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
+#include "lc1/game/player/player-character-controller.hpp"
 #include "lc1/game/session/save.hpp"
 
+#include <map>
 #include <memory>
 #include <span>
 #include <unordered_map>
@@ -28,12 +30,10 @@ struct WorldSetup {
     std::vector<SerializedResourceStack> initial_player_resources;
 };
 
-struct WorldInteraction {
-    bool interact = false;
-    // False while UI, focus or ImGui capture owns the input. This gates player-initiated
-    // conversations; whether the character is otherwise idle is a Character rule.
-    bool player_input_enabled = false;
-    int response_index = -1;
+struct WorldPlayer {
+    Character *character; // Non-null; owned by the world.
+    PlayerControls controls;
+    Character *interaction_target = nullptr;
 };
 
 // Owns the local simulation. No window, renderer, audio or input-device dependencies.
@@ -51,19 +51,21 @@ class GameWorld {
 
     Continent const &continent() const;
 
-    Character &player();
-    Character const &player() const;
+    Character &player(PlayerId id);
+    Character const &player(PlayerId id) const;
+
+    std::map<PlayerId, WorldPlayer> const &players() const;
 
     std::span<Character *const> characters();
     std::vector<Character const *> const &characters() const;
 
     DialogSystem const &dialogs() const;
 
-    Character const *interaction_target() const;
+    Character const *interaction_target(PlayerId id) const;
 
     // Applies player controls, then physics and interactions; update presentation afterward.
     // Both physics and conversations advance by the same full simulation time.
-    void update(float delta_seconds, WorldInteraction const &interaction);
+    void update(float delta_seconds, std::map<PlayerId, PlayerControls> const &inputs);
 
     // Discards runtime state and rebuilds from save, **keeping the continent and dialog catalog**.
     // Rejects a different continent identity before clearing existing state.
@@ -76,7 +78,7 @@ class GameWorld {
     void build_world(Save const &save);
     void link_party_members(Save const &save);
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
-    Character *find_interaction_target(glm::vec3 forward) const;
+    Character *find_interaction_target(Character &actor) const;
 
     WorldSetup setup_;
     std::unordered_map<std::uint32_t, std::unique_ptr<Faction>> factions_;
@@ -88,9 +90,9 @@ class GameWorld {
     std::unordered_map<std::uint32_t, std::unique_ptr<Party>> parties_;
     std::vector<Character *> dialog_participants_;
     std::vector<Character const *> visible_characters_;
-    Character *player_ = nullptr;
+    // Stable map nodes own the values borrowed by player controllers.
+    std::map<PlayerId, WorldPlayer> players_;
     Character *example_ = nullptr;
-    Character *interaction_target_ = nullptr;
 };
 
 } // namespace lc1

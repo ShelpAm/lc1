@@ -22,9 +22,7 @@ class Equipment {
     Equipment(std::uint32_t keyid, EquipmentType type, EquipmentProperty property);
 
     std::uint32_t keyid() const;
-
     EquipmentType type() const;
-
     EquipmentProperty property() const;
 
   private:

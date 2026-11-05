@@ -550,9 +550,9 @@ void player_models_test(lc1::Device const &device)
 {
     lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
                          "runtime/saves/01"};
-    auto const &character = data.characters().at(data.player()).model.value();
+    auto const &character = data.characters().at(data.player(lc1::PlayerId{1})).model.value();
     auto const weapon_id =
-        data.characters().at(data.player()).weapon.at(lc1::WeaponType::MeleeWeapon);
+        data.characters().at(data.player(lc1::PlayerId{1})).weapon.at(lc1::WeaponType::MeleeWeapon);
     auto const &weapon_config = data.weapons().at(weapon_id).model.value();
     lc1::scene::GpuModel barrel{
         device, lc1::load_configured_model(character, "runtime/assets", lc1::CharacterBody{})};
@@ -601,6 +601,7 @@ void player_models_test(lc1::Device const &device)
     // Exercise production YAML -> world snapshot -> presentation-owned models.
     lc1::GameWorld initial{data, "runtime/dialogs/catalog.yaml"};
     auto snapshot = initial.snapshot();
+    snapshot.session.players.push_back({73, 3});
     auto &material = snapshot.weapons.front().model.value().material.value();
     material.metallic_roughness_texture = material.base_color_texture.value();
     material.emissive_texture = material.base_color_texture.value();
@@ -609,8 +610,14 @@ void player_models_test(lc1::Device const &device)
     lc1::GameWorld world{lc1::Save{slot}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
     {
-        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state, {}};
-        auto const *equipped = presentation.weapon_model(world.player().config().keyid);
+        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
+                                            {},     lc1::PlayerId{73}};
+        auto const observed_eye = glm::vec3{presentation.observer_eye_transform()[3]};
+        auto const expected_eye = world.player(lc1::PlayerId{73}).eye_position();
+        check(glm::distance(observed_eye, expected_eye) < 0.001F,
+              "the observer camera mount belongs to the explicitly bound second player");
+        auto const *equipped =
+            presentation.weapon_model(world.player(lc1::PlayerId{1}).config().keyid);
         check(equipped, "presentation owns YAML-created weapon models");
         auto const &pbr = *equipped->material;
         check(pbr.base_color.texture && pbr.metallic_roughness.texture && pbr.emissive.texture,
@@ -650,7 +657,7 @@ void player_models_test(lc1::Device const &device)
             check(pose.playback()->time == 0,
                   "cooldown expires even without requests and allows the next swing");
             lc1::AiCharacterController ai{
-                world.dialogs(), bearer,
+                world.dialogs(), std::array{bearer},
                 std::vector<lc1::Waypoint>{{.position = bearer->position()}}};
             for (int frame = 0; frame < 10; ++frame) {
                 auto const request = ai.update(0.02F, *bearer);
@@ -663,8 +670,13 @@ void player_models_test(lc1::Device const &device)
                   "AI requests let the weapon advance through the visible part of the swing");
             apply_character_intent(*bearer, 2.0F, world.continent(), swing_intent);
         }
+        apply_character_intent(world.player(lc1::PlayerId{1}), 0, world.continent(), {.nod = true});
         state = lc1::capture_world(world);
-        presentation.update(0.28F, {.nod = true});
+        presentation.update(0.28F, {});
+        auto const &remote_nod =
+            presentation.character_model(world.player(lc1::PlayerId{1}).config().keyid).pose;
+        check(remote_nod.playback() && remote_nod.playback()->time > 0.27F,
+              "another player's nod sequence starts and advances its character animation");
         std::vector<lc1::scene::SceneModel const *> weapon_models;
         for (auto const *bearer : world.characters()) {
             auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
@@ -692,7 +704,7 @@ void player_models_test(lc1::Device const &device)
         check(equipped->pose.playback()->time > 0.27F, "configured action animation advances");
         auto configured_frame = renderer.make_frame_resources(presentation.object_capacity());
         for (auto const *bearer : world.characters()) {
-            if (bearer == &world.player())
+            if (bearer == &world.player(lc1::PlayerId{1}))
                 continue;
             auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
             if (slot == bearer->config().weapon.end())
@@ -719,8 +731,8 @@ void player_models_test(lc1::Device const &device)
             save(armed,
                  std::format("artifacts/character-{}-weapon.ppm", bearer->config().keyid).c_str());
         }
-        camera.set_position(world.player().position() + glm::vec3{3, 2.5F, -4});
-        camera.look_at(world.player().position() + glm::vec3{0.1F, 1, -0.3F});
+        camera.set_position(world.player(lc1::PlayerId{1}).position() + glm::vec3{3, 2.5F, -4});
+        camera.look_at(world.player(lc1::PlayerId{1}).position() + glm::vec3{0.1F, 1, -0.3F});
         capture(device, renderer, configured_frame, camera, presentation.scene(),
                 {.width = 800, .height = 600});
         device.wait_idle();

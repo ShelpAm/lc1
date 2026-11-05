@@ -83,7 +83,10 @@ PlayerControls PlayerCharacterController::read_input(GameInputRouter const &inpu
                     : glm::vec2{},
             .sprint = frame.keyboard_enabled && input.held(GameAction::Sprint),
             .jump = frame.keyboard_enabled && input.pressed(GameAction::Jump),
-            .swing_weapon = frame.mouse_enabled && input.pressed(GameAction::SwingWeapon)};
+            .swing_weapon = frame.mouse_enabled && input.pressed(GameAction::SwingWeapon),
+            .nod = frame.keyboard_enabled && input.pressed(GameAction::Nod),
+            .interact = frame.keyboard_enabled && input.pressed(GameAction::Interact),
+            .response_index = frame.keyboard_enabled ? response_index(input) : -1};
 }
 
 CharacterIntent PlayerCharacterController::update(float, Character const &character)
@@ -107,6 +110,7 @@ CharacterIntent PlayerCharacterController::update(float, Character const &charac
     intent.sprint = input_->sprint;
     intent.jump = input_->jump;
     intent.swing_weapon = input_->swing_weapon;
+    intent.nod = input_->nod;
     return intent;
 }
 

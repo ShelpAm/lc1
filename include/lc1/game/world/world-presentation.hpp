@@ -14,7 +14,6 @@
 namespace lc1 {
 
 struct WorldPresentationInput {
-    bool nod = false;
     bool cycle_lighting = false;
     bool toggle_showcase_motion = false;
     int exposure_steps = 0;
@@ -32,8 +31,8 @@ struct GameLocation {
 class WorldPresentation {
   public:
     WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
-                      Continent const &continent, WorldSnapshot const &world,
-                      OutputSettings output);
+                      Continent const &continent, WorldSnapshot const &world, OutputSettings output,
+                      PlayerId observer);
 
     WorldPresentation(WorldPresentation const &) = delete;
     WorldPresentation &operator=(WorldPresentation const &) = delete;
@@ -49,7 +48,7 @@ class WorldPresentation {
     // Time is the finite, nonnegative render delta accepted by GameSession.
     void update(float delta_seconds, WorldPresentationInput const &input);
     void update_listener(scene::FpsCamera const &camera);
-    glm::mat4 player_eye_transform() const;
+    glm::mat4 observer_eye_transform() const;
     scene::Scene const &scene() const;
     std::vector<WorldTextItem> world_labels(scene::FpsCamera const &camera) const;
 
@@ -75,6 +74,8 @@ class WorldPresentation {
     // Main-thread snapshot and immutable continent borrows; both outlive this presentation.
     WorldSnapshot const *world_;
     Continent const *continent_;
+    PlayerId observer_;
+    std::size_t observed_model_index_ = 0;
 
     struct CharacterModels {
         std::uint32_t keyid;
@@ -83,6 +84,8 @@ class WorldPresentation {
         std::optional<std::size_t> mount;
         std::optional<std::size_t> attack_animation;
         std::uint64_t attack_sequence;
+        std::optional<std::size_t> nod_animation;
+        std::uint64_t nod_sequence;
     };
 
     std::vector<CharacterModels> character_models_;
@@ -108,7 +111,6 @@ class WorldPresentation {
     std::vector<scene::SceneModel *> showcase_models_;
     std::vector<scene::SceneLight *> lights_;
     scene::SceneLight *flashlight_ = nullptr;
-    std::optional<std::size_t> nod_animation_index_;
 
     std::optional<std::size_t> eyes_node_index_;
     // Declared after assets: scene instances borrow their meshes and materials.

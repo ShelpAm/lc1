@@ -80,6 +80,11 @@ class DialogCatalog {
     DialogSettings settings_;
 };
 
+struct DialogPlayer {
+    Character const *character; // Non-null, human-controlled participant.
+    bool accepts_requests;
+};
+
 // A single conversation. The script and participants must outlive it.
 class Dialog {
   public:
@@ -89,7 +94,7 @@ class Dialog {
     bool start(Character &talker, Character &target);
     // Only the current respondent may choose. A chosen response is displayed before advancing.
     void respond(Character &character, int response_index);
-    void update(float delta_seconds, Character const *player, float line_seconds);
+    void update(float delta_seconds, bool automatic_response, float line_seconds);
 
     Character *talker() const;
 
@@ -153,10 +158,10 @@ class DialogSystem {
     void clear() noexcept;
     // Clear runtime state and restart the ambient-conversation delay after loading a world.
     void reset() noexcept;
-    // Non-null, unique registered participants. Player can be null for an NPC-only world.
-    // Player requests can be deferred while moving, using UI, or otherwise occupied.
+    // Non-null, unique participants; human-controlled characters never answer automatically.
+    // Request acceptance is independently gated for each player.
     void update(float delta_seconds, std::span<Character *const> characters,
-                Character const *player, bool allow_player_requests);
+                std::span<DialogPlayer const> players);
 
   private:
     struct Session {

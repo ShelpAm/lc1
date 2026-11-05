@@ -102,6 +102,9 @@ void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
     if (intent.jump)
         request_jump();
 
+    if (intent.nod)
+        ++nod_sequence_;
+
     weapon_attack_cooldown_ = std::max(0.0F, weapon_attack_cooldown_ - delta_seconds);
     if (intent.swing_weapon && weapon_attack_cooldown_ <= 0) {
         weapon_attack_cooldown_ = 2;
@@ -305,6 +308,11 @@ game::Bag const &Character::bag() const
 game::Bag &Character::bag()
 {
     return bag_;
+}
+
+std::uint64_t Character::nod_sequence() const
+{
+    return nod_sequence_;
 }
 
 std::uint64_t Character::attack_sequence() const

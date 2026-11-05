@@ -40,6 +40,7 @@ struct CharacterIntent {
     bool jump = false;
     bool sprint = false;
     bool swing_weapon = false;
+    bool nod = false;
 };
 
 } // namespace lc1

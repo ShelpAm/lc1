@@ -16,10 +16,11 @@ AiCharacterController::AiCharacterController(DialogSystem const &dialogs) : dial
 {
 }
 
-AiCharacterController::AiCharacterController(DialogSystem const &dialogs, Character *player,
+AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
+                                             std::span<Character *const> action_targets,
                                              std::vector<Waypoint> path, float arrival_radius)
-    : dialogs_(&dialogs), player_(player), state_(State::Patrol), path_(std::move(path)),
-      arrival_radius_(arrival_radius)
+    : dialogs_(&dialogs), action_targets_(action_targets.begin(), action_targets.end()),
+      state_(State::Patrol), path_(std::move(path)), arrival_radius_(arrival_radius)
 {
     assert(!path_.empty() && "path must have at least one waypoint");
     current_target_ = path_.size() > 1 ? 1 : 0;
@@ -77,10 +78,14 @@ CharacterIntent AiCharacterController::update(float delta_seconds, Character con
         return intent;
     }
 
-    if (player_ == nullptr && character.config().party)
-        player_ = character.config().party->leader();
-    intent.swing_weapon =
-        player_ != nullptr && glm::distance(player_->position(), character.position()) <= 3.0F;
+    intent.swing_weapon = std::ranges::any_of(action_targets_, [&](Character const *target) {
+        return glm::distance(target->position(), character.position()) <= 3.0F;
+    });
+    if (action_targets_.empty() && character.config().party) {
+        auto const *leader = character.config().party->leader();
+        intent.swing_weapon =
+            leader && glm::distance(leader->position(), character.position()) <= 3.0F;
+    }
 
     return intent;
 }

@@ -22,7 +22,9 @@ flowchart LR
 ```mermaid
 flowchart TD
     app[Application] --> session[GameSession]
-    session --> world["GameWorld · 规则与快照"]
+    app --> simulation[GameSimulation]
+    session -. 借用 .-> simulation
+    simulation --> world["GameWorld · 规则与快照"]
     session --> view["WorldPresentation · 世界表现"]
     session --> player["PlayerView · 控制意图与相机"]
     session --> ui[GameUi]
@@ -46,8 +48,7 @@ flowchart TD
 
 玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent)` 统一调用控制器，决定动作能否执行、速度和
 最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 校验并下达，
-并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界不依赖
-`PlayerCharacterController`，会话负责绑定玩家输入源并在角色更新前准备输入门控，世界统一通过角色更新控制器。
+并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界按玩家绑定拥有输入值并装配 `PlayerCharacterController`，会话通过绑定句柄提交输入。世界统一通过角色更新控制器；身份边界见[玩家与多人模拟](players.md)。
 
 游戏实现位于 `include/lc1/game/` 与 `src/game/`，按 `character/`、`player/`、`world/`、
 `physics/`、`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。

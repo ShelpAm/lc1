@@ -29,6 +29,9 @@ struct PlayerControls {
     bool sprint = false;
     bool jump = false;
     bool swing_weapon = false;
+    bool nod = false;
+    bool interact = false;
+    int response_index = -1;
 };
 
 // Turns player actions into a CharacterIntent. It owns device-to-action mapping, mouse
