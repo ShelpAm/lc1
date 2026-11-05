@@ -35,6 +35,11 @@ void Party::add_member(Character *member)
     members_.push_back(member);
 }
 
+bool Party::has_member(Character const *character) const
+{
+    return std::ranges::contains(members_, character);
+}
+
 void Party::add_captive(Character *captive)
 {
     if (!captive || captive == leader_ || std::ranges::contains(members_, captive) ||

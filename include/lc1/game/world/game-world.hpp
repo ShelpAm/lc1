@@ -27,19 +27,23 @@ struct WorldInteraction {
 // Not an authoritative server or a network replica. The roster is fixed between loads.
 class GameWorld {
   public:
-    GameWorld(Save const &save,
-              std::filesystem::path const &dialog_catalog = "runtime/dialogs/catalog.yaml");
+    explicit GameWorld(Save const &save, std::filesystem::path const &dialog_catalog =
+                                             "runtime/dialogs/catalog.yaml");
+
     GameWorld(GameWorld const &) = delete;
     GameWorld &operator=(GameWorld const &) = delete;
     GameWorld(GameWorld &&) = delete;
     GameWorld &operator=(GameWorld &&) = delete;
+
     ~GameWorld() = default;
 
     Continent const &continent() const;
 
     Character &player();
-
     Character const &player() const;
+
+    std::unordered_map<std::uint32_t, std::unique_ptr<Party>> &parties();
+    std::unordered_map<std::uint32_t, std::unique_ptr<Party>> const &parties() const;
 
     // Stable, keyid-ordered borrows; character borrows remain valid until load() or destruction.
     std::vector<Character const *> const &characters() const;

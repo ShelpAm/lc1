@@ -2,6 +2,7 @@
 
 #include "lc1/game/party/companion-order.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -19,15 +20,10 @@ class Party {
           std::vector<Character *> members = {}, std::vector<Character *> captives = {});
 
     std::uint32_t keyid() const;
-
     Faction *faction();
-
     Faction const *faction() const;
-
     Character *leader() const;
-
     std::vector<Character *> const &members() const;
-
     std::vector<Character *> const &captives() const;
 
     // Load-time wiring. A party record lists character keyids; the characters
@@ -36,6 +32,8 @@ class Party {
 
     // Members exclude the separately stored leader; neither list may overlap the other.
     void add_member(Character *member);
+
+    bool has_member(Character const *character) const;
 
     void add_captive(Character *captive);
 

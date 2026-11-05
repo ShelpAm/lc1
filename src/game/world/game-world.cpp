@@ -374,6 +374,16 @@ Character const &GameWorld::player() const
     return *player_;
 }
 
+std::unordered_map<std::uint32_t, std::unique_ptr<Party>> &GameWorld::parties()
+{
+    return parties_;
+}
+
+std::unordered_map<std::uint32_t, std::unique_ptr<Party>> const &GameWorld::parties() const
+{
+    return parties_;
+}
+
 std::vector<Character const *> const &GameWorld::characters() const
 {
     return visible_characters_;
