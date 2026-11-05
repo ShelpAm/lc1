@@ -12,4 +12,4 @@
 # Note this is both platform- and build-type specific, and clangd takes one directory:
 # if you configure another tree, change this line to match it.
 CompileFlags:
-  CompilationDatabase: build/linux-x86_64/Debug
+  CompilationDatabase: build/linux-x86_64/Release

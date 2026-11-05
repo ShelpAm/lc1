@@ -1,5 +1,6 @@
 #include "lc1/game/continent/continent.hpp"
 #include "character-input.hpp"
+#include "character-lookup.hpp"
 #include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
@@ -414,8 +415,8 @@ void patrol_house_floors()
         points.push_back({.position = route[(index + i) % route.size()]});
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
-    npc.set_controller(
-        std::make_unique<lc1::AiCharacterController>(dialogs, std::array{&player}, points, 0.4F));
+    npc.set_controller(std::make_unique<lc1::AiCharacterController>(
+        dialogs, character_lookup({&player, &npc}), std::array{&player}, points, 0.4F));
     bool upper = false;
     bool middle = false;
     bool platform = false;

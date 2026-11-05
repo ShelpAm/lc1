@@ -378,14 +378,14 @@ SerializedCharacterState serialize_character_state(Character const &character)
 SerializedParty serialize_party(Party const &party)
 {
     SerializedParty record{.keyid = party.keyid(),
-                           .faction = party.faction()->keyid(),
-                           .leader = party.leader() ? party.leader()->config().keyid : 0,
+                           .faction = party.faction(),
+                           .leader = party.leader() ? party.leader()->value : 0,
                            .members = {},
                            .captives = {}};
-    for (auto const *member : party.members())
-        record.members.push_back(member->config().keyid);
-    for (auto const *captive : party.captives())
-        record.captives.push_back(captive->config().keyid);
+    for (auto member : party.members())
+        record.members.push_back(member.value);
+    for (auto captive : party.captives())
+        record.captives.push_back(captive.value);
     return record;
 }
 

@@ -1,4 +1,5 @@
 #include "lc1/game/dialog/dialog.hpp"
+#include "character-lookup.hpp"
 #include "lc1/error.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
@@ -76,10 +77,12 @@ struct World {
     lc1::Character passerby{
         continent, {.position = continent.spawn()}, config(5, "Passerby", other)};
 
-    explicit World(lc1::DialogSystem const &dialogs) : party(1, &faction), other(2, &faction)
+    explicit World(lc1::DialogSystem const &dialogs)
+        : party(1, faction.keyid()), other(2, faction.keyid())
     {
         for (auto *character : {&captive, &leader, &worker, &passerby})
-            character->set_controller(std::make_unique<lc1::AiCharacterController>(dialogs));
+            character->set_controller(std::make_unique<lc1::AiCharacterController>(
+                dialogs, character_lookup({&player, &captive, &leader, &worker, &passerby})));
         party.restore_roster(&player, {}, {&captive});
         other.restore_roster(&leader, {&worker, &passerby}, {});
     }
@@ -288,7 +291,10 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
           "equal-distance scheduling uses character ids as a stable tie break");
 
     world.captive.set_controller(std::make_unique<lc1::AiCharacterController>(
-        system, std::array{&world.player},
+        system,
+        character_lookup(
+            {&world.player, &world.captive, &world.leader, &world.worker, &world.passerby}),
+        std::array{&world.player},
         std::vector<lc1::Waypoint>{{.position = world.continent.spawn()},
                                    {.position = {4.0F, 0.0F, 0.0F}}}));
     auto const original = world.captive.position();
@@ -450,7 +456,7 @@ void benchmark(std::filesystem::path const &path)
                         .height_samples = {}}};
     lc1::Faction faction{1, "Faction"};
     lc1::DialogSystem system{path};
-    lc1::Party party{1, &faction};
+    lc1::Party party{1, faction.keyid()};
     std::vector<std::unique_ptr<lc1::Character>> characters;
     std::vector<lc1::Character *> roster;
     for (std::uint32_t i = 0; i < 512; ++i) {

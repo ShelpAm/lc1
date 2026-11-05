@@ -74,7 +74,7 @@ void Character::set_interactable(std::unique_ptr<Interactable> interactable)
     interactable_ = std::move(interactable);
 }
 
-Faction const *Character::faction() const
+std::uint32_t Character::faction() const
 {
     return config_.party->faction();
 }
@@ -320,4 +320,11 @@ std::uint64_t Character::attack_sequence() const
     return attack_sequence_;
 }
 
+} // namespace lc1
+
+namespace lc1 {
+CharacterId Character::id() const
+{
+    return CharacterId{config_.keyid};
+}
 } // namespace lc1

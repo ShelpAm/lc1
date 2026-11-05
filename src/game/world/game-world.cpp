@@ -83,13 +83,15 @@ void GameWorld::load(Save const &save)
                                                                        waypoints.size());
             }
             example_->set_controller(std::make_unique<AiCharacterController>(
-                dialogs_, controlled, std::move(waypoints), setup_.example_patrol->arrival_radius));
+                dialogs_, [this](CharacterId id) -> Character & { return character(id); },
+                controlled, std::move(waypoints), setup_.example_patrol->arrival_radius));
         }
     }
 
     for (auto const &[_, character] : characters_) {
         if (!character->controller())
-            character->set_controller(std::make_unique<AiCharacterController>(dialogs_));
+            character->set_controller(std::make_unique<AiCharacterController>(
+                dialogs_, [this](CharacterId id) -> Character & { return this->character(id); }));
         character->set_interactable(
             std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
     }
@@ -97,7 +99,7 @@ void GameWorld::load(Save const &save)
         if (state.companion_order != CompanionOrder::None) {
             auto *character = character_by_id(id, "companion order");
             auto *party = character->config().party;
-            party->command(*party->leader(), *character, state.companion_order);
+            party->command(this->character(*party->leader()), *character, state.companion_order);
         }
     }
 }
@@ -131,8 +133,7 @@ void GameWorld::build_world(Save const &save)
     // Parties precede characters because a character record names the party it belongs to.
     for (auto const &entry : save.parties()) {
         auto const &record = entry.second;
-        insert_unique(parties_, record.keyid,
-                      std::make_unique<Party>(record.keyid, factions_.at(record.faction).get()),
+        insert_unique(parties_, record.keyid, std::make_unique<Party>(record.keyid, record.faction),
                       "party");
     }
 
@@ -381,6 +382,16 @@ std::span<Character *const> GameWorld::characters()
     return dialog_participants_;
 }
 
+std::unordered_map<std::uint32_t, std::unique_ptr<Party>> &GameWorld::parties()
+{
+    return parties_;
+}
+
+std::unordered_map<std::uint32_t, std::unique_ptr<Party>> const &GameWorld::parties() const
+{
+    return parties_;
+}
+
 std::vector<Character const *> const &GameWorld::characters() const
 {
     return visible_characters_;
@@ -396,4 +407,21 @@ Character const *GameWorld::interaction_target(PlayerId id) const
     return players_.at(id).interaction_target;
 }
 
+} // namespace lc1
+
+namespace lc1 {
+Character &GameWorld::character(CharacterId id)
+{
+    return *character_by_id(id.value, "character lookup");
+}
+
+Character const &GameWorld::character(CharacterId id) const
+{
+    return *character_by_id(id.value, "character lookup");
+}
+
+Faction const &GameWorld::faction(std::uint32_t id) const
+{
+    return *factions_.at(id);
+}
 } // namespace lc1

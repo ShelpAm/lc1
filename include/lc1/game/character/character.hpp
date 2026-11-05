@@ -3,6 +3,7 @@
 #include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/character-body.hpp"
 #include "lc1/game/character/character-controller.hpp"
+#include "lc1/game/character/character-id.hpp"
 #include "lc1/game/character/character-intent.hpp"
 #include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/weapon.hpp"
@@ -67,6 +68,7 @@ class Character {
     ~Character();
 
     CharacterConfig const &config() const;
+    CharacterId id() const;
 
     std::uint64_t attack_sequence() const;
     std::uint64_t nod_sequence() const;
@@ -130,7 +132,7 @@ class Character {
     Interactable *interactable();
     void set_interactable(std::unique_ptr<Interactable> interactable);
 
-    Faction const *faction() const;
+    std::uint32_t faction() const;
 
     game::Bag &bag();
     game::Bag const &bag() const;

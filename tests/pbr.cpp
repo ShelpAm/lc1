@@ -657,8 +657,9 @@ void player_models_test(lc1::Device const &device)
             check(pose.playback()->time == 0,
                   "cooldown expires even without requests and allows the next swing");
             lc1::AiCharacterController ai{
-                world.dialogs(), std::array{bearer},
-                std::vector<lc1::Waypoint>{{.position = bearer->position()}}};
+                world.dialogs(),
+                [&world](lc1::CharacterId id) -> lc1::Character & { return world.character(id); },
+                std::array{bearer}, std::vector<lc1::Waypoint>{{.position = bearer->position()}}};
             for (int frame = 0; frame < 10; ++frame) {
                 auto const request = ai.update(0.02F, *bearer);
                 check(request.swing_weapon, "nearby AI keeps requesting swings while stationary");

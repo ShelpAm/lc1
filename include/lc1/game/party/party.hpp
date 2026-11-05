@@ -1,45 +1,41 @@
 #pragma once
 
+#include "lc1/game/character/character-lookup.hpp"
 #include "lc1/game/party/companion-order.hpp"
+#include <optional>
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
 namespace lc1 {
 
 class Character;
-class Faction;
 
 // A party is a container and a map entity, not a pile of stats: it names concrete
-// characters and owns none of them. The leader is optional because a save is loaded in
-// two phases -- parties first, membership once every character exists.
+// characters by ID and owns no simulation objects. Snapshots copy the same value type.
+// The leader is optional because assembly happens after all characters exist.
 class Party {
   public:
-    Party(std::uint32_t keyid, Faction *faction);
-    Party(Party const &) = delete;
-    Party &operator=(Party const &) = delete;
-    Party(Party &&) = delete;
-    Party &operator=(Party &&) = delete;
+    Party(std::uint32_t keyid, std::uint32_t faction);
 
     // One-time assembly. Every non-null character must already name this party.
-    // Validates before committing; characters must remain alive while the roster is used.
+    // Validates before committing, then retains IDs only.
     void restore_roster(Character *leader, std::vector<Character *> members,
                         std::vector<Character *> captives);
 
     // Promote an ordinary member (or clear leadership), demoting the previous leader.
-    void change_leader(Character *leader);
+    void change_leader(CharacterLookup const &characters, std::optional<CharacterId> leader);
 
     std::uint32_t keyid() const;
+    std::uint32_t faction() const;
+    std::optional<CharacterId> leader() const;
+    std::vector<CharacterId> const &members() const;
+    std::vector<CharacterId> const &captives() const;
 
-    Faction *faction();
-
-    Faction const *faction() const;
-
-    Character *leader() const;
-
-    std::vector<Character *> const &members() const;
-
-    std::vector<Character *> const &captives() const;
+    // Ordinary members only: the leader and captives have separate roles.
+    bool has_member(CharacterId character) const;
+    bool has_captive(CharacterId character) const;
 
     // Only the leader commands AI-controlled ordinary members. Captives and other parties are
     // excluded.
@@ -55,10 +51,10 @@ class Party {
   private:
     bool roster_restored_ = false;
     std::uint32_t keyid_;
-    Faction *faction_ = nullptr;
-    Character *leader_ = nullptr;
-    std::vector<Character *> members_;
-    std::vector<Character *> captives_;
+    std::uint32_t faction_;
+    std::optional<CharacterId> leader_;
+    std::vector<CharacterId> members_;
+    std::vector<CharacterId> captives_;
 };
 
 } // namespace lc1

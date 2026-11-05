@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lc1/game/character/character-controller.hpp"
+#include "lc1/game/character/character-lookup.hpp"
 #include "lc1/game/party/companion-order.hpp"
 
 #include <glm/glm.hpp>
@@ -22,8 +23,8 @@ struct Waypoint {
 
 class AiCharacterController : public CharacterController {
   public:
-    explicit AiCharacterController(DialogSystem const &dialogs);
-    explicit AiCharacterController(DialogSystem const &dialogs,
+    explicit AiCharacterController(DialogSystem const &dialogs, CharacterLookup characters);
+    explicit AiCharacterController(DialogSystem const &dialogs, CharacterLookup characters,
                                    std::span<Character *const> action_targets,
                                    std::vector<Waypoint> path, float arrival_radius = 0.5F);
     void set_order(CompanionOrder order);
@@ -40,6 +41,7 @@ class AiCharacterController : public CharacterController {
 
     // Required read-only borrow; dialogs must outlive this controller.
     DialogSystem const *dialogs_;
+    CharacterLookup characters_;
     // Optional read-only borrows; supplied demo targets outlive this controller.
     std::vector<Character *> action_targets_;
     State state_ = State::Idle;

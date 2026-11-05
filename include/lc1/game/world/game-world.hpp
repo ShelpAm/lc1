@@ -40,7 +40,7 @@ struct WorldPlayer {
 // Not an authoritative server or a network replica. The roster is fixed between loads.
 class GameWorld {
   public:
-    GameWorld(Save const &save, std::filesystem::path const &dialog_catalog);
+    explicit GameWorld(Save const &save, std::filesystem::path const &dialog_catalog);
 
     GameWorld(GameWorld const &) = delete;
     GameWorld &operator=(GameWorld const &) = delete;
@@ -50,12 +50,19 @@ class GameWorld {
     ~GameWorld() = default;
 
     Continent const &continent() const;
+    Character &character(CharacterId id);
+    Character const &character(CharacterId id) const;
+    Faction const &faction(std::uint32_t id) const;
 
     Character &player(PlayerId id);
     Character const &player(PlayerId id) const;
 
     std::map<PlayerId, WorldPlayer> const &players() const;
 
+    std::unordered_map<std::uint32_t, std::unique_ptr<Party>> &parties();
+    std::unordered_map<std::uint32_t, std::unique_ptr<Party>> const &parties() const;
+
+    // Stable, keyid-ordered borrows; character borrows remain valid until load() or destruction.
     std::span<Character *const> characters();
     std::vector<Character const *> const &characters() const;
 

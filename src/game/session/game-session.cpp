@@ -53,6 +53,11 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     input_router_.update(input_state);
 
     auto &imgui_io = ImGui::GetIO();
+    // B must also close the panel while ImGui owns keyboard focus, except in text fields.
+    if (window_->focused() && !imgui_io.WantTextInput &&
+        input_router_.active_context() == GameInputContext::Gameplay &&
+        input_router_.pressed(GameAction::TogglePlayerInfo))
+        ui_.toggle_player_info();
     if (window_->focused() && !imgui_io.WantCaptureKeyboard)
         quit_requested_ = input_router_.pressed(GameAction::QuitGame);
 
@@ -99,9 +104,18 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         refresh_saves();
         ui_.open_load();
     }
+
+    auto const player_id = snapshot_.players.at(connection_.player_id()).character_id;
+    std::vector<Party const *> player_parties;
+    for (auto const &party : snapshot_.parties)
+        if (party.leader() == player_id || party.has_member(player_id))
+            player_parties.push_back(&party);
     auto const ui_actions = ui_.update(
         {
+            .world = snapshot_,
+            .player = player_id,
             .bag = snapshot_.players.at(connection_.player_id()).bag,
+            .player_parties = std::move(player_parties),
             .saves = saves_,
             .current_save = slot_name(save_directory_),
             .extent = window_->framebuffer_extent(),

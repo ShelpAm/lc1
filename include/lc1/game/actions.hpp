@@ -35,6 +35,7 @@ enum class GameAction : std::uint8_t {
     DialogResponse3,
     SaveGame,
     LoadGame,
+    TogglePlayerInfo,
     QuitGame,
     Count,
 };

@@ -1,5 +1,6 @@
 #include "lc1/game/character/character.hpp"
 #include "character-input.hpp"
+#include "character-lookup.hpp"
 #include "lc1/game/actions.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/continent/continent.hpp"
@@ -259,8 +260,8 @@ void companion_orders()
     auto const world = make_world();
     lc1::Faction faction{1, "Faction"};
     lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
-    lc1::Party party{1, &faction};
-    lc1::Party other{2, &faction};
+    lc1::Party party{1, faction.keyid()};
+    lc1::Party other{2, faction.keyid()};
     auto config = [](std::uint32_t id, lc1::Party &owner) {
         return lc1::CharacterConfig{.keyid = id,
                                     .name = "Character",
@@ -276,7 +277,8 @@ void companion_orders()
     lc1::Character captive{world, {.position = {-6, 0, 0}}, config(3, party)};
     lc1::Character stranger{world, {.position = {-4, 0, 0}}, config(4, other)};
     lc1::Character far_leader{world, {.position = {10, 0, 0}}, config(5, party)};
-    far_leader.set_controller(std::make_unique<lc1::AiCharacterController>(dialogs));
+    auto const characters = character_lookup({&leader, &member, &captive, &stranger, &far_leader});
+    far_leader.set_controller(std::make_unique<lc1::AiCharacterController>(dialogs, characters));
     party.restore_roster(&leader, {&member, &far_leader}, {&captive});
     other.restore_roster(&stranger, {}, {});
     check(!party.can_command(member, leader) && !party.can_command(leader, captive) &&
@@ -289,7 +291,7 @@ void companion_orders()
     rejects([&] { party.command(leader, member, lc1::CompanionOrder::None); },
             "orders cannot re-enable a discarded patrol");
     member.set_controller(std::make_unique<lc1::AiCharacterController>(
-        dialogs, std::array{&leader},
+        dialogs, characters, std::array{&leader},
         std::vector<lc1::Waypoint>{{.position = {-8, 0, 0}}, {.position = {-12, 0, 0}}}));
     auto *const member_controller = member.controller();
     party.command(leader, member, lc1::CompanionOrder::Follow);
@@ -318,7 +320,7 @@ void companion_orders()
         step(member, 0.1F);
     check(member.on_ground(), "waiting members still land");
     party.command(leader, member, lc1::CompanionOrder::Follow);
-    party.change_leader(&far_leader);
+    party.change_leader(characters, far_leader.id());
     for (int i = 0; i < 100; ++i)
         step(member, 0.1F);
     check(member.position().x <= 4.701F && member.position().x > 4.6F,
@@ -326,7 +328,7 @@ void companion_orders()
     auto const saved = lc1::serialize_character_state(member);
     check(saved.companion_order == lc1::CompanionOrder::Follow && !saved.patrol,
           "a follow order is serialized independently of the patrol controller");
-    party.change_leader(&leader);
+    party.change_leader(characters, leader.id());
     party.command(leader, member, lc1::CompanionOrder::Wait);
     check(lc1::serialize_character_state(member).companion_order == lc1::CompanionOrder::Wait,
           "wait is distinguishable from a stopped patrol");
@@ -353,24 +355,23 @@ void companion_orders()
           "the authored wait response issues an order");
     dialog.update(1.5F, false, 1.5F);
     dialog.start(leader, member);
-    party.change_leader(&far_leader);
+    party.change_leader(characters, far_leader.id());
     choose_id("follow");
     check(member.companion_order() == lc1::CompanionOrder::Wait && !dialog.displaying_response(),
           "stale command choices recheck authority before changing orders");
     check(dialog.candidate_responses().size() == 2,
           "unauthorized speakers see chat and goodbye without command choices");
     party.command(far_leader, member, lc1::CompanionOrder::Follow);
-    party.change_leader(&member);
-    check(party.leader() == &member && member.controller() == member_controller &&
+    party.change_leader(characters, member.id());
+    check(party.leader() == member.id() && member.controller() == member_controller &&
               member.companion_order() == lc1::CompanionOrder::None &&
-              std::ranges::contains(party.members(), &far_leader) &&
-              !std::ranges::contains(party.members(), &member),
+              party.has_member(far_leader.id()) && !party.has_member(member.id()),
           "promotion demotes the previous leader and clears the new leader's follow order");
     auto *const far_controller = far_leader.controller();
     party.command(member, far_leader, lc1::CompanionOrder::Follow);
-    party.change_leader(nullptr);
+    party.change_leader(characters, std::nullopt);
     check(!party.leader() && far_leader.controller() == far_controller &&
-              std::ranges::contains(party.members(), &member) &&
+              party.has_member(member.id()) &&
               far_leader.companion_order() == lc1::CompanionOrder::None,
           "clearing leadership retains members without unrestorable companion orders");
 }
@@ -380,8 +381,8 @@ void recruitment_dialog()
     auto const world = make_world();
     lc1::Faction faction{1, "Faction"};
     lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
-    lc1::Party party{1, &faction};
-    lc1::Party other{2, &faction};
+    lc1::Party party{1, faction.keyid()};
+    lc1::Party other{2, faction.keyid()};
     auto const config = [](std::uint32_t keyid, std::string_view name, lc1::Party &owner) {
         return lc1::CharacterConfig{.keyid = keyid,
                                     .name = std::string{name},
@@ -399,6 +400,8 @@ void recruitment_dialog()
     lc1::Character captive{world, {.position = world.spawn()}, config(5, "Captive", other)};
     lc1::Character reordered_recruit{
         world, {.position = world.spawn()}, config(6, "New recruit", other)};
+    auto const characters =
+        character_lookup({&player, &npc, &stranger, &outsider, &captive, &reordered_recruit});
     rejects([&] { party.restore_roster(&player, {&player}, {}); },
             "leader cannot also be a member");
     rejects([&] { party.restore_roster(&player, {}, {&player}); },
@@ -412,12 +415,14 @@ void recruitment_dialog()
     party.restore_roster(&player, {}, {&npc});
     rejects([&] { party.restore_roster(nullptr, {}, {}); },
             "assembly cannot overwrite a live roster");
-    rejects([&] { party.change_leader(&npc); }, "a captive cannot become leader");
+    rejects([&] { party.change_leader(characters, npc.id()); }, "a captive cannot become leader");
     for (auto *character : {&outsider, &reordered_recruit})
-        character->set_controller(std::make_unique<lc1::AiCharacterController>(dialogs));
+        character->set_controller(
+            std::make_unique<lc1::AiCharacterController>(dialogs, characters));
     other.restore_roster(&stranger, {&outsider, &reordered_recruit}, {&captive});
     npc.set_controller(std::make_unique<lc1::AiCharacterController>(
-        dialogs, std::array{&player}, std::vector<lc1::Waypoint>{{.position = world.spawn()}}));
+        dialogs, character_lookup({&player}), std::array{&player},
+        std::vector<lc1::Waypoint>{{.position = world.spawn()}}));
 
     // Exercise authored transitions and reordered choices before changing party state.
     auto script = lc1::DialogScript::load("runtime/dialogs/recruit.yaml");
@@ -488,7 +493,7 @@ void recruitment_dialog()
     choose(dialog, player, 0);
     choose(dialog, player, 0);
     check(dialog.current_node_id() == "joined" && party.members().size() == 1 &&
-              party.members().front() == &npc && party.captives().empty() &&
+              party.members().front() == npc.id() && party.captives().empty() &&
               npc.config().party == &party && npc.controller() &&
               npc.companion_order() == lc1::CompanionOrder::Follow,
           "recruiting releases an own captive, adds membership and stops the old patrol");
@@ -513,8 +518,8 @@ void recruitment_dialog()
     choose(dialog, player, 0);
     check(dialog.target() == &outsider && dialog.candidate_responses().size() == 2 &&
               dialog.current_node_id() == "offer" && party.members().size() == 2 &&
-              other.members().size() == 1 && other.members().front() == &reordered_recruit &&
-              outsider.config().party == &party && other.leader() == &stranger,
+              other.members().size() == 1 && other.members().front() == reordered_recruit.id() &&
+              outsider.config().party == &party && other.leader() == stranger.id(),
           "stale choices refresh without a second transfer and preserve the source leader");
     choose(dialog, player, 1);
     check(!dialog.target(), "a stale confirmation can still exit the dialogue");
@@ -1002,7 +1007,7 @@ void controller_intent_boundary()
     lc1::Character npc{world, {.position = world.spawn()}, {}};
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::AiCharacterController controller{
-        dialogs, std::array{&player},
+        dialogs, character_lookup({&player}), std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn() + glm::vec3{4, 0, 0}}}};
     player.move(world, {1, 0, 0});
@@ -1024,7 +1029,7 @@ void patrol_swing_requests()
     lc1::Character npc{world, {.position = world.spawn()}, {}};
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::AiCharacterController moving{
-        dialogs, std::array{&player},
+        dialogs, character_lookup({&player}), std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn() + glm::vec3{4, 0, 0}}}};
     check(moving.update(0.1F, npc).swing_weapon, "a nearby player requests a swing");
@@ -1035,11 +1040,11 @@ void patrol_swing_requests()
     player.move(world, {-4, 0, 0});
     check(moving.update(0.1F, npc).swing_weapon, "reentering range requests a new swing");
     lc1::AiCharacterController stationary{
-        dialogs, std::array{&player},
+        dialogs, character_lookup({&player}), std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn(), .wait_seconds = 2}}};
     check(stationary.update(0.1F, npc).swing_weapon, "single waypoint patrols can request a swing");
     lc1::AiCharacterController waiting{
-        dialogs, std::array{&player},
+        dialogs, character_lookup({&player}), std::array{&player},
         std::vector<lc1::Waypoint>{{.position = world.spawn()},
                                    {.position = world.spawn(), .wait_seconds = 2}}};
     check(waiting.update(0.1F, npc).swing_weapon,

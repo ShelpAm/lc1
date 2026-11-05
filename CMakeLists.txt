@@ -297,6 +297,13 @@ add_executable(lc1
 target_link_libraries(lc1 PRIVATE lc1_game)
 add_imgui_backends(TARGET lc1 BACKENDS vulkan glfw DEPS
     vulkan-headers::vulkan-headers glfw)
+# Conan ships optional font loaders alongside the backend sources. FreeType reads
+# the same CFF/OpenType face used by world text; stb_truetype cannot load that face.
+find_path(IMGUI_FREETYPE_DIR imgui_freetype.h
+    HINTS ${imgui_INCLUDE_DIRS} PATH_SUFFIXES ../res/misc/freetype REQUIRED)
+target_sources(lc1 PRIVATE "${IMGUI_FREETYPE_DIR}/imgui_freetype.cpp")
+target_include_directories(lc1 PRIVATE "${IMGUI_FREETYPE_DIR}")
+target_link_libraries(lc1 PRIVATE Freetype::Freetype)
 
 # A MinGW link pulls the compiler's own runtime in as DLLs -- libstdc++-6.dll,
 # libgcc_s_seh-1.dll and libwinpthread-1.dll -- which are present on the machine that
@@ -439,6 +446,10 @@ if(BUILD_TESTING)
     add_executable(lc1_player_view_tests tests/player-view.cpp)
     target_link_libraries(lc1_player_view_tests PRIVATE lc1_game)
     lc1_enable_warnings(lc1_player_view_tests)
+    add_executable(lc1_game_ui_tests tests/game-ui.cpp)
+    target_link_libraries(lc1_game_ui_tests PRIVATE lc1_game)
+    lc1_enable_warnings(lc1_game_ui_tests)
+    add_test(NAME game_ui COMMAND lc1_game_ui_tests)
     add_executable(lc1_render_graph_tests tests/render-graph.cpp)
     target_link_libraries(lc1_render_graph_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_render_graph_tests)
@@ -461,6 +472,7 @@ if(BUILD_TESTING)
         target_link_options(lc1_tangent_tests PRIVATE -static)
         target_link_options(lc1_game_world_tests PRIVATE -static)
         target_link_options(lc1_player_view_tests PRIVATE -static)
+        target_link_options(lc1_game_ui_tests PRIVATE -static)
         target_link_options(lc1_render_graph_tests PRIVATE -static)
         target_link_options(lc1_font_tests PRIVATE -static)
     endif()

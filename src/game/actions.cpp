@@ -26,6 +26,7 @@ std::vector<GameBinding> default_game_bindings()
         {GameInputContext::Gameplay, GameAction::DialogResponse3, Key::Digit4},
         {GameInputContext::Gameplay, GameAction::SaveGame, Key::F6},
         {GameInputContext::Gameplay, GameAction::LoadGame, Key::F9},
+        {GameInputContext::Gameplay, GameAction::TogglePlayerInfo, Key::B},
         {GameInputContext::Gameplay, GameAction::QuitGame, Key::Escape},
         {GameInputContext::Gameplay, GameAction::ToggleCameraView, Key::M},
         {GameInputContext::Gameplay, GameAction::ToggleCameraLock, Key::Y},

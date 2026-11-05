@@ -8,11 +8,12 @@
 #include <cmath>
 
 namespace lc1 {
-CharacterSnapshot const &WorldSnapshot::character(std::uint32_t id) const
+CharacterSnapshot const &WorldSnapshot::character(CharacterId id) const
 {
-    auto const found = std::ranges::lower_bound(characters, id, {}, &CharacterSnapshot::keyid);
-    if (found == characters.end() || found->keyid != id)
-        fail("unknown snapshot character {}", id);
+    auto const found =
+        std::ranges::lower_bound(characters, id.value, {}, &CharacterSnapshot::keyid);
+    if (found == characters.end() || found->keyid != id.value)
+        fail("unknown snapshot character {}", id.value);
     return *found;
 }
 
@@ -59,7 +60,7 @@ WorldSnapshot capture_world(GameWorld const &world)
         snapshot.characters.push_back(
             {.keyid = character->config().keyid,
              .name = character->config().name,
-             .faction = character->faction()->name(),
+             .faction = world.faction(character->faction()).name(),
              .pose = *character,
              .model = character->config().model,
              .weapon_model = std::move(weapon_model),
@@ -71,13 +72,28 @@ WorldSnapshot capture_world(GameWorld const &world)
                                                                        : dialog->talker())
                                             ->config()
                                             .keyid}
-                        : std::nullopt});
+                        : std::nullopt,
+             .age = character->config().age,
+             .level = character->config().level,
+             .party_id = character->config().party->keyid(),
+             .companion_order = character->companion_order(),
+             .equipment = {},
+             .weapon = {},
+             .bag = character->bag()});
+        auto &view = snapshot.characters.back();
+        for (auto const &[slot, equipment] : character->config().equipment)
+            view.equipment.emplace(slot, *equipment);
+        for (auto const &[slot, weapon] : character->config().weapon)
+            view.weapon.emplace(slot, *weapon);
     }
+    snapshot.parties.reserve(world.parties().size());
+    for (auto const &[id, party] : world.parties())
+        snapshot.parties.push_back(*party);
+    std::ranges::sort(snapshot.parties, {}, &Party::keyid);
     for (auto const &[id, player] : world.players()) {
         auto const &actor = *player.character;
         auto &view =
-            snapshot.players.emplace(id, PlayerSnapshot{.character_id = actor.config().keyid})
-                .first->second;
+            snapshot.players.emplace(id, PlayerSnapshot{.character_id = actor.id()}).first->second;
         view.bag = actor.bag();
         view.companion_count = actor.config().party->members().size();
         if (player.interaction_target)

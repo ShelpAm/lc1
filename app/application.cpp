@@ -6,6 +6,7 @@
 #include "lc1/vk/render/render-graph.hpp"
 
 #include <imgui.h>
+#include <imgui_freetype.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
@@ -215,6 +216,13 @@ Application::Application(ApplicationConfig config)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
+    io.Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
+    auto const font_path = (config_.asset_root / "fonts/SourceHanSansCN-Regular.otf").string();
+    // ImGui 1.92 loads glyphs on demand, including Chinese characters from save data.
+    if (io.Fonts->AddFontFromFileTTF(font_path.c_str(), 13.0F) == nullptr) {
+        ImGui::DestroyContext();
+        fail("cannot load ImGui font {}", font_path);
+    }
     // The game owns the keyboard; ImGui takes it only while one of its widgets is active
     // (WantCaptureKeyboard). Keyboard navigation is off for two reasons: it consumes the
     // arrows and Space the character uses, and a merely focused window -- the always-open

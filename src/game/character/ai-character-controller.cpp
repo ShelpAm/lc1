@@ -12,15 +12,19 @@
 
 namespace lc1 {
 
-AiCharacterController::AiCharacterController(DialogSystem const &dialogs) : dialogs_(&dialogs)
+AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
+                                             CharacterLookup characters)
+    : dialogs_(&dialogs), characters_(std::move(characters))
 {
 }
 
 AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
+                                             CharacterLookup characters,
                                              std::span<Character *const> action_targets,
                                              std::vector<Waypoint> path, float arrival_radius)
-    : dialogs_(&dialogs), action_targets_(action_targets.begin(), action_targets.end()),
-      state_(State::Patrol), path_(std::move(path)), arrival_radius_(arrival_radius)
+    : dialogs_(&dialogs), characters_(std::move(characters)),
+      action_targets_(action_targets.begin(), action_targets.end()), state_(State::Patrol),
+      path_(std::move(path)), arrival_radius_(arrival_radius)
 {
     assert(!path_.empty() && "path must have at least one waypoint");
     current_target_ = path_.size() > 1 ? 1 : 0;
@@ -82,7 +86,8 @@ CharacterIntent AiCharacterController::update(float delta_seconds, Character con
         return glm::distance(target->position(), character.position()) <= 3.0F;
     });
     if (action_targets_.empty() && character.config().party) {
-        auto const *leader = character.config().party->leader();
+        auto const id = character.config().party->leader();
+        auto const *leader = id ? &characters_(*id) : nullptr;
         intent.swing_weapon =
             leader && glm::distance(leader->position(), character.position()) <= 3.0F;
     }
@@ -150,7 +155,8 @@ CharacterIntent AiCharacterController::companion_update(float delta_seconds,
 {
     CharacterIntent intent;
     auto const *party = character.config().party;
-    auto const *leader = party ? party->leader() : nullptr;
+    auto const id = party ? party->leader() : std::nullopt;
+    auto const *leader = id ? &characters_(*id) : nullptr;
     if (!leader || !party->can_command(*leader, character))
         return intent;
 

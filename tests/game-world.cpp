@@ -20,9 +20,15 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace {
+static_assert(std::is_copy_constructible_v<lc1::Party>);
+static_assert(!std::is_convertible_v<lc1::PlayerId, lc1::CharacterId>);
+static_assert(!std::is_invocable_v<decltype(&lc1::Party::command), lc1::Party const &,
+                                   lc1::Character const &, lc1::Character &, lc1::CompanionOrder>);
+
 void check(bool condition, std::string_view message)
 {
     if (!condition)
@@ -152,6 +158,26 @@ void independent_interactions()
           "a response only affects its bound player's conversation");
 }
 
+void snapshot_lifetime()
+{
+    auto const snapshot = [] {
+        lc1::GameWorld world{lc1::Save{"saves/01"}, "dialogs/catalog.yaml"};
+        return lc1::capture_world(world);
+    }();
+    for (auto const &party : snapshot.parties) {
+        if (party.leader())
+            check(!snapshot.character(*party.leader()).name.empty(),
+                  "copied party leaders resolve after the simulation world is destroyed");
+        for (auto id : party.members())
+            check(party.has_member(id) && !snapshot.character(id).name.empty(),
+                  "copied party members resolve without simulation pointers");
+        for (auto id : party.captives())
+            check(party.has_captive(id) && !party.has_member(id) &&
+                      !snapshot.character(id).name.empty(),
+                  "copied parties preserve captive membership semantics");
+    }
+}
+
 void player_party_membership()
 {
     Checkpoint checkpoint;
@@ -165,11 +191,31 @@ void player_party_membership()
     auto *party = leader.config().party;
     check(party->can_recruit(leader, member),
           "a human-controlled ordinary member can join another party");
+    auto const snapshot_before = lc1::capture_world(world);
+    auto const find_party = [](lc1::WorldSnapshot const &snapshot,
+                               std::uint32_t id) -> lc1::Party const & {
+        auto const found = std::ranges::find(snapshot.parties, id, &lc1::Party::keyid);
+        if (found == snapshot.parties.end())
+            throw std::runtime_error("missing snapshot party");
+        return *found;
+    };
+    auto const &old_party = find_party(snapshot_before, party->keyid());
+    check(old_party.leader() == leader.id() && !old_party.has_member(leader.id()) &&
+              !old_party.has_member(member.id()),
+          "shared Party queries distinguish the leader from ordinary members");
     party->recruit(leader, member);
     check(member.config().party == party && member.controller() == controller &&
               member.companion_order() == lc1::CompanionOrder::None &&
               !party->can_command(leader, member),
           "recruitment preserves human control and does not offer AI orders");
+    auto const snapshot_after = lc1::capture_world(world);
+    check(party->has_member(member.id()) &&
+              find_party(snapshot_after, party->keyid()).has_member(member.id()) &&
+              !old_party.has_member(member.id()),
+          "snapshot parties use the same ID queries but own independent rosters");
+    check(&world.character(member.id()) == &member &&
+              snapshot_after.character(member.id()).keyid == member.id().value,
+          "the same CharacterId resolves in the simulation and in its snapshot");
     auto const before = member.position();
     lc1::PlayerControls controls;
     controls.view.keyboard_enabled = true;
@@ -194,7 +240,7 @@ void world_and_checkpoint()
                                  [](auto const *character) { return character->config().keyid; }),
           "runtime roster has stable identity order");
     check(world.player(lc1::PlayerId{1}).config().party->leader() ==
-              &world.player(lc1::PlayerId{1}),
+              world.player(lc1::PlayerId{1}).id(),
           "membership is linked");
     check(find(world, 100025).config().equipment.size() == 1,
           "equipment links survive world assembly");
@@ -284,7 +330,7 @@ void reload_world()
                   !world.dialogs().find(world.player(lc1::PlayerId{1})),
               "reload clears interactions and active conversations");
         check(world.player(lc1::PlayerId{1}).config().party->leader() ==
-                  &world.player(lc1::PlayerId{1}),
+                  world.player(lc1::PlayerId{1}).id(),
               "reload relinks party membership");
         update_world(world, 0, interact);
         check(world.dialogs().dialog_id(world.player(lc1::PlayerId{1})) == "recruit",
@@ -455,6 +501,7 @@ int main()
         control_physics_camera_order();
         independent_interactions();
         player_party_membership();
+        snapshot_lifetime();
         world_and_checkpoint();
         reload_world();
         world_applies_control();

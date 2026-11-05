@@ -2,7 +2,10 @@
 
 #include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/character-pose.hpp"
+#include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/model-config.hpp"
+#include "lc1/game/character/weapon.hpp"
+#include "lc1/game/party/party.hpp"
 #include "lc1/game/player/player-id.hpp"
 
 #include <cstdint>
@@ -26,6 +29,13 @@ struct CharacterSnapshot {
     // Full world speech; each observer decides whether to show it overhead or in the HUD.
     std::string speech;
     std::optional<std::uint32_t> dialog_partner;
+    int age;
+    int level;
+    std::uint32_t party_id;
+    CompanionOrder companion_order;
+    std::map<EquipmentType, Equipment> equipment;
+    std::map<WeaponType, Weapon> weapon;
+    game::Bag bag{0};
 };
 
 struct DialogSnapshot {
@@ -35,7 +45,7 @@ struct DialogSnapshot {
 };
 
 struct PlayerSnapshot {
-    std::uint32_t character_id;
+    CharacterId character_id;
     std::uint64_t input_sequence = 0;
     std::uint64_t input_tick = 0;
     game::Bag bag{0};
@@ -50,9 +60,10 @@ struct WorldSnapshot {
     uint64_t ab;
     std::uint64_t tick = 0;
     std::vector<CharacterSnapshot> characters;
+    std::vector<Party> parties;
     std::map<PlayerId, PlayerSnapshot> players;
 
-    CharacterSnapshot const &character(std::uint32_t id) const;
+    CharacterSnapshot const &character(CharacterId id) const;
     CharacterSnapshot const &player(PlayerId id) const;
 };
 
