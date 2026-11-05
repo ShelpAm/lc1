@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lc1/game/character/model-config.hpp"
+
 #include <cstdint>
 #include <string_view>
 
@@ -19,18 +21,20 @@ struct WeaponProperty {
 
 class Weapon {
   public:
-    Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property);
+    Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property,
+           ModelConfig model_config = {});
 
     std::uint32_t keyid() const;
-
     WeaponType type() const;
-
     WeaponProperty property() const;
+
+    ModelConfig const &model_config() const;
 
   private:
     std::uint32_t keyid_;
     WeaponType type_;
     WeaponProperty property_;
+    ModelConfig model_config_;
 };
 
 } // namespace lc1

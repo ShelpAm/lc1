@@ -57,7 +57,7 @@ std::vector<glm::mat4> ModelInstance::model_matrices() const
     matrices.reserve(local_transforms_.size());
     for (std::size_t i = 0; i < local_transforms_.size(); ++i) {
         auto matrix = local_transforms_[i].matrix();
-        if (auto const parent = model_->nodes()[i].parent)
+        if (auto const parent = model_->nodes()[i].parent_index)
             matrix = matrices[*parent] * matrix;
         for (int column = 0; column < 4; ++column)
             for (int row = 0; row < 4; ++row)
@@ -124,7 +124,7 @@ std::vector<MeshInstance> ModelInstance::mesh_instances(glm::mat4 const &world_t
     std::vector<MeshInstance> instances;
     instances.reserve(model_->draw_count());
     for (std::size_t i = 0; i < model_->nodes().size(); ++i) {
-        if (auto const mesh = model_->nodes()[i].mesh) {
+        if (auto const mesh = model_->nodes()[i].mesh_index) {
             instances.push_back(MeshInstance{
                 .mesh = *mesh, .model_matrix = compose_world_matrix(world_transform, matrices[i])});
         }

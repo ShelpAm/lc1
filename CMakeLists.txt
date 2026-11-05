@@ -103,8 +103,8 @@ add_subdirectory(shaders)
 # and are included as "lc1/..."; src/ holds sources and private headers
 # (e.g. vk/render/vertex-input.hpp) that the app cannot see.
 add_library(lc1_engine STATIC
-    src/window.cpp
-    src/input.cpp
+    src/platform/window.cpp
+    src/platform/input.cpp
     src/error.cpp
     src/image.cpp
     src/vertex.cpp
@@ -241,14 +241,18 @@ endif()
 add_library(lc1_game STATIC
     src/game/actions.cpp
 
+    src/game/character/model-config.cpp
     src/game/character/character-model.cpp
+    src/game/character/character-pose.cpp
     src/game/character/character.cpp
-    src/game/character/character-controller.cpp
+    src/game/physics/character-motion.cpp
+    src/game/physics/world-collision.cpp
     src/game/character/bag.cpp
     src/game/character/equipment.cpp
     src/game/character/weapon.cpp
+    src/game/character/character-controller.cpp
     src/game/character/ai-character-controller.cpp
-    src/game/player/player-controller.cpp
+    src/game/player/player-character-controller.cpp
     src/game/player/player-view.cpp
     src/game/camera/map-camera-controller.cpp
 
@@ -267,10 +271,12 @@ add_library(lc1_game STATIC
     src/game/resources/resource.cpp
     src/game/dialog/dialog.cpp
 
+    src/game/world/world-snapshot.cpp
     src/game/world/game-world.cpp
     src/game/world/world-presentation.cpp
     src/game/world/interactable.cpp
 
+    src/game/session/game-simulation.cpp
     src/game/session/game-session.cpp
     src/game/session/save.cpp
 
@@ -278,8 +284,10 @@ add_library(lc1_game STATIC
     src/game/ui/music-browser.cpp
 
     src/game/debug/pbr-showcase.cpp
+    src/game/debug/world-setup.cpp
 )
-target_link_libraries(lc1_game PUBLIC lc1_engine imgui::imgui)
+find_package(Threads REQUIRED)
+target_link_libraries(lc1_game PUBLIC lc1_engine imgui::imgui Threads::Threads)
 
 # app: the game executable. Output name stays lc1 so the Makefile works.
 add_executable(lc1
@@ -422,6 +430,14 @@ if(BUILD_TESTING)
     add_executable(lc1_tangent_tests tests/tangent-space.cpp)
     target_link_libraries(lc1_tangent_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_tangent_tests)
+    add_executable(lc1_game_simulation_tests tests/game-simulation.cpp)
+    target_link_libraries(lc1_game_simulation_tests PRIVATE lc1_game)
+    lc1_enable_warnings(lc1_game_simulation_tests)
+    if(MINGW)
+        target_link_options(lc1_game_simulation_tests PRIVATE -static)
+    endif()
+    add_test(NAME game_simulation COMMAND lc1_game_simulation_tests
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/tests/fixtures")
     add_executable(lc1_game_world_tests tests/game-world.cpp)
     target_link_libraries(lc1_game_world_tests PRIVATE lc1_game)
     lc1_enable_warnings(lc1_game_world_tests)

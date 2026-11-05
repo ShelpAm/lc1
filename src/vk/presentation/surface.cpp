@@ -1,7 +1,7 @@
 #include "lc1/vk/presentation/surface.hpp"
 
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/instance.hpp"
-#include "lc1/window.hpp"
 
 #include <GLFW/glfw3.h>
 

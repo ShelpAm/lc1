@@ -78,7 +78,7 @@ Model Model::load_from_obj(std::filesystem::path const &path)
 
 Model::Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices)
     : Model({Mesh(std::move(vertices), std::move(indices))},
-            {ModelNode{.name = "root (from raw mesh)", .mesh = 0}})
+            {ModelNode{.name = "root (from raw mesh)", .mesh_index = 0}})
 {
 }
 

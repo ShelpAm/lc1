@@ -1,9 +1,9 @@
 #pragma once
 
-#include "lc1/game/world/game-world.hpp"
+#include "lc1/game/world/world-snapshot.hpp"
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/render/text-pass.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
-#include "lc1/window.hpp"
 #include <array>
 #include <optional>
 #include <span>
@@ -13,9 +13,10 @@ class MusicBrowser;
 struct GameLocation;
 
 struct GameUiInfo {
-    Character *player; // Non-null borrow of the current player, valid during GameUi::update().
+    std::string_view player_name;
+    std::string_view player_faction;
+    std::size_t companion_count = 0;
     game::Bag const &bag;
-    std::vector<Party *> player_parties; // Parties related to current player
     std::span<std::string const> saves;
     std::string_view current_save;
     FrameExtent extent;
@@ -52,8 +53,9 @@ class GameUi {
 
     void set_save_status(std::string status);
 
-    std::vector<ScreenTextItem> screen_labels(GameWorld const &world, GpuFont const &font,
-                                              FrameExtent extent, GameLocation location) const;
+    std::vector<ScreenTextItem> screen_labels(WorldSnapshot const &world, PlayerId observer,
+                                              GpuFont const &font, FrameExtent extent,
+                                              GameLocation location) const;
 
   private:
     void player_info(GameUiInfo const &info);
@@ -66,11 +68,8 @@ class GameUi {
     bool save_open_ = false;
     bool load_open_ = false;
     bool player_info_opened_ = false;
-    std::optional<std::uint32_t> selected_party_;
-    std::optional<std::uint32_t> selected_character_;
     std::optional<std::uint32_t> selected_resource_;
     int inventory_category_ = 0;
-    int selected_slot_ = 1;
 };
 
 } // namespace lc1

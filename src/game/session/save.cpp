@@ -1,10 +1,12 @@
 #include "lc1/game/session/save.hpp"
 
 #include "lc1/error.hpp"
+#include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
+#include "lc1/game/resources/catalog.hpp"
 
 #include <rfl/yaml.hpp>
 
@@ -59,6 +61,11 @@ struct CheckpointHeader {
     std::uint32_t version;
 };
 
+struct LegacySession {
+    std::uint32_t player;
+    std::uint32_t example;
+};
+
 struct LegacyCharacterState {
     std::uint32_t keyid;
     float x;
@@ -72,7 +79,7 @@ struct LegacyCharacterState {
 
 template <typename State> struct LegacyWorldData {
     std::uint32_t version;
-    SerializedSession session;
+    LegacySession session;
     std::vector<SerializedFaction> factions;
     std::vector<SerializedEquipment> equipments;
     std::vector<SerializedWeapon> weapons;
@@ -81,48 +88,96 @@ template <typename State> struct LegacyWorldData {
     std::vector<State> states;
 };
 
+struct LegacyCommandState {
+    std::uint32_t keyid;
+    float x;
+    float y;
+    float z;
+    float body_yaw;
+    float look_yaw;
+    float look_pitch;
+    bool patrol;
+    CompanionOrder companion_order;
+};
+
+struct LegacyContinentWorld {
+    std::uint32_t version;
+    ContinentIdentity continent;
+    LegacySession session;
+    std::vector<SerializedFaction> factions;
+    std::vector<SerializedEquipment> equipments;
+    std::vector<SerializedWeapon> weapons;
+    std::vector<SerializedParty> parties;
+    std::vector<SerializedCharacterConfig> characters;
+    std::vector<LegacyCommandState> states;
+};
+
+struct LegacyInventoryWorld {
+    std::uint32_t version;
+    ContinentIdentity continent;
+    LegacySession session;
+    std::vector<SerializedFaction> factions;
+    std::vector<SerializedEquipment> equipments;
+    std::vector<SerializedWeapon> weapons;
+    std::vector<SerializedParty> parties;
+    std::vector<SerializedCharacterConfig> characters;
+    std::vector<SerializedCharacterState> states;
+};
+
+template <typename Legacy> SerializedWorld upgrade_checkpoint(Legacy legacy)
+{
+    SerializedWorld world{
+        .session = {.players = {{1, legacy.session.player}}, .example = legacy.session.example},
+        .factions = std::move(legacy.factions),
+        .equipments = std::move(legacy.equipments),
+        .weapons = std::move(legacy.weapons),
+        .parties = std::move(legacy.parties),
+        .characters = std::move(legacy.characters),
+        .states = {}};
+    if constexpr (requires { legacy.continent; })
+        world.continent = std::move(legacy.continent);
+    for (auto const &state : legacy.states) {
+        auto &upgraded =
+            world.states.emplace_back(SerializedCharacterState{.keyid = state.keyid,
+                                                               .x = state.x,
+                                                               .y = state.y,
+                                                               .z = state.z,
+                                                               .body_yaw = state.body_yaw,
+                                                               .look_yaw = state.look_yaw,
+                                                               .look_pitch = state.look_pitch,
+                                                               .patrol = state.patrol});
+        if constexpr (requires { state.companion_order; })
+            upgraded.companion_order = state.companion_order;
+        if constexpr (requires { state.bag; }) {
+            upgraded.bag_capacity = state.bag_capacity;
+            upgraded.bag = state.bag;
+        }
+    }
+    return world;
+}
+
 SerializedWorld read_checkpoint(std::filesystem::path const &directory)
 {
     auto const version =
         read_save_file_single<CheckpointHeader>(directory, "checkpoint.yaml").version;
-    if (version == 3)
+    switch (version) {
+    case 5:
         return read_save_file_single<SerializedWorld>(directory, "checkpoint.yaml");
-    if (version == 2) {
-        auto legacy = read_save_file_single<LegacyWorldData<SerializedCharacterState>>(
-            directory, "checkpoint.yaml");
-        return {.version = 3,
-                .continent = {"present", 1},
-                .session = legacy.session,
-                .factions = std::move(legacy.factions),
-                .equipments = std::move(legacy.equipments),
-                .weapons = std::move(legacy.weapons),
-                .parties = std::move(legacy.parties),
-                .characters = std::move(legacy.characters),
-                .states = std::move(legacy.states)};
-    }
-    if (version != 1)
+    case 4:
+        return upgrade_checkpoint(
+            read_save_file_single<LegacyInventoryWorld>(directory, "checkpoint.yaml"));
+    case 3:
+        return upgrade_checkpoint(
+            read_save_file_single<LegacyContinentWorld>(directory, "checkpoint.yaml"));
+    case 2:
+        return upgrade_checkpoint(read_save_file_single<LegacyWorldData<LegacyCommandState>>(
+            directory, "checkpoint.yaml"));
+    case 1:
+        return upgrade_checkpoint(read_save_file_single<LegacyWorldData<LegacyCharacterState>>(
+            directory, "checkpoint.yaml"));
+    default:
         fail("unsupported checkpoint version {}", version);
-    auto legacy =
-        read_save_file_single<LegacyWorldData<LegacyCharacterState>>(directory, "checkpoint.yaml");
-    SerializedWorld world{.version = 3,
-                          .session = legacy.session,
-                          .factions = std::move(legacy.factions),
-                          .equipments = std::move(legacy.equipments),
-                          .weapons = std::move(legacy.weapons),
-                          .parties = std::move(legacy.parties),
-                          .characters = std::move(legacy.characters),
-                          .states = {}};
-    for (auto const &state : legacy.states)
-        world.states.push_back({.keyid = state.keyid,
-                                .x = state.x,
-                                .y = state.y,
-                                .z = state.z,
-                                .body_yaw = state.body_yaw,
-                                .look_yaw = state.look_yaw,
-                                .look_pitch = state.look_pitch,
-                                .patrol = state.patrol,
-                                .companion_order = CompanionOrder::None});
-    return world;
+    }
 }
 
 // A duplicate keyid means two records claim the same identity; keeping either one
@@ -146,6 +201,13 @@ template <typename Map> auto sorted_records(Map const &map)
     return records;
 }
 
+bool valid_slot_name(std::string_view name)
+{
+    return !name.empty() && name.size() <= 128 && name.front() != ' ' && name.back() != ' ' &&
+           name.back() != '.' && name.find_first_of("/\\:<>\"|?*") == std::string_view::npos &&
+           std::ranges::none_of(name, [](unsigned char c) { return c < 32 || c == 127; });
+}
+
 std::string path_utf8(std::filesystem::path const &path)
 {
     auto const utf8 = path.u8string();
@@ -156,10 +218,7 @@ std::string path_utf8(std::filesystem::path const &path)
 
 std::filesystem::path Save::slot_directory(std::filesystem::path const &root, std::string_view name)
 {
-    if (name.empty() || name == "." || name == ".." || name.size() > 128 || name.front() == ' ' ||
-        name.back() == ' ' || name.back() == '.' ||
-        name.find_first_of("/\\:<>\"|?*") != std::string_view::npos ||
-        std::ranges::any_of(name, [](unsigned char c) { return c < 32 || c == 127; }))
+    if (!valid_slot_name(name))
         fail("invalid save name: use 1-128 bytes without path separators or reserved characters");
     return root / std::filesystem::path{std::u8string{name.begin(), name.end()}};
 }
@@ -183,12 +242,8 @@ std::vector<std::string> Save::slots(std::filesystem::path const &root)
             auto const utf8 = path.filename().u8string();
             std::string name(utf8.begin(), utf8.end());
             // Exclude directories that cannot be selected through the naming interface.
-            try {
-                slot_directory(root, name);
+            if (valid_slot_name(name))
                 result.push_back(std::move(name));
-            }
-            catch (Error const &) {
-            }
         }
     }
     std::ranges::sort(result);
@@ -221,9 +276,10 @@ Save::Save(std::filesystem::path directory, SerializedWorld const &world)
 
 void Save::read_world(SerializedWorld const &world)
 {
-    if (world.version != 3)
+    if (world.version != 5)
         fail("unsupported checkpoint version {}", world.version);
     session_ = world.session;
+    std::ranges::sort(session_.players, {}, &SerializedPlayer::keyid);
     continent_ = world.continent;
     for (auto const &record : world.factions)
         insert_unique(factions_, record, "faction");
@@ -235,15 +291,17 @@ void Save::read_world(SerializedWorld const &world)
         insert_unique(parties_, record, "party");
     for (auto const &record : world.characters)
         insert_unique(characters_, record, "character");
-    for (auto const &record : world.states)
+    for (auto record : world.states) {
+        std::ranges::sort(record.bag, {}, &SerializedResourceStack::keyid);
         insert_unique(states_, record, "character state");
+    }
     if (states_.size() != characters_.size())
         fail("checkpoint must contain one state per character");
 }
 
 SerializedWorld Save::data() const
 {
-    return {.version = 3,
+    return {.version = 5,
             .continent = continent_,
             .session = session_,
             .factions = sorted_records(factions_),
@@ -285,7 +343,8 @@ SerializedCharacterConfig serialize_character(Character const &character)
                                      .party = config.party->keyid(),
                                      .level = config.level,
                                      .equipment = {},
-                                     .weapon = {}};
+                                     .weapon = {},
+                                     .model = config.model};
     for (auto const &[slot, equipment] : config.equipment)
         record.equipment.emplace(slot, equipment->keyid());
     for (auto const &[slot, weapon] : config.weapon)
@@ -297,17 +356,23 @@ SerializedCharacterState serialize_character_state(Character const &character)
 {
     auto const position = character.position();
     auto const order = character.companion_order();
-    return {.keyid = character.config().keyid,
-            .x = position.x,
-            .y = position.y,
-            .z = position.z,
-            .body_yaw = character.body_yaw(),
-            .look_yaw = character.look_yaw(),
-            .look_pitch = character.look_pitch(),
-            // A companion controller is a party order, not the patrol example. The order
-            // itself is serialized separately and restored by Party::command.
-            .patrol = order == CompanionOrder::None && character.controller() != nullptr,
-            .companion_order = order};
+    SerializedCharacterState record{
+        .keyid = character.config().keyid,
+        .x = position.x,
+        .y = position.y,
+        .z = position.z,
+        .body_yaw = character.body_yaw(),
+        .look_yaw = character.look_yaw(),
+        .look_pitch = character.look_pitch(),
+        // A companion order replaces the patrol behavior, not the controller. The order
+        // itself is serialized separately and restored by Party::command.
+        .patrol = character.ai_controller() && character.ai_controller()->patrolling(),
+        .companion_order = order,
+        .bag_capacity = character.bag().max_weight()};
+    for (auto const &[keyid, quantity] : character.bag().quantities())
+        record.bag.push_back({keyid, quantity});
+    std::ranges::sort(record.bag, {}, &SerializedResourceStack::keyid);
+    return record;
 }
 
 SerializedParty serialize_party(Party const &party)
@@ -377,23 +442,30 @@ void Save::read_characters()
 void Save::read_session()
 {
     session_ = read_save_file_single<SerializedSession>(directory_, "session.yaml");
-    if (session_.player == 0)
-        fail("session.yaml must name the player character");
-    spdlog::info("[save] {}: session player {} example {} loaded", directory_.string(),
-                 session_.player, session_.example);
+    spdlog::info("[save] {}: {} player bindings, example {} loaded", directory_.string(),
+                 session_.players.size(), session_.example);
 }
 
 void Save::validate_references() const
 {
+    for (auto const &[_, weapon] : weapons_)
+        validate_model_config(weapon.model.value());
+    for (auto const &[_, character] : characters_)
+        validate_model_config(character.model.value());
+
     Continent::validate_identity(continent_);
-    if (session_.player == 0)
-        fail("session.yaml must name the player character");
-    // The session goes first: a save that cannot say who the player is has no business
-    // building a world, and the zero sentinel would otherwise report character 0.
-    character(session_.player, "session player");
+    std::unordered_set<std::uint32_t> player_ids;
+    std::unordered_set<std::uint32_t> controlled_characters;
+    for (auto const &binding : session_.players) {
+        if (binding.keyid == 0 || !player_ids.insert(binding.keyid).second)
+            fail("player keyid must be nonzero and unique: {}", binding.keyid);
+        character(binding.character, "player binding");
+        if (!controlled_characters.insert(binding.character).second)
+            fail("character {} has multiple players", binding.character);
+    }
     if (session_.example != 0) {
-        if (session_.example == session_.player)
-            fail("session example {} is also the player", session_.example);
+        if (controlled_characters.contains(session_.example))
+            fail("session example {} is also player-controlled", session_.example);
         character(session_.example, "session example");
     }
     for (auto const &entry : parties_) {
@@ -407,6 +479,7 @@ void Save::validate_references() const
         for (auto const captive : party.captives)
             character(captive, std::format("party {} captive", party.keyid));
     }
+    std::unordered_set<std::uint32_t> displayed_weapons;
     for (auto const &entry : characters_) {
         auto const &character_record = entry.second;
         if (!parties_.contains(character_record.party))
@@ -416,10 +489,14 @@ void Save::validate_references() const
             if (!equipments_.contains(slot.second))
                 fail("character {} refers to unknown equipment {}", character_record.keyid,
                      slot.second);
-        for (auto const &slot : character_record.weapon)
+        for (auto const &slot : character_record.weapon) {
             if (!weapons_.contains(slot.second))
                 fail("character {} refers to unknown weapon {}", character_record.keyid,
                      slot.second);
+            if (!weapons_.at(slot.second).model.value().path.value().empty() &&
+                !displayed_weapons.insert(slot.second).second)
+                fail("weapon {} with a model is equipped by multiple characters", slot.second);
+        }
     }
     // Keep referential diagnostics above independent of membership checks below.
     for (auto const &[_, party] : parties_) {
@@ -460,6 +537,18 @@ void Save::validate_references() const
     }
     for (auto const &[id, state] : states_) {
         character(id, "checkpoint state");
+        game::Bag bag{state.bag_capacity};
+        std::unordered_set<std::uint32_t> resources;
+        for (auto const &stack : state.bag) {
+            auto const *resource = game::find_resource(stack.keyid);
+            if (!resource)
+                fail("character {} bag refers to unknown resource {}", id, stack.keyid);
+            if (stack.quantity == 0 || !resources.insert(stack.keyid).second)
+                fail("character {} bag contains a zero quantity or duplicate resource {}", id,
+                     stack.keyid);
+            if (!bag.add(*resource, stack.quantity))
+                fail("character {} bag exceeds its capacity", id);
+        }
         if (!std::isfinite(state.x) || !std::isfinite(state.y) || !std::isfinite(state.z) ||
             !std::isfinite(state.body_yaw) || !std::isfinite(state.look_yaw) ||
             !std::isfinite(state.look_pitch) || std::abs(state.look_yaw) > 85.0F ||
@@ -473,7 +562,8 @@ void Save::validate_references() const
             fail("character {} has an invalid companion order", id);
         if (state.companion_order != CompanionOrder::None) {
             auto const &party = parties_.at(characters_.at(id).party);
-            if (state.patrol || party.leader == 0 || !std::ranges::contains(party.members, id))
+            if (controlled_characters.contains(id) || state.patrol || party.leader == 0 ||
+                !std::ranges::contains(party.members, id))
                 fail("character {} has an ineligible companion order", id);
         }
     }
@@ -501,9 +591,17 @@ ContinentIdentity const &Save::continent() const
     return continent_;
 }
 
-std::uint32_t Save::player() const
+std::uint32_t Save::player(PlayerId id) const
 {
-    return session_.player;
+    auto const binding = std::ranges::find(session_.players, id.value, &SerializedPlayer::keyid);
+    if (binding == session_.players.end())
+        fail("unknown player {}", id.value);
+    return binding->character;
+}
+
+std::vector<SerializedPlayer> const &Save::players() const
+{
+    return session_.players;
 }
 
 std::uint32_t Save::example() const

@@ -29,7 +29,11 @@ Scene 通过 `unordered_map<T const*, unique_ptr<T>>` 独占拥有灯光参数�
 Scene 不拥有 GPU 资产，也不认识角色等玩法类型。
 返回的指针在对应条目删除或场景销毁时失效；添加、rehash 或删除其他条目不使其失效。
 
-`WorldPresentation` 在装配时注册地形、展示物和角色模型实例，保存角色与场景实例借用指针的关联，决定播放哪个动画。
+`WorldPresentation` 在装配时注册地形、展示物、角色和各角色已装备近战武器的模型实例，决定播放哪个动画。
+`Character` 和 `Weapon` 不保存模型实例借用，模拟线程不访问 Scene。
+`WorldPresentation` 按角色 ID 保存角色/武器实例关联，从主线程快照单向提交姿态，
+并在攻击序号变化时播放武器动作。Scene 继续独占实例，GPU 资源与材质仍由表现层拥有。
+角色名单和装备关联在表现层存活期间保持不变；重新加载通过替换完整会话完成。
 Scene 的 `SceneModel` 拥有 `ModelInstance`（节点姿态和播放状态），借用完整的 `GpuModel` 和材质，由同一资产初始化姿态并取得 GPU 网格，
 并保存游戏层提交的世界矩阵与可见性、阴影／深度偏移标记。上述借用在条目删除前必须存活且不移动。
 每次世界更新后，表现层提交角色最终世界矩阵，Scene 通过 `update_animations()` 推进所有模型动画，
@@ -94,13 +98,15 @@ OBJ、程序化顶点/索引构造生成一个引用网格 0 的单位根节点�
 占位角色的 `Eyes` 节点挂在头部下；表现层保存挂点索引，在动画更新后向 Scene 查询，
 把眼睛世界变换（位置与旋转）交给第一人称相机。
 
-当前 `WorldPresentation` 通过 `GpuModel{device, make_character_model(body)}` 创建共享角色资源，
+当前 `WorldPresentation` 按角色与武器的 YAML 模型配置加载 GPU 资源；相同配置共享资源与材质，
+占位几何另外按身体尺寸区分，贴图按规范路径和色彩空间共享。
 加载用的 CPU 几何在 GpuModel 构造返回前释放；
 在 Scene 中为每个角色创建独立 `ModelInstance`，游戏层只保存借用指针。
 占位内容由 `make_character_model()` 构造，身体和头部是两个网格节点，共享定义中有头部左右转动的 `Idle` 和双次点头的 `Nod`；
-表现层按玩家身份选择 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置从 `Character` 读取，更新末尾将角色世界矩阵提交给 Scene。
+角色与武器的模型路径、节点、局部变换、材质及动画字段见[模型配置](save-data.md#角色与武器的-model)，
+玩家保留 `Nod`，NPC 使用独立相位的 `Idle`。角色世界位置从 `WorldSnapshot` 读取，更新末尾将角色世界矩阵提交给 Scene。
 帧容量按每个角色实际展开的绘制项数量计算并检查 uint32 上限。
-待机动画不是行走、攻击或 root motion；表现时间与会话一致，每帧最多推进 0.1 秒。
+待机动画不是行走、攻击或 root motion；表现时间与渲染帧一致；固定模拟与线程交换见[代码边界](code-layout.md#固定步长模拟与线程交换)。
 
 `Model::load_from_file()` 支持 OBJ、glTF 和 GLB。glTF 导入默认场景（未指定时选第一个场景）；
 没有 scene 时推导所有根节点。只导入选中场景的节点及其动画通道，按父先子后重排并重映射动画目标。

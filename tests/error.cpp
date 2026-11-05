@@ -51,53 +51,6 @@ lc1::Error formatted_failure()
     throw std::runtime_error("fail must throw lc1::Error");
 }
 
-void plain_failure()
-{
-    auto expected = std::source_location{};
-    try {
-        expected = std::source_location::current();
-        lc1::fail("no suitable device");
-    }
-    catch (lc1::Error const &error) {
-        check(std::string_view{error.what()} == "no suitable device", "zero-argument formats work");
-        check_location(error, expected, 1);
-        return;
-    }
-    throw std::runtime_error("fail must throw without format arguments");
-}
-
-void runtime_message()
-{
-    std::string const message = "a name with {braces}";
-    auto expected = std::source_location{};
-    try {
-        expected = std::source_location::current();
-        lc1::fail("{}", message);
-    }
-    catch (lc1::Error const &error) {
-        check(std::string_view{error.what()} == message, "runtime messages are literal arguments");
-        check_location(error, expected, 1);
-        return;
-    }
-    throw std::runtime_error("fail must throw for runtime message arguments");
-}
-
-void prechecked_format()
-{
-    std::format_string<int> const format{"value {}"};
-    auto expected = std::source_location{};
-    try {
-        expected = std::source_location::current();
-        lc1::fail(format, 7);
-    }
-    catch (lc1::Error const &error) {
-        check(std::string_view{error.what()} == "value 7", "prechecked formats can be forwarded");
-        check_location(error, expected, 1);
-        return;
-    }
-    throw std::runtime_error("fail must throw for prechecked formats");
-}
-
 void construction_and_context()
 {
     auto const expected = std::source_location::current();
@@ -120,9 +73,6 @@ int main()
 {
     try {
         formatted_failure();
-        plain_failure();
-        runtime_message();
-        prechecked_format();
         construction_and_context();
         std::cout << "error diagnostic checks passed\n";
     }

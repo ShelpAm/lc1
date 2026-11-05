@@ -1,12 +1,14 @@
 #pragma once
 
-#include "lc1/game/resources/resource.hpp"
+#include <cstdint>
 
 namespace lc1::game {
 
+// A reference to an item definition and how many of it. Entries carry the keyid instead of a
+// borrowed definition, so a stack can be stored, copied and serialized; the definition is
+// resolved wherever its name or weight is needed.
 struct ResourceStack {
-    // Required non-null borrow; the immutable definition must outlive this stack.
-    Resource const *resource;
+    std::uint32_t keyid;
     std::uint32_t quantity;
 };
 

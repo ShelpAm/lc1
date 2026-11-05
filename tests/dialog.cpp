@@ -67,8 +67,8 @@ lc1::CharacterConfig config(std::uint32_t id, std::string name, lc1::Party &part
 struct World {
     lc1::Continent continent = make_world();
     lc1::Faction faction{1, "Faction"};
-    lc1::Party party{1, &faction};
-    lc1::Party other{2, &faction};
+    lc1::Party party;
+    lc1::Party other;
     lc1::Character player{continent, {.position = continent.spawn()}, config(1, "Player", party)};
     lc1::Character captive{continent, {.position = continent.spawn()}, config(2, "Captive", party)};
     lc1::Character leader{continent, {.position = continent.spawn()}, config(3, "Leader", other)};
@@ -76,13 +76,12 @@ struct World {
     lc1::Character passerby{
         continent, {.position = continent.spawn()}, config(5, "Passerby", other)};
 
-    World()
+    explicit World(lc1::DialogSystem const &dialogs) : party(1, &faction), other(2, &faction)
     {
-        party.set_leader(&player);
-        party.add_captive(&captive);
-        other.set_leader(&leader);
-        other.add_member(&worker);
-        other.add_member(&passerby);
+        for (auto *character : {&captive, &leader, &worker, &passerby})
+            character->set_controller(std::make_unique<lc1::AiCharacterController>(dialogs));
+        party.restore_roster(&player, {}, {&captive});
+        other.restore_roster(&leader, {&worker, &passerby}, {});
     }
 
     auto participants()
@@ -95,12 +94,13 @@ struct World {
 void tick(lc1::DialogSystem &system, World const &world, float seconds = 1.5F)
 {
     // Empty scheduling roster advances existing sessions without initiating new ones.
-    system.update(seconds, {}, &world.player, false);
+    system.update(seconds, {}, std::array{lc1::DialogPlayer{&world.player, false}});
 }
 
 void rules_and_lifecycle(std::filesystem::path const &path)
 {
-    World world;
+    lc1::DialogSystem system{path};
+    World world{system};
     lc1::DialogCatalog catalog{path};
     check(catalog.select(world.player, world.captive, lc1::DialogTrigger::Interaction) == "recruit",
           "recruitment takes precedence over same-party dialogue");
@@ -108,7 +108,6 @@ void rules_and_lifecycle(std::filesystem::path const &path)
           "an unrelated leader uses the fallback");
     rejects([&] { catalog.script("missing"); }, "unknown script ids fail");
 
-    lc1::DialogSystem system{path};
     lc1::InteractableCharacter interaction{&world.captive, &system};
     check(interaction.can_interact(world.player),
           "interactive characters query shared availability");
@@ -147,8 +146,8 @@ void rules_and_lifecycle(std::filesystem::path const &path)
 
 void npc_initiates_and_player_decides(std::filesystem::path const &path)
 {
-    World world;
     lc1::DialogSystem system{path};
+    World world{system};
     check(!system.start(world.captive, world.player, lc1::DialogTrigger::Nearby),
           "ambient conversations observe the initial quiet period");
     tick(system, world, 8.0F);
@@ -180,10 +179,23 @@ void npc_initiates_and_player_decides(std::filesystem::path const &path)
     check(system.start(world.captive, world.player, lc1::DialogTrigger::Nearby),
           "ambient requests become eligible after the cooldown");
     dialog = system.find(world.player);
+    auto *const original_controller = world.captive.controller();
     dialog->respond(world.player, 0);
     check(world.party.members().size() == 1 && world.party.captives().empty() &&
-              world.captive.config().party == &world.party && dialog->displaying_response(),
+              world.captive.config().party == &world.party &&
+              world.captive.controller() == original_controller && dialog->displaying_response(),
           "explicit Target recruiter roles let the player recruit an initiating NPC");
+    auto request = world.captive.controller()->update(0.1F, world.captive);
+    check(request.move == glm::vec2{} && !request.swing_weapon && request.body_direction &&
+              world.captive.companion_order() == lc1::CompanionOrder::Follow,
+          "recruitment keeps the existing AI and pauses following during the active dialog");
+    world.party.command(world.player, world.captive, lc1::CompanionOrder::Wait);
+    request = world.captive.controller()->update(0.1F, world.captive);
+    check(world.captive.controller() == original_controller && request.move == glm::vec2{} &&
+              !request.swing_weapon && request.body_direction &&
+              world.captive.companion_order() == lc1::CompanionOrder::Wait,
+          "the same AI accepts a wait order during the active dialog");
+    world.party.command(world.player, world.captive, lc1::CompanionOrder::Follow);
     dialog->respond(world.player, 0);
     check(world.party.members().size() == 1,
           "repeated input cannot repeat an action during a reply");
@@ -193,12 +205,43 @@ void npc_initiates_and_player_decides(std::filesystem::path const &path)
     dialog->respond(world.player, 0);
     tick(system, world);
     check(!system.find(world.player), "the final response releases both participants");
+    world.player.move(world.continent, {4, 0, 0});
+    world.captive.update(0.1F, world.continent);
+    check(world.captive.position().x > 0 &&
+              world.captive.companion_order() == lc1::CompanionOrder::Follow,
+          "the existing controller resumes following when its bound dialog ends");
+}
+
+void two_human_participants(std::filesystem::path const &path)
+{
+    lc1::DialogSystem system{path};
+    World world{system};
+    std::array const players{lc1::DialogPlayer{&world.player, true},
+                             lc1::DialogPlayer{&world.leader, false}};
+    check(system.start(world.leader, world.player),
+          "a human-controlled character can initiate dialogue with another");
+    auto const before = system.find(world.leader)->current_node_id();
+    system.update(3, {}, players);
+    check(system.find(world.leader)->current_node_id() == before &&
+              !system.find(world.leader)->displaying_response(),
+          "the second human waits for manual input in a player-to-player conversation");
+    system.find(world.leader)->respond(world.player, 0);
+    check(!system.find(world.leader)->displaying_response(),
+          "the other player cannot answer for the respondent");
+    system.find(world.leader)->respond(world.leader, 1);
+    check(system.find(world.leader)->displaying_response(),
+          "the bound respondent can choose manually");
+    system.clear();
+    auto roster = world.participants();
+    system.update(8, roster, players);
+    check(!system.find(world.leader),
+          "ambient request gating applies independently to the second player");
 }
 
 void npc_policy_and_limits(std::filesystem::path const &path)
 {
-    World world;
     lc1::DialogSystem system{path};
+    World world{system};
     check(system.start(world.leader, world.worker),
           "NPC-only conversations can use interaction rules");
     auto *dialog = system.find(world.leader);
@@ -230,12 +273,12 @@ void npc_policy_and_limits(std::filesystem::path const &path)
 
 void ambient_scheduling_and_patrol(std::filesystem::path const &path)
 {
-    World world;
     lc1::DialogSystem system{path};
+    World world{system};
     auto const participants = world.participants();
-    system.update(7.0F, participants, &world.player, false);
+    system.update(7.0F, participants, std::array{lc1::DialogPlayer{&world.player, false}});
     check(!system.find(world.captive), "NPCs do not initiate immediately on load");
-    system.update(1.0F, participants, &world.player, false);
+    system.update(1.0F, participants, std::array{lc1::DialogPlayer{&world.player, false}});
     check(!system.find(world.player) && system.find(world.captive) == system.find(world.leader) &&
               system.find(world.worker) == system.find(world.passerby) &&
               system.find(world.worker) != system.find(world.captive),
@@ -244,31 +287,30 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
     check(first->talker() == &world.captive && first->target() == &world.leader,
           "equal-distance scheduling uses character ids as a stable tie break");
 
-    world.captive.set_controller(
-        std::make_unique<lc1::AiCharacterController>(std::vector<lc1::Waypoint>{
-            {.position = world.continent.spawn()}, {.position = {4.0F, 0.0F, 0.0F}}}));
+    world.captive.set_controller(std::make_unique<lc1::AiCharacterController>(
+        system, std::array{&world.player},
+        std::vector<lc1::Waypoint>{{.position = world.continent.spawn()},
+                                   {.position = {4.0F, 0.0F, 0.0F}}}));
     auto const original = world.captive.position();
-    auto step = [&](bool controller_enabled) {
-        auto intent = lc1::CharacterIntent{};
-        if (controller_enabled && world.captive.controller())
-            intent = world.captive.controller()->update(0.1F, world.captive);
-        world.captive.update(0.1F, world.continent, intent);
-    };
-    step(!system.find(world.captive));
+    auto const talking = world.captive.controller()->update(0.1F, world.captive);
+    check(talking.body_direction && talking.move == glm::vec2{} && !talking.swing_weapon,
+          "bound dialog lookup overrides patrol movement and attacks");
+    world.captive.update(0.1F, world.continent);
     check(world.captive.position() == original && world.captive.controller(),
           "conversation pauses patrol without deleting its controller");
     system.interrupt(world.captive);
-    step(!system.find(world.captive));
+    world.captive.update(0.1F, world.continent);
     check(world.captive.position().x > original.x && world.captive.controller(),
           "interruption resumes the same patrol controller");
     world.captive.request_jump();
-    step(false);
+    check(system.start(world.captive, world.leader), "a new dialog pauses patrol again");
+    world.captive.update(0.1F, world.continent);
     check(!world.captive.on_ground(), "paused controllers do not pause physical simulation");
 
-    World another;
     lc1::DialogSystem requests{path};
+    World another{requests};
     auto const roster = another.participants();
-    requests.update(8.0F, roster, &another.player, true);
+    requests.update(8.0F, roster, std::array{lc1::DialogPlayer{&another.player, true}});
     auto const *request = requests.find(another.player);
     check(request && request->talker() == &another.captive &&
               request->respondent() == &another.player,
@@ -279,15 +321,15 @@ void ambient_scheduling_and_patrol(std::filesystem::path const &path)
 
 void nearby_search_boundaries(std::filesystem::path const &path)
 {
-    World world;
+    lc1::DialogSystem system{path};
+    World world{system};
     // Lower id wins an equal-distance tie even when X sorting visits it last.
     world.captive.move(world.continent, {1, 0, 0});
     world.leader.move(world.continent, {-1, 0, 0});
     world.worker.move(world.continent, {0, 0, 8});
     world.passerby.move(world.continent, {0, 0, -8});
-    lc1::DialogSystem system{path};
     auto const roster = world.participants();
-    system.update(8.0F, roster, nullptr, true);
+    system.update(8.0F, roster, {});
     auto const *dialog = system.find(world.player);
     check(dialog && dialog->target() == &world.captive,
           "equal-distance targets use keyid rather than X traversal order");
@@ -296,7 +338,7 @@ void nearby_search_boundaries(std::filesystem::path const &path)
           "clear removes participant indices");
     world.captive.move(world.continent, {3, 0, 0});
     world.leader.move(world.continent, {-7, 0, 0});
-    system.update(0.0F, roster, nullptr, true);
+    system.update(0.0F, roster, {});
     check(system.find(world.player) && system.find(world.player)->target() == &world.captive,
           "targets exactly on the positive X radius boundary are included");
     system.interrupt(world.player);
@@ -314,7 +356,7 @@ void nearby_search_boundaries(std::filesystem::path const &path)
           "timeout removes participant indices");
     system.clear();
     world.captive.move(world.continent, {-8, 0, 0});
-    system.update(0.0F, roster, nullptr, true);
+    system.update(0.0F, roster, {});
     check(system.find(world.player) && system.find(world.player)->target() == &world.captive,
           "targets exactly on the negative X radius boundary are included");
 }
@@ -378,7 +420,8 @@ void invalid_catalogs(std::filesystem::path const &path)
         output << custom;
     }
     lc1::DialogCatalog catalog{directory.path / "catalog.yaml"};
-    World world;
+    lc1::DialogSystem system{path};
+    World world{system};
     check(catalog.select(world.player, world.captive, lc1::DialogTrigger::Interaction) == "recruit",
           "character filters can specialize a rule");
     check(catalog.select(world.leader, world.worker, lc1::DialogTrigger::Interaction) ==
@@ -406,6 +449,7 @@ void benchmark(std::filesystem::path const &path)
                         .roads = {},
                         .height_samples = {}}};
     lc1::Faction faction{1, "Faction"};
+    lc1::DialogSystem system{path};
     lc1::Party party{1, &faction};
     std::vector<std::unique_ptr<lc1::Character>> characters;
     std::vector<lc1::Character *> roster;
@@ -417,11 +461,10 @@ void benchmark(std::filesystem::path const &path)
             config(i + 1, "NPC", party)));
         roster.push_back(characters.back().get());
     }
-    lc1::DialogSystem system{path};
-    system.update(8.0F, {}, nullptr, false);
+    system.update(8.0F, {}, {});
     auto const start = std::chrono::steady_clock::now();
     for (int i = 0; i < 120; ++i)
-        system.update(1.0F / 60.0F, roster, nullptr, false);
+        system.update(1.0F / 60.0F, roster, {});
     auto const seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     std::cout << "512 separated NPCs, 120 updates: " << seconds * 1000.0 << " ms total, "
@@ -447,6 +490,7 @@ int main(int argc, char **argv)
         else {
             rules_and_lifecycle(path);
             npc_initiates_and_player_decides(path);
+            two_human_participants(path);
             npc_policy_and_limits(path);
             ambient_scheduling_and_patrol(path);
             nearby_search_boundaries(path);

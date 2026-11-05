@@ -42,10 +42,13 @@ scene::Model make_character_model(CharacterBody const &body)
     box(body.half_width, 0.0F, neck_height, {0.06F, 0.25F, 0.8F});
     box(body.half_width * (0.22F / 0.3F), 0.0F, body.height - neck_height, {0.95F, 0.65F, 0.15F});
     std::vector<scene::ModelNode> nodes{
-        {.name = "Body", .mesh = 0},
-        {.name = "Head", .parent = 0, .transform = {.translation = {0, neck_height, 0}}, .mesh = 1},
+        {.name = "Body", .mesh_index = 0},
+        {.name = "Head",
+         .parent_index = 0,
+         .transform = {.translation = {0, neck_height, 0}},
+         .mesh_index = 1},
         {.name = "Eyes",
-         .parent = 1,
+         .parent_index = 1,
          .transform = {.translation = {0, body.eye_height - neck_height, 0}}}};
     auto const turn = glm::angleAxis(glm::radians(10.0F), glm::vec3{0, 1, 0});
     auto const opposite = glm::conjugate(turn);

@@ -325,7 +325,7 @@ void Dialog::respond(Character &character, int response_index)
     elapsed_ = 0.0F;
 }
 
-void Dialog::update(float delta_seconds, Character const *player, float line_seconds)
+void Dialog::update(float delta_seconds, bool automatic_response, float line_seconds)
 {
     validate_time(delta_seconds);
     if (!std::isfinite(line_seconds) || line_seconds <= 0.0F)
@@ -344,7 +344,7 @@ void Dialog::update(float delta_seconds, Character const *player, float line_sec
             enter(next);
         return;
     }
-    if (respondent() == player)
+    if (!automatic_response)
         return;
     refresh();
     std::size_t best = 0;
@@ -542,7 +542,7 @@ void DialogSystem::reset() noexcept
 }
 
 void DialogSystem::update(float delta_seconds, std::span<Character *const> characters,
-                          Character const *player, bool allow_player_requests)
+                          std::span<DialogPlayer const> players)
 {
     validate_time(delta_seconds);
     initial_delay_ = std::max(0.0F, initial_delay_ - delta_seconds);
@@ -555,7 +555,10 @@ void DialogSystem::update(float delta_seconds, std::span<Character *const> chara
                 catalog_.settings().end_distance ||
             session->elapsed >= catalog_.settings().max_duration)
             session->dialog.clear();
-        session->dialog.update(delta_seconds, player, catalog_.settings().line_seconds);
+        auto const respondent =
+            std::ranges::find(players, session->dialog.respondent(), &DialogPlayer::character);
+        session->dialog.update(delta_seconds, respondent == players.end(),
+                               catalog_.settings().line_seconds);
         if (!session->dialog.target()) {
             finish(*session);
             session = sessions_.erase(session);
@@ -577,7 +580,8 @@ void DialogSystem::update(float delta_seconds, std::span<Character *const> chara
     std::ranges::sort(by_x_, {}, [](auto const *character) { return character->position().x; });
     float const radius = catalog_.settings().start_distance;
     for (auto *talker : ordered_) {
-        if (talker == player || find(*talker) || cooling_down(*talker))
+        if (std::ranges::find(players, talker, &DialogPlayer::character) != players.end() ||
+            find(*talker) || cooling_down(*talker))
             continue;
         Character *best = nullptr;
         float best_distance = radius;
@@ -588,7 +592,8 @@ void DialogSystem::update(float delta_seconds, std::span<Character *const> chara
                (*candidate)->position().x <= talker->position().x + radius;
              ++candidate) {
             auto *target = *candidate;
-            if (target == player && !allow_player_requests)
+            auto const player = std::ranges::find(players, target, &DialogPlayer::character);
+            if (player != players.end() && !player->accepts_requests)
                 continue;
             auto const distance = glm::distance(talker->position(), target->position());
             if (distance <= best_distance && can_start(*talker, *target, DialogTrigger::Nearby) &&

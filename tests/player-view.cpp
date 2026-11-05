@@ -1,5 +1,8 @@
 #include "lc1/game/player/player-view.hpp"
+#include "character-input.hpp"
+#include "player-input.hpp"
 
+#include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/continent.hpp"
@@ -61,8 +64,8 @@ void update_view(float delta_seconds, lc1::PlayerView &view, lc1::Continent cons
     lc1::GameInputRouter input{bindings, lc1::GameInputContext::Gameplay};
     input.update(devices);
     view.update_view_mode(input, true, player);
-    auto const intent = view.resolve_input(player, input, look_delta, true, true);
-    player.update(delta_seconds, world, intent);
+    auto const intent = resolve_player_input(view, player, input, look_delta, true, true);
+    apply_character_intent(player, delta_seconds, world, intent);
     view.update_camera(delta_seconds, player);
 }
 
@@ -170,8 +173,8 @@ void disabled_input_preserves_pose()
         lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
         input.update(devices);
         view.update_view_mode(input, false, player);
-        auto const intent = view.resolve_input(player, input, {500, 500}, false, false);
-        player.update(0.1F, world, intent);
+        auto const intent = resolve_player_input(view, player, input, {500, 500}, false, false);
+        apply_character_intent(player, 0.1F, world, intent);
         view.update_camera(0.1F, player);
         check(view.oblique() == oblique, "disabled keyboard cannot switch views");
         check(near(player.position(), position) && near(player.look_direction(), direction),
@@ -198,12 +201,12 @@ void independent_capture_gates()
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     input.update(devices);
     view.update_view_mode(input, false, player);
-    auto const mouse_only = view.resolve_input(player, input, {200, -100}, false, true);
+    auto const mouse_only = resolve_player_input(view, player, input, {200, -100}, false, true);
     check(mouse_only.move == glm::vec2{} && !mouse_only.sprint && !mouse_only.jump &&
               mouse_only.body_yaw && near(*mouse_only.body_yaw, -10),
           "keyboard capture blocks actions while allowing mouse look");
     view.update_view_mode(input, true, player);
-    auto const keyboard_only = view.resolve_input(player, input, {200, -100}, true, false);
+    auto const keyboard_only = resolve_player_input(view, player, input, {200, -100}, true, false);
     check(keyboard_only.move != glm::vec2{} && keyboard_only.sprint && keyboard_only.jump &&
               keyboard_only.body_yaw && near(*keyboard_only.body_yaw, 0),
           "mouse capture blocks look while allowing keyboard actions");
@@ -249,6 +252,16 @@ void pointer_pan_and_recenter_priority()
     check(!near(view.camera().position(), recentered), "releasing recenter restores edge pan");
 }
 
+void long_frame_camera_pan()
+{
+    lc1::MapCameraController controller{{0, 0, 0}};
+    controller.toggle_lock();
+    auto const before = controller.center();
+    controller.pan(0.5F, {1, 0}, {{-1000, -1000}, {1000, 1000}});
+    check(near(glm::distance(before, controller.center()), 48.0F * 0.7F * 0.5F),
+          "camera pan consumes the full elapsed time");
+}
+
 void animated_eye_mount()
 {
     auto const world = make_world();
@@ -257,7 +270,7 @@ void animated_eye_mount()
     auto const eyes = model.definition().find_node("Eyes");
     check(eyes.has_value() && !model.definition().find_node("Missing"),
           "named eye mount resolves and missing mount names do not");
-    check(!model.definition().nodes()[*eyes].mesh && model.definition().draw_count() == 2,
+    check(!model.definition().nodes()[*eyes].mesh_index && model.definition().draw_count() == 2,
           "eye mount adds no drawable geometry");
     lc1::scene::ModelInstance instance{model.definition()};
     auto const eye_transform = [&] {
@@ -310,6 +323,33 @@ void animated_eye_mount()
     check(rejected, "invalid mount indices are rejected");
 }
 
+void weapon_mouse_binding()
+{
+    auto const world = make_world();
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    lc1::PlayerView view{world, player.position()};
+    lc1::InputState devices;
+    lc1::GameInputRouter router{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    devices.on_key(lc1::Key::MouseLeft, true);
+    router.update(devices);
+    check(router.pressed(lc1::GameAction::SwingWeapon), "left mouse press requests a swing");
+    check(resolve_player_input(view, player, router, {}, false, true).swing_weapon,
+          "mouse input produces a weapon swing intent independently of keyboard capture");
+    check(!resolve_player_input(view, player, router, {}, true, false).swing_weapon,
+          "mouse capture suppresses weapon swing intent");
+    devices.begin_frame();
+    router.update(devices);
+    check(!resolve_player_input(view, player, router, {}, true, true).swing_weapon,
+          "holding the mouse produces no repeated swing intent");
+    check(!router.pressed(lc1::GameAction::SwingWeapon),
+          "holding the mouse does not repeat swings");
+    devices.on_key(lc1::Key::MouseLeft, false);
+    devices.begin_frame();
+    devices.on_key(lc1::Key::MouseLeft, true);
+    router.update(devices);
+    check(router.pressed(lc1::GameAction::SwingWeapon), "a fresh click requests another swing");
+}
+
 } // namespace
 
 int main()
@@ -321,6 +361,8 @@ int main()
         independent_capture_gates();
         pointer_pan_and_recenter_priority();
         animated_eye_mount();
+        long_frame_camera_pan();
+        weapon_mouse_binding();
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

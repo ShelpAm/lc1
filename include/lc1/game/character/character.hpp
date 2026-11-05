@@ -1,20 +1,25 @@
 #pragma once
 
 #include "lc1/game/character/bag.hpp"
+#include "lc1/game/character/character-body.hpp"
 #include "lc1/game/character/character-controller.hpp"
 #include "lc1/game/character/character-intent.hpp"
 #include "lc1/game/character/equipment.hpp"
-#include "lc1/game/character/physics.hpp"
 #include "lc1/game/character/weapon.hpp"
 #include "lc1/game/party/companion-order.hpp"
+#include "lc1/game/physics/character-motion.hpp"
 #include "lc1/scene/transform.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace lc1 {
+
+class AiCharacterController;
 
 class Continent;
 class Equipment;
@@ -31,20 +36,6 @@ enum class CharacterStatus : std::uint8_t {
     Captive,
 };
 
-// Body proportions in metres, plus walking and running speed. The placeholder mesh and the
-// collision body are both built from these numbers, so the two cannot silently disagree.
-struct CharacterBody {
-    float half_width = 0.3F;
-    float height = 1.8F;
-    float eye_height = 1.65F;
-    float walk_speed = 4.5F;
-    float run_speed = 18.0F;
-    // Maximum ledge/ramp rise followed while grounded, and maximum distance the body
-    // snaps downward to remain attached to a slope.
-    float step_height = 0.35F;
-    float ground_snap_distance = 0.35F;
-};
-
 struct CharacterConfig {
     std::uint32_t keyid;
     std::string name;
@@ -55,6 +46,7 @@ struct CharacterConfig {
 
     std::map<EquipmentType, Equipment *> equipment;
     std::map<WeaponType, Weapon *> weapon;
+    ModelConfig model;
 
     float health();
     float strenth();
@@ -66,17 +58,18 @@ struct CharacterConfig {
 class Character {
   public:
     Character(Continent const &continent, scene::Transform transform, CharacterConfig config,
-              CharacterBody body = {});
+              CharacterBody body = {}, CharacterMotionSettings motion_settings = {});
 
     Character(Character const &) = delete;
     Character &operator=(Character const &) = delete;
-    Character(Character &&) noexcept;
-    Character &operator=(Character &&) noexcept;
+    Character(Character &&) = delete;
+    Character &operator=(Character &&) = delete;
     ~Character();
 
-    CharacterConfig &config();
-
     CharacterConfig const &config() const;
+
+    std::uint64_t attack_sequence() const;
+    std::uint64_t nod_sequence() const;
 
     CharacterBody const &body() const;
 
@@ -115,44 +108,43 @@ class Character {
 
     bool on_ground() const;
 
-    // The single state-update entry point: applies the intent against this character's
-    // own gameplay rules (body/look targets, locomotion speed, collision, delta cap and
-    // the jump request), then advances jump, gravity and ground support. It never trusts
-    // the intent to be legal and does not pull from a controller itself.
-    void update(float delta_seconds, Continent const &continent, CharacterIntent const &intent);
+    // Resolves the installed controller once, then applies character rules and physics.
+    // A character without a controller receives an empty intent.
+    void update(float delta_seconds, Continent const &continent);
 
     // Ambient dialog requests are accepted only while standing still, grounded and not
     // asking to jump or sprint. This rule belongs to the character, so a player and an AI
     // companion follow the same one.
-    bool accepts_ambient_requests(CharacterIntent const &intent) const;
+    bool accepts_ambient_requests() const;
 
     // The current controller's persistent companion order, or None when the controller is
     // a patrol/non-companion controller.
     CompanionOrder companion_order() const;
 
     CharacterController *controller();
-
     CharacterController const *controller() const;
-
+    AiCharacterController *ai_controller();
+    AiCharacterController const *ai_controller() const;
     void set_controller(std::unique_ptr<CharacterController> controller);
 
     Interactable *interactable();
-
     void set_interactable(std::unique_ptr<Interactable> interactable);
 
     Faction const *faction() const;
 
-    game::Bag const &bag() const;
-
     game::Bag &bag();
+    game::Bag const &bag() const;
 
   private:
     // Resolves the requested actions before physics. Called only by update().
-    void apply_intent(float delta_seconds, Continent const &continent,
-                      CharacterIntent const &intent);
+    void apply_intent(float delta_seconds, CharacterIntent const &intent);
+    glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement);
 
     // Party updates both sides of membership together during recruitment.
     friend class Party;
+
+    std::uint64_t attack_sequence_ = 0;
+    std::uint64_t nod_sequence_ = 0;
 
     CharacterConfig config_;
     CharacterBody body_;
@@ -160,12 +152,13 @@ class Character {
 
     float look_yaw_ = 0.0F;
     float look_pitch_ = 0.0F;
-    bool on_ground_;
-    glm::vec3 velocity_;
-    bool jump_requested_ = false;
     scene::Transform transform_;
+    CharacterMotion motion_;
     std::unique_ptr<CharacterController> controller_;
     std::unique_ptr<Interactable> interactable_;
+
+    bool ambient_requests_blocked_ = false;
+    float weapon_attack_cooldown_ = 0;
 };
 
 } // namespace lc1

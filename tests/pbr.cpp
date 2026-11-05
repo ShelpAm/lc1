@@ -1,6 +1,14 @@
+#include "character-input.hpp"
 #include "render-device.hpp"
 
+#include "lc1/game/character/ai-character-controller.hpp"
+#include "lc1/game/character/character-model.hpp"
+#include "lc1/game/character/character.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/physics/world-collision.hpp"
+#include "lc1/game/session/save.hpp"
+#include "lc1/game/world/game-world.hpp"
+#include "lc1/game/world/world-presentation.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/scene/gpu-model.hpp"
 #include "lc1/scene/lights/directional-light.hpp"
@@ -14,12 +22,12 @@
 #include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/continent/view.hpp"
 
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/instance.hpp"
 #include "lc1/vk/core/loader.hpp"
 #include "lc1/vk/presentation/surface.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
-#include "lc1/window.hpp"
 
 #include <glm/gtc/packing.hpp>
 
@@ -483,9 +491,9 @@ void model_animation_test(lc1::Device const &device)
             meshes.emplace_back(std::move(vertices), std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
             return lc1::scene::Model{
                 std::move(meshes),
-                {{.mesh = 0},
-                 {.parent = 0, .transform = {.translation = {-1, 0, 0}}, .mesh = 0},
-                 {.transform = {.translation = {100, 0, 0}}, .mesh = 1}},
+                {{.mesh_index = 0},
+                 {.parent_index = 0, .transform = {.translation = {-1, 0, 0}}, .mesh_index = 0},
+                 {.transform = {.translation = {100, 0, 0}}, .mesh_index = 1}},
                 {{.name = "Move",
                   .channels = {
                       {.times = {0, 1}, .values = std::vector<glm::vec3>{{0, 0, 0}, {2, 0, 0}}}}}}};
@@ -538,15 +546,212 @@ void model_animation_test(lc1::Device const &device)
     near(render(instance).center().r, 2, "restarting animation restores rendered geometry");
 }
 
+void player_models_test(lc1::Device const &device)
+{
+    lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
+                         "runtime/saves/01"};
+    auto const &character = data.characters().at(data.player(lc1::PlayerId{1})).model.value();
+    auto const weapon_id =
+        data.characters().at(data.player(lc1::PlayerId{1})).weapon.at(lc1::WeaponType::MeleeWeapon);
+    auto const &weapon_config = data.weapons().at(weapon_id).model.value();
+    lc1::scene::GpuModel barrel{
+        device, lc1::load_configured_model(character, "runtime/assets", lc1::CharacterBody{})};
+    lc1::scene::GpuModel sword{
+        device, lc1::load_configured_model(weapon_config, "runtime/assets", lc1::CharacterBody{})};
+    auto const wood = character.material.value().material();
+    auto const metal = weapon_config.material.value().material();
+    lc1::scene::Scene scene;
+    auto *player = scene.add_model({.model = &barrel, .material = &wood});
+    auto const grip = *barrel.definition().find_node(character.weapon_mount.value());
+    auto *weapon = scene.add_model(
+        {.model = &sword, .material = &metal, .world_transform = player->node_world_matrix(grip)});
+    scene.add_light(lc1::scene::to_light(
+        lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 3},
+                                     .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(scene.draw_count()));
+    lc1::scene::FpsCamera camera;
+    camera.set_position({3, 2.5F, -4});
+    camera.look_at({0.1F, 1, -0.3F});
+    auto render = [&] {
+        return capture(device, renderer, frame, camera, scene, {.width = 800, .height = 600});
+    };
+    auto const rest = render();
+    weapon->pose.play_animation(0, false);
+    scene.update_animations(0.28F);
+    auto const swing = render();
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < rest.output.size(); i += 4)
+        if (rest.output[i] != swing.output[i] || rest.output[i + 1] != swing.output[i + 1] ||
+            rest.output[i + 2] != swing.output[i + 2])
+            ++changed;
+    check(changed > 100, "imported weapon swing must visibly change rendered coverage");
+    std::filesystem::create_directories("artifacts");
+    auto save = [](Capture const &result, char const *path) {
+        std::ofstream image{path, std::ios::binary};
+        image << "P6\n" << result.extent.width << ' ' << result.extent.height << "\n255\n";
+        for (std::size_t i = 0; i < result.output.size(); i += 4)
+            for (int channel = 0; channel < 3; ++channel)
+                image.put(static_cast<char>(result.output[i + channel]));
+        check(image.good(), "failed to save player model capture");
+    };
+    save(rest, "artifacts/player-weapon-rest.ppm");
+    save(swing, "artifacts/player-weapon-swing.ppm");
+
+    // Exercise production YAML -> world snapshot -> presentation-owned models.
+    lc1::GameWorld initial{data, "runtime/dialogs/catalog.yaml"};
+    auto snapshot = initial.snapshot();
+    snapshot.session.players.push_back({73, 3});
+    auto &material = snapshot.weapons.front().model.value().material.value();
+    material.metallic_roughness_texture = material.base_color_texture.value();
+    material.emissive_texture = material.base_color_texture.value();
+    auto const slot = std::filesystem::path{"artifacts/player-models-save"};
+    lc1::Save::write(slot, snapshot);
+    lc1::GameWorld world{lc1::Save{slot}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    {
+        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
+                                            {},     lc1::PlayerId{73}};
+        auto const observed_eye = glm::vec3{presentation.observer_eye_transform()[3]};
+        auto const expected_eye = world.player(lc1::PlayerId{73}).eye_position();
+        check(glm::distance(observed_eye, expected_eye) < 0.001F,
+              "the observer camera mount belongs to the explicitly bound second player");
+        auto const *equipped =
+            presentation.weapon_model(world.player(lc1::PlayerId{1}).config().keyid);
+        check(equipped, "presentation owns YAML-created weapon models");
+        auto const &pbr = *equipped->material;
+        check(pbr.base_color.texture && pbr.metallic_roughness.texture && pbr.emissive.texture,
+              "YAML material loads external textures");
+        check(pbr.base_color.texture->color_space() == lc1::TextureColorSpace::Srgb &&
+                  pbr.metallic_roughness.texture->color_space() == lc1::TextureColorSpace::Linear,
+              "texture cache distinguishes color and data uses of the same image");
+        for (auto *bearer : world.characters())
+            bearer->set_body_yaw(static_cast<float>(bearer->config().keyid) * 30);
+        lc1::CharacterIntent swing_intent;
+        swing_intent.swing_weapon = true;
+        for (auto *bearer : world.characters()) {
+            apply_character_intent(*bearer, 0, world.continent(), swing_intent);
+            auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
+            if (slot == bearer->config().weapon.end())
+                continue;
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
+            auto const &pose = presentation.weapon_model(bearer->config().keyid)->pose;
+            check(pose.playback() && pose.playback()->time == 0,
+                  "accepted attack snapshot starts player and NPC weapon animations");
+            presentation.update(0.1F, {});
+            apply_character_intent(*bearer, 0, world.continent(), {});
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
+            check(pose.playback()->time > 0.09F,
+                  "an empty intent does not restart the weapon animation");
+            apply_character_intent(*bearer, 0, world.continent(), swing_intent);
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
+            check(pose.playback()->time > 0.09F,
+                  "continuous swing requests cannot restart an attack during cooldown");
+            apply_character_intent(*bearer, 2.0F, world.continent(), {});
+            apply_character_intent(*bearer, 0, world.continent(), swing_intent);
+            state = lc1::capture_world(world);
+            presentation.update(0, {});
+            check(pose.playback()->time == 0,
+                  "cooldown expires even without requests and allows the next swing");
+            lc1::AiCharacterController ai{
+                world.dialogs(), std::array{bearer},
+                std::vector<lc1::Waypoint>{{.position = bearer->position()}}};
+            for (int frame = 0; frame < 10; ++frame) {
+                auto const request = ai.update(0.02F, *bearer);
+                check(request.swing_weapon, "nearby AI keeps requesting swings while stationary");
+                apply_character_intent(*bearer, 0.02F, world.continent(), request);
+                state = lc1::capture_world(world);
+                presentation.update(0.02F, {});
+            }
+            check(pose.playback()->time > 0.19F,
+                  "AI requests let the weapon advance through the visible part of the swing");
+            apply_character_intent(*bearer, 2.0F, world.continent(), swing_intent);
+        }
+        apply_character_intent(world.player(lc1::PlayerId{1}), 0, world.continent(), {.nod = true});
+        state = lc1::capture_world(world);
+        presentation.update(0.28F, {});
+        auto const &remote_nod =
+            presentation.character_model(world.player(lc1::PlayerId{1}).config().keyid).pose;
+        check(remote_nod.playback() && remote_nod.playback()->time > 0.27F,
+              "another player's nod sequence starts and advances its character animation");
+        std::vector<lc1::scene::SceneModel const *> weapon_models;
+        for (auto const *bearer : world.characters()) {
+            auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
+            if (slot == bearer->config().weapon.end())
+                continue;
+            auto const *model = presentation.weapon_model(bearer->config().keyid);
+            check(model && !std::ranges::contains(weapon_models, model),
+                  "each player's or NPC's equipped weapon has its own scene instance");
+            check(model->pose.playback() && model->pose.playback()->time > 0.27F,
+                  "player and NPC weapon swings advance through character intent");
+            weapon_models.push_back(model);
+            auto const mount = *presentation.character_model(bearer->config().keyid)
+                                    .model->definition()
+                                    .find_node(bearer->config().model.weapon_mount.value());
+            auto const expected =
+                presentation.character_model(bearer->config().keyid).node_world_matrix(mount);
+            for (int column = 0; column < 4; ++column)
+                for (int row = 0; row < 4; ++row)
+                    near(model->world_transform[column][row], expected[column][row],
+                         "every weapon follows its bearer's current mount");
+        }
+        check(weapon_models.size() == 3, "default player and both armed NPCs display weapons");
+        check(weapon_models[1]->model == weapon_models[2]->model,
+              "NPC weapons share GPU resources while retaining independent scene instances");
+        check(equipped->pose.playback()->time > 0.27F, "configured action animation advances");
+        auto configured_frame = renderer.make_frame_resources(presentation.object_capacity());
+        for (auto const *bearer : world.characters()) {
+            if (bearer == &world.player(lc1::PlayerId{1}))
+                continue;
+            auto const slot = bearer->config().weapon.find(lc1::WeaponType::MeleeWeapon);
+            if (slot == bearer->config().weapon.end())
+                continue;
+            lc1::scene::Scene isolated;
+            isolated.add_model(presentation.character_model(bearer->config().keyid));
+            isolated.add_light(lc1::scene::to_light(
+                lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 3},
+                                             .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
+            camera.set_position(bearer->position() + glm::vec3{3, 2.5F, -4});
+            camera.look_at(bearer->position() + glm::vec3{0.1F, 1, -0.3F});
+            auto const unarmed = capture(device, renderer, configured_frame, camera, isolated,
+                                         {.width = 800, .height = 600});
+            isolated.add_model(*presentation.weapon_model(bearer->config().keyid));
+            auto const armed = capture(device, renderer, configured_frame, camera, isolated,
+                                       {.width = 800, .height = 600});
+            std::size_t changed = 0;
+            for (std::size_t pixel = 0; pixel < armed.output.size(); pixel += 4)
+                if (armed.output[pixel] != unarmed.output[pixel] ||
+                    armed.output[pixel + 1] != unarmed.output[pixel + 1] ||
+                    armed.output[pixel + 2] != unarmed.output[pixel + 2])
+                    ++changed;
+            check(changed > 100, "each NPC weapon visibly changes its rendered image");
+            save(armed,
+                 std::format("artifacts/character-{}-weapon.ppm", bearer->config().keyid).c_str());
+        }
+        camera.set_position(world.player(lc1::PlayerId{1}).position() + glm::vec3{3, 2.5F, -4});
+        camera.look_at(world.player(lc1::PlayerId{1}).position() + glm::vec3{0.1F, 1, -0.3F});
+        capture(device, renderer, configured_frame, camera, presentation.scene(),
+                {.width = 800, .height = 600});
+        device.wait_idle();
+    }
+    std::filesystem::remove(slot / "checkpoint.yaml");
+    std::filesystem::remove(slot);
+}
+
 void showcase_test(lc1::Device const &device)
 {
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Srgb}, vk::SampleCountFlagBits::e4};
     auto const blocks = lc1::demo::PbrShowcase::spawn_blocks();
     auto const continent = lc1::Continent::make_prototype(blocks);
     for (int z = -25; z <= 25; z += 2)
-        check(continent.can_stand(continent.spawn() + glm::vec3{0, 0, z}, 0.3F, 1.8F),
+        check(lc1::WorldCollision{continent}.can_stand(continent.spawn() + glm::vec3{0, 0, z}, 0.3F,
+                                                       1.8F),
               "showcase obstructs the main road");
-    check(!continent.can_stand(continent.spawn() + glm::vec3{-13, 0, 15}, 0.3F, 1.8F),
+    check(!lc1::WorldCollision{continent}.can_stand(continent.spawn() + glm::vec3{-13, 0, 15}, 0.3F,
+                                                    1.8F),
           "showcase pedestal has no static collision");
     std::array<std::uint8_t, 4> const pixel{255, 255, 255, 255};
     lc1::GpuTexture white{device, {.width = 1, .height = 1}, pixel};
@@ -624,7 +829,9 @@ int main(int argc, char **argv)
 {
     try {
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
-        check(argc == 1 || animation_only, "usage: lc1_pbr_tests [--model-animation]");
+        bool const player_only = argc == 2 && std::string_view{argv[1]} == "--player-models";
+        check(argc == 1 || animation_only || player_only,
+              "usage: lc1_pbr_tests [--model-animation|--player-models]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -634,6 +841,12 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (player_only) {
+            player_models_test(device);
+            device.wait_idle();
+            std::cout << "Imported player and weapon swing GPU tests passed\n";
+            return 0;
+        }
         if (animation_only) {
             model_animation_test(device);
             device.wait_idle();

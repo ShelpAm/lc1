@@ -6,12 +6,12 @@
 #include "lc1/game/session/save.hpp"
 
 #include "lc1/game/actions.hpp"
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/device.hpp"
 #include "lc1/vk/core/instance.hpp"
 #include "lc1/vk/core/loader.hpp"
 #include "lc1/vk/presentation/frame_loop.hpp"
 #include "lc1/vk/presentation/surface.hpp"
-#include "lc1/window.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -23,19 +23,23 @@ namespace lc1::app {
 
 struct ApplicationConfig {
     bool enable_validation = true;
+    PlayerId local_player{1};
     std::filesystem::path asset_root = "runtime/assets";
+    std::filesystem::path dialog_root = "runtime/dialogs";
     std::filesystem::path save_root = "runtime/saves/01";
 };
 
-// Owns platform/graphics lifetime, input routing and presentation. GameSession owns the local
-// prototype's world, presentation and in-session UI through separate owners.
+// Owns platform/graphics lifetime and the local simulation. GameSession borrows the
+// simulation and owns presentation and in-session UI.
 class Application {
   public:
-    explicit Application(ApplicationConfig const &config);
+    explicit Application(ApplicationConfig config);
+
     Application(Application const &) = delete;
     Application &operator=(Application const &) = delete;
     Application(Application &&) = delete;
     Application &operator=(Application &&) = delete;
+
     ~Application();
 
     // Drains the GPU on both normal and exceptional exits, before any member dies.
@@ -44,8 +48,11 @@ class Application {
   private:
     bool prepare_swapchain();
     void load_game(std::filesystem::path const &directory);
+    void save_game(std::filesystem::path const &directory);
     void init_imgui_vulkan(std::uint32_t min_image_count);
     void run_loop(std::function<bool()> const &stop_requested);
+
+    ApplicationConfig config_;
 
     // Declaration order is the lifetime contract: the loader dies last, Window
     // outlives the surface, and all GPU objects die before Device/Instance.
@@ -59,7 +66,7 @@ class Application {
     Renderer renderer_;
     // The frame factory sizes GPU resources from the session's current draw count.
     // Keep the session alive until all frame resources have been destroyed.
-    std::filesystem::path asset_root_;
+    std::unique_ptr<GameSimulation> simulation_;
     std::unique_ptr<GameSession> game_;
     std::unique_ptr<FrameLoop<FrameResources>> frame_loop_;
     bool recreate_requested_ = false;

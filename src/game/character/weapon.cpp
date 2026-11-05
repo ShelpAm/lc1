@@ -1,5 +1,7 @@
 #include "lc1/game/character/weapon.hpp"
 
+#include <utility>
+
 namespace lc1 {
 
 std::string_view to_string(WeaponType type)
@@ -14,8 +16,9 @@ std::string_view to_string(WeaponType type)
     }
 }
 
-Weapon::Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property)
-    : keyid_(keyid), type_(type), property_(property)
+Weapon::Weapon(std::uint32_t keyid, WeaponType type, WeaponProperty property,
+               ModelConfig model_config)
+    : keyid_(keyid), type_(type), property_(property), model_config_(std::move(model_config))
 {
 }
 
@@ -32,6 +35,11 @@ WeaponType Weapon::type() const
 WeaponProperty Weapon::property() const
 {
     return property_;
+}
+
+ModelConfig const &Weapon::model_config() const
+{
+    return model_config_;
 }
 
 } // namespace lc1

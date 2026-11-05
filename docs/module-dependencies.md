@@ -22,33 +22,37 @@ flowchart LR
 ```mermaid
 flowchart TD
     app[Application] --> session[GameSession]
-    session --> world["GameWorld · 规则与快照"]
+    app --> simulation[GameSimulation]
+    session -. 借用 .-> simulation
+    simulation --> world["GameWorld · 规则与快照"]
     session --> view["WorldPresentation · 世界表现"]
     session --> player["PlayerView · 控制意图与相机"]
     session --> ui[GameUi]
     session --> music[MusicBrowser]
     view --> world
     ui --> world
-    player --> controller["PlayerController · 输入解释"]
+    player --> controller["PlayerCharacterController · 输入解释"]
     controller --> intent["CharacterIntent · 一帧期望"]
     ai["AiCharacterController · 巡逻/伴随"] --> intent
     intent --> character[Character]
     world --> ai
     world --> character
+    character --> motion["CharacterMotion · 碰撞与重力"]
+    motion --> collision["WorldCollision · 静态碰撞查询"]
+    collision --> continent
     world --> continent[Continent]
     world --> dialog[DialogSystem]
     world --> save["Save / SerializedWorld"]
     music --> audio["AudioContext · 由 WorldPresentation 拥有"]
 ```
 
-玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent, intent)` 决定能否执行、速度和
-最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 安装，
-并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界不依赖
-`PlayerController`，会话负责把玩家 intent 与输入门控一起交给世界。
+玩家和 AI 都只产生 `CharacterIntent`；`Character::update(delta, continent)` 统一调用控制器，决定动作能否执行、速度和
+最终位置。`CompanionOrder` 是 `AiCharacterController` 的模式状态，由 `Party::command` 校验并下达，
+并由存档恢复；`Character` 只通过控制器查询它，不再自己实现跟随。世界按玩家绑定拥有输入值并装配 `PlayerCharacterController`，会话通过绑定句柄提交输入。世界统一通过角色更新控制器；身份边界见[玩家与多人模拟](players.md)。
 
 游戏实现位于 `include/lc1/game/` 与 `src/game/`，按 `character/`、`player/`、`world/`、
-`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。
-`game/actions.*` 是游戏动作层，`lc1/input.hpp` 是设备/模板路由层。
+`physics/`、`continent/`、`party/`、`dialog/`、`session/`、`ui/`、`camera/` 功能域组织。
+`game/actions.*` 是游戏动作层，`lc1/platform/input.hpp` 是设备/模板路由层。
 输入解析、更新顺序以及对象间借用见[代码边界](code-layout.md)；角色、对话、存档分别由
 [角色](character.md)、[对话](dialog.md)、[存档](save-data.md)文档说明。网络架构是未来方向，
 图中均为本地原型对象。

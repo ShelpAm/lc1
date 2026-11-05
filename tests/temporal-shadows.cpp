@@ -1,5 +1,6 @@
 #include "render-device.hpp"
 
+#include "lc1/platform/window.hpp"
 #include "lc1/vk/core/device.hpp"
 #include "lc1/vk/core/instance.hpp"
 #include "lc1/vk/core/loader.hpp"
@@ -9,7 +10,6 @@
 #include "lc1/vk/render/ray-query-shadows.hpp"
 #include "lc1/vk/render/renderer.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
-#include "lc1/window.hpp"
 
 #include <array>
 #include <iostream>

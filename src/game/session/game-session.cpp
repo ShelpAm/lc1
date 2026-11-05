@@ -20,12 +20,16 @@ std::string slot_name(std::filesystem::path const &directory)
 } // namespace
 
 GameSession::GameSession(Device const &device, std::filesystem::path const &asset_root,
-                         Save const &save, OutputSettings output, Window *window)
+                         GameSimulation &simulation, std::filesystem::path const &save_directory,
+                         OutputSettings output, Window *window, PlayerId player)
     : window_(window), input_router_(default_game_bindings(), GameInputContext::Gameplay),
-      world_(save), world_presentation_(device, asset_root, world_, output),
-      player_view_(world_.continent(), world_.player().position()),
+      simulation_(&simulation), connection_(simulation.connect(player)),
+      snapshot_(*simulation_->snapshot()),
+      world_presentation_(device, asset_root, simulation_->continent(), snapshot_, output, player),
+      player_view_(simulation_->continent(),
+                   snapshot_.player(connection_.player_id()).pose.position()),
       music_(world_presentation_.audio_context()),
-      save_directory_(std::filesystem::weakly_canonical(save.directory())),
+      save_directory_(std::filesystem::weakly_canonical(save_directory)),
       saves_root_(save_directory_.parent_path())
 {
     if (!window_)
@@ -35,19 +39,19 @@ GameSession::GameSession(Device const &device, std::filesystem::path const &asse
     window_->set_cursor_captured(should_captures_cursor());
     update_title();
 
-    spdlog::info("[save] {}: {} factions, {} parties, {} characters, {} equipment, {} weapons",
-                 save.directory().string(), save.factions().size(), save.parties().size(),
-                 save.characters().size(), save.equipments().size(), save.weapons().size());
     spdlog::info("[world] {} regions, {} locations, {} roads; fixed oblique view",
-                 world_.continent().regions().size(), world_.continent().locations().size(),
-                 world_.continent().roads().size());
+                 simulation_->continent().regions().size(),
+                 simulation_->continent().locations().size(),
+                 simulation_->continent().roads().size());
 }
 
 void GameSession::update(float delta_seconds, InputState const &input_state)
 {
+    if (!std::isfinite(delta_seconds) || delta_seconds < 0)
+        fail("invalid session frame time");
+    snapshot_ = simulation_->presentation_snapshot();
     input_router_.update(input_state);
 
-    float const elapsed = std::min(delta_seconds, 0.1F);
     auto &imgui_io = ImGui::GetIO();
     // B must also close the panel while ImGui owns keyboard focus, except in text fields.
     if (window_->focused() && !imgui_io.WantTextInput &&
@@ -62,28 +66,20 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     bool const keyboard_enabled = controls_enabled && !imgui_io.WantCaptureKeyboard;
     bool const mouse_enabled = controls_enabled && !imgui_io.WantCaptureMouse;
 
-    player_view_.update_view_mode(input_router_, keyboard_enabled, world_.player());
+    player_view_.update_view_mode(input_router_, keyboard_enabled,
+                                  snapshot_.player(connection_.player_id()).pose);
     bool const keyboard_save_requested =
         keyboard_enabled && input_router_.pressed(GameAction::SaveGame);
 
-    ;
-    // The controller supplies intent; GameWorld applies it through Character and then
-    // handles the world-level dialog interaction. Whether an idle player accepts ambient
-    // requests is a Character rule, not an input rule.
-    world_.update(elapsed, WorldInteraction{
-                               .player_intent = player_view_.resolve_input(
-                                   world_.player(), input_router_, input_state.cursor_delta(),
-                                   keyboard_enabled, mouse_enabled),
-                               .player_input_enabled = keyboard_enabled,
-                               .response_index = response_index(input_router_),
-                           });
+    player_view_.prepare_input(input_state.cursor_delta(), keyboard_enabled, mouse_enabled);
+    connection_.submit(
+        PlayerCharacterController::read_input(input_router_, player_view_.character_input()));
     if (mouse_enabled)
-        player_view_.update_pointer(elapsed, input_state, window_->window_size(),
+        player_view_.update_pointer(delta_seconds, input_state, window_->window_size(),
                                     window_->hovered() && !window_->cursor_captured());
     world_presentation_.update(
-        elapsed,
+        delta_seconds,
         {
-            .nod = keyboard_enabled && input_router_.pressed(GameAction::Nod),
             .cycle_lighting = keyboard_enabled && input_router_.pressed(GameAction::CycleLighting),
             .toggle_showcase_motion =
                 keyboard_enabled && input_router_.pressed(GameAction::ToggleShowcaseMotion),
@@ -95,11 +91,11 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         });
     std::optional<glm::mat4> eye_transform;
     if (!player_view_.oblique())
-        eye_transform = world_presentation_.player_eye_transform();
-    player_view_.update_camera(elapsed, world_.player(), eye_transform);
+        eye_transform = world_presentation_.observer_eye_transform();
+    player_view_.update_camera(delta_seconds, snapshot_.player(connection_.player_id()).pose,
+                               eye_transform);
     world_presentation_.update_listener(player_view_.camera());
 
-    auto const *target = world_.interaction_target();
     if (keyboard_save_requested) {
         refresh_saves();
         ui_.open_save(slot_name(save_directory_));
@@ -109,23 +105,20 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         ui_.open_load();
     }
 
-    std::vector<Party *> player_parties;
-    for (auto const &party : world_.parties() | std::views::values)
-        if (party->leader() == &world_.player() || party->has_member(&world_.player()))
-            player_parties.push_back(party.get());
+    auto const &player = snapshot_.player(connection_.player_id());
     auto const ui_actions = ui_.update(
         {
-            .player = &world_.player(),
-            .bag = world_.player().bag(),
-            .player_parties = player_parties,
+            .player_name = player.name,
+            .player_faction = player.faction,
+            .companion_count = snapshot_.players.at(connection_.player_id()).companion_count,
+            .bag = snapshot_.players.at(connection_.player_id()).bag,
             .saves = saves_,
             .current_save = slot_name(save_directory_),
             .extent = window_->framebuffer_extent(),
             .lighting_name = world_presentation_.lighting_name(),
             .exposure = world_presentation_.output().exposure,
             .showcase_animated = world_presentation_.showcase_animated(),
-            .interaction_target =
-                target ? std::string_view{target->config().name} : std::string_view{},
+            .interaction_target = snapshot_.players.at(connection_.player_id()).interaction_target,
         },
         music_);
     if (ui_actions.start)
@@ -139,7 +132,7 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     if (ui_actions.refresh_saves)
         refresh_saves();
     if (ui_actions.save)
-        save(*ui_actions.save);
+        request_save(*ui_actions.save);
     if (ui_actions.load) {
         try {
             load_request_ = Save::slot_directory(saves_root_, *ui_actions.load);
@@ -174,29 +167,43 @@ void GameSession::refresh_saves()
     }
 }
 
-void GameSession::save(std::string_view name)
+void GameSession::request_save(std::string_view name)
 {
     try {
-        auto directory = Save::slot_directory(saves_root_, name);
-        Save::write(directory, world_.snapshot());
-        save_directory_ = std::move(directory);
-        ui_.set_save_status(std::format("Saved: {}", name));
-        ui_.saved();
-        refresh_saves();
+        save_request_ = Save::slot_directory(saves_root_, name);
     }
     catch (Error const &error) {
         spdlog::error("[save] {}", error.diagnostic());
-        ui_.set_save_status(std::format("Save failed: {}", error.what()));
+        save_failed(std::format("Save failed: {}", error.what()));
     }
-    catch (std::exception const &error) {
-        spdlog::error("[save] {}", error.what());
-        ui_.set_save_status(std::format("Save failed: {}", error.what()));
-    }
+}
+
+void GameSession::save_completed(std::filesystem::path directory)
+{
+    save_directory_ = std::move(directory);
+    ui_.set_save_status(std::format("Saved: {}", slot_name(save_directory_)));
+    ui_.saved();
+    refresh_saves();
+}
+
+void GameSession::save_failed(std::string message)
+{
+    ui_.set_save_status(std::move(message));
+}
+
+std::optional<std::filesystem::path> GameSession::take_save_request()
+{
+    return std::exchange(save_request_, std::nullopt);
 }
 
 } // namespace lc1
 
 namespace lc1 {
+
+void GameSession::release_controls()
+{
+    connection_.submit({});
+}
 
 void GameSession::set_aspect_ratio(float aspect_ratio)
 {
@@ -223,14 +230,19 @@ bool GameSession::quit_requested() const
     return quit_requested_;
 }
 
-GameWorld const &GameSession::world() const
+WorldSnapshot const &GameSession::world() const
 {
-    return world_;
+    return snapshot_;
 }
 
 WorldPresentation const &GameSession::world_presentation() const
 {
     return world_presentation_;
+}
+
+PlayerId GameSession::player_id() const
+{
+    return connection_.player_id();
 }
 
 PlayerView const &GameSession::player_view() const

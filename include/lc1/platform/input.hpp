@@ -27,7 +27,7 @@ namespace lc1 {
 // triggered it, and one vocabulary keeps Binding a flat row instead of a tagged union.
 // Unreal's FKey makes the same call (EKeys::LeftMouseButton is an FKey).
 //
-// The order is not load-bearing -- src/window.cpp's translation table names each Key
+// The order is not load-bearing -- src/platform/window.cpp's translation table names each Key
 // explicitly and is checked by static_assert -- with one exception: the mouse buttons
 // stay last, because that table stops at the first of them.
 enum class Key : std::uint8_t {
@@ -149,7 +149,7 @@ enum class Key : std::uint8_t {
 
 constexpr std::size_t key_count = static_cast<std::size_t>(Key::Count);
 
-// Everything before MouseLeft is a keyboard key. src/window.cpp's table has exactly this
+// Everything before MouseLeft is a keyboard key. src/platform/window.cpp's table has exactly this
 // many rows, and the static_asserts beside it turn "forgot one" and "listed one twice"
 // into compile errors rather than a key that silently never fires.
 constexpr std::size_t keyboard_key_count = static_cast<std::size_t>(Key::MouseLeft);

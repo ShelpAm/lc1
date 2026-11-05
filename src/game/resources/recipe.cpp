@@ -2,7 +2,7 @@
 
 namespace lc1::game {
 
-Recipe::Recipe(std::vector<ResourceStack> inputs, std::vector<ResourceStack> outputs)
+Recipe::Recipe(std::vector<RecipeStack> inputs, std::vector<RecipeStack> outputs)
     : inputs(std::move(inputs)), outputs(std::move(outputs))
 {
     for (auto const &input : this->inputs) {
@@ -51,7 +51,7 @@ bool craft(Bag &bag, Recipe const &recipe)
     auto candidate = detail::prepare_recipe(bag, recipe);
     if (!candidate)
         return false;
-    bag.stacks.swap(candidate->stacks);
+    bag.quantities_.swap(candidate->quantities_);
     std::swap(bag.total_weight_, candidate->total_weight_);
     return true;
 }

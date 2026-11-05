@@ -2,6 +2,7 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game/character/character.hpp"
+#include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/party/party.hpp"
 
 #include <algorithm>
@@ -11,36 +12,106 @@
 
 namespace lc1 {
 
-AiCharacterController::AiCharacterController(std::vector<Waypoint> path, float arrival_radius)
-    : path_(std::move(path)), arrival_radius_(arrival_radius)
+AiCharacterController::AiCharacterController(DialogSystem const &dialogs) : dialogs_(&dialogs)
+{
+}
+
+AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
+                                             std::span<Character *const> action_targets,
+                                             std::vector<Waypoint> path, float arrival_radius)
+    : dialogs_(&dialogs), action_targets_(action_targets.begin(), action_targets.end()),
+      state_(State::Patrol), path_(std::move(path)), arrival_radius_(arrival_radius)
 {
     assert(!path_.empty() && "path must have at least one waypoint");
     current_target_ = path_.size() > 1 ? 1 : 0;
 }
 
-AiCharacterController::AiCharacterController(CompanionOrder order)
+void AiCharacterController::set_order(CompanionOrder order)
 {
-    if (order != CompanionOrder::Follow && order != CompanionOrder::Wait)
-        fail("companion controller requires Follow or Wait");
-    companion_order_ = order;
+    State state;
+    switch (order) {
+    case CompanionOrder::None:
+        state = State::Idle;
+        break;
+    case CompanionOrder::Follow:
+        state = State::Follow;
+        break;
+    case CompanionOrder::Wait:
+        state = State::Wait;
+        break;
+    default:
+        fail("invalid companion order");
+    }
+    if (state_ == State::Dialog)
+        resume_state_ = state;
+    else
+        state_ = state;
 }
 
 CharacterIntent AiCharacterController::update(float delta_seconds, Character const &character)
 {
-    if (companion_order_)
-        return companion_update(delta_seconds, character);
-    return patrol_update(delta_seconds, character);
+    auto const *dialog = dialogs_->find(character);
+    if (dialog) {
+        if (state_ != State::Dialog)
+            resume_state_ = state_;
+        state_ = State::Dialog;
+    }
+    else if (state_ == State::Dialog) {
+        state_ = resume_state_;
+    }
+
+    CharacterIntent intent;
+    switch (state_) {
+    case State::Idle:
+    case State::Wait:
+        break;
+    case State::Patrol:
+        intent = patrol_update(delta_seconds, character);
+        break;
+    case State::Follow:
+        intent = companion_update(delta_seconds, character);
+        break;
+    case State::Dialog:
+        intent.body_direction =
+            (dialog->talker() == &character ? dialog->target() : dialog->talker())->position() -
+            character.position();
+        return intent;
+    }
+
+    intent.swing_weapon = std::ranges::any_of(action_targets_, [&](Character const *target) {
+        return glm::distance(target->position(), character.position()) <= 3.0F;
+    });
+    if (action_targets_.empty() && character.config().party) {
+        auto const *leader = character.config().party->leader();
+        intent.swing_weapon =
+            leader && glm::distance(leader->position(), character.position()) <= 3.0F;
+    }
+
+    return intent;
+}
+
+bool AiCharacterController::patrolling() const
+{
+    return (state_ == State::Dialog ? resume_state_ : state_) == State::Patrol;
 }
 
 std::optional<CompanionOrder> AiCharacterController::companion_order() const
 {
-    return companion_order_;
+    switch (state_ == State::Dialog ? resume_state_ : state_) {
+    case State::Follow:
+        return CompanionOrder::Follow;
+    case State::Wait:
+        return CompanionOrder::Wait;
+    default:
+        return std::nullopt;
+    }
 }
 
 CharacterIntent AiCharacterController::patrol_update(float delta_seconds,
                                                      Character const &character)
 {
     CharacterIntent intent;
+
     if (path_.size() == 1) {
         wait_remaining_ = std::max(0.0F, wait_remaining_ - delta_seconds);
         if (wait_remaining_ == 0.0F)
@@ -70,6 +141,7 @@ CharacterIntent AiCharacterController::patrol_update(float delta_seconds,
         intent.move = glm::vec2{direction.x, direction.z};
         intent.face_movement = true;
     }
+
     return intent;
 }
 
@@ -77,8 +149,6 @@ CharacterIntent AiCharacterController::companion_update(float delta_seconds,
                                                         Character const &character)
 {
     CharacterIntent intent;
-    if (!companion_order_ || *companion_order_ != CompanionOrder::Follow)
-        return intent;
     auto const *party = character.config().party;
     auto const *leader = party ? party->leader() : nullptr;
     if (!leader || !party->can_command(*leader, character))

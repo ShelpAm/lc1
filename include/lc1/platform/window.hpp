@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lc1/error.hpp"
-#include "lc1/input.hpp"
+#include "lc1/platform/input.hpp"
 
 #include <GLFW/glfw3.h>
 

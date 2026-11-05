@@ -4,6 +4,7 @@
 #include "lc1/game/character/weapon.hpp"
 #include "lc1/game/continent/identity.hpp"
 #include "lc1/game/party/companion-order.hpp"
+#include "lc1/game/player/player-id.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -19,7 +20,7 @@ class Character;
 class Party;
 
 // Seed files store one record kind per file; checkpoints store the complete world together.
-// The session record says which character the player controls. Records hold keyids where runtime
+// The session record stores player-to-character bindings. Records hold keyids where runtime
 // objects holds a borrowed pointer, so a file never depends on address or on load order. See
 // docs/save-data.md.
 struct SerializedFaction {
@@ -38,6 +39,7 @@ struct SerializedWeapon {
     WeaponType type;
     float attack;
     float range;
+    rfl::DefaultVal<ModelConfig> model;
 };
 
 struct SerializedParty {
@@ -48,11 +50,15 @@ struct SerializedParty {
     std::vector<std::uint32_t> captives;
 };
 
-// Session state, not world data: a save names the character the player controls and,
-// optionally, the character an AI demonstration drives. The rules of the world (parties,
-// factions) stay in their own files.
+struct SerializedPlayer {
+    std::uint32_t keyid;
+    std::uint32_t character;
+};
+
+// Persistent bindings, independent of which local client is viewing the world.
+// An empty player list is valid for an NPC-only world.
 struct SerializedSession {
-    std::uint32_t player;
+    std::vector<SerializedPlayer> players;
     std::uint32_t example; // 0 means this save has no AI demonstration.
 };
 
@@ -67,6 +73,12 @@ struct SerializedCharacterConfig {
     // of [key, value] pairs: "- [Head, 10]".
     std::map<EquipmentType, std::uint32_t> equipment;
     std::map<WeaponType, std::uint32_t> weapon;
+    rfl::DefaultVal<ModelConfig> model;
+};
+
+struct SerializedResourceStack {
+    std::uint32_t keyid;
+    std::uint32_t quantity;
 };
 
 struct SerializedCharacterState {
@@ -79,11 +91,13 @@ struct SerializedCharacterState {
     float look_pitch;
     bool patrol;
     CompanionOrder companion_order = CompanionOrder::None;
+    std::uint32_t bag_capacity = 10000; // Grams.
+    std::vector<SerializedResourceStack> bag = {};
 };
 
 // One complete checkpoint: membership and character records are committed together.
 struct SerializedWorld {
-    std::uint32_t version = 3;
+    std::uint32_t version = 5;
     ContinentIdentity continent{"present", 1};
     SerializedSession session;
     std::vector<SerializedFaction> factions;
@@ -100,7 +114,7 @@ SerializedCharacterState serialize_character_state(Character const &character);
 SerializedParty serialize_party(Party const &party);
 
 // The saved world as data: one directory of YAML files, decoded once and checked for
-// duplicate ids and dangling references. The session file names the player, so no character
+// duplicate ids and dangling references. The session file names player bindings, so no character
 // keyid is special to the game code. Save owns no runtime object, so it can be loaded
 // without a device, a continent or a window, and the world that GameWorld builds from it
 // borrows nothing back.
@@ -121,7 +135,9 @@ class Save {
 
     ContinentIdentity const &continent() const;
 
-    std::uint32_t player() const;
+    std::uint32_t player(PlayerId id) const;
+
+    std::vector<SerializedPlayer> const &players() const;
 
     // 0 when the save has no AI demonstration; never a valid character keyid.
     std::uint32_t example() const;

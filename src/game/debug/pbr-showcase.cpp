@@ -1,4 +1,5 @@
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/debug/world-setup.hpp"
 #include "lc1/scene/lights/point-light.hpp"
 #include "lc1/scene/lights/sphere-light.hpp"
 #include "lc1/scene/lights/spot-light.hpp"
@@ -93,23 +94,7 @@ GpuMesh make_sphere(Device const &device)
 
 std::vector<ContinentBlock> PbrShowcase::spawn_blocks()
 {
-    // Leave x in [-5.5, 5.5] and the original city/village road completely open.
-    // Low display plinths have walkable tops; the tall back walls and dividers do not.
-    auto block = [](glm::vec3 min, glm::vec3 max, bool walkable_top) {
-        return ContinentBlock{min, max, ContinentSurface::Stone, true, walkable_top};
-    };
-    std::vector<ContinentBlock> blocks{block({-21, 0, -18}, {-5.5F, 0.8F, -14}, true),
-                                       block({-21, 0, -19}, {-5.5F, 7.1F, -18.5F}, false),
-                                       block({6, 0, -18}, {21, 0.8F, -14}, true),
-                                       block({6, 0, -19}, {21, 4.4F, -18.5F}, false),
-                                       block({6, 0, -11}, {21, 0.8F, -7}, true),
-                                       block({-21, 0, -11}, {-5.5F, 0.8F, -7}, true)};
-    for (float const x : {-13.0F, 13.0F}) {
-        blocks.push_back(block({x - 6, 0, -4}, {x + 6, 0.75F, 6}, true));
-        blocks.push_back(block({x - 7.5F, 0, 12}, {x + 7.5F, 0.8F, 18}, true));
-        blocks.push_back(block({x - 7.5F, 0, 11.4F}, {x + 7.5F, 5.9F, 11.8F}, false));
-    }
-    return blocks;
+    return showcase_blocks();
 }
 
 MaterialInfo const &PbrShowcase::material(glm::vec3 color, float metallic, float roughness,

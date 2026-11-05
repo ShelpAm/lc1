@@ -2,9 +2,6 @@
 
 namespace lc1 {
 
-std::optional<CompanionOrder> CharacterController::companion_order() const
-{
-    return std::nullopt;
-}
+CharacterController::~CharacterController() = default;
 
 } // namespace lc1

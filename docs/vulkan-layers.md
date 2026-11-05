@@ -73,6 +73,9 @@ CPU `Vertex` 位于 `lc1/vertex.hpp`，不包含 Vulkan；与 shader location、
 设备的固定扩展名与 feature 配置位于 `src/vk/core/device.cpp`；通用能力协商框架已移除。
 绘制校验和顶点输入布局位于 `src/vk/render/`。应用只包含 `include/lc1/` 下的公开接口。
 
+Vulkan 调用失败直接传播 `vk::SystemError`，保留具体异常类型与原始诊断；
+仅在能够恢复时捕获，例如帧循环将 surface lost 转为 `FrameResult::SurfaceLost`。
+
 ## Dispatch、设备与生命周期约束
 
 - 系统 loader 只有一个：`VulkanLoader` 长期持有 `vk::raii::Context`，在 GLFW 初始化前将其

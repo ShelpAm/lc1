@@ -31,11 +31,6 @@ struct CharacterIntent {
     // target every frame; third person only resets it when the view changes.
     std::optional<glm::vec2> look;
 
-    // Horizontal direction used to choose an interaction target. std::nullopt means the
-    // character's own body heading. The world resolves the target and starts the action;
-    // this is not a pose change.
-    std::optional<glm::vec3> interaction_direction;
-
     // Turn the body toward move. First person keeps the body aligned with the view and
     // therefore leaves this false; third person and AI turn toward movement.
     bool face_movement = false;
@@ -44,7 +39,8 @@ struct CharacterIntent {
     // movement rules that fit its current state.
     bool jump = false;
     bool sprint = false;
-    bool interact = false;
+    bool swing_weapon = false;
+    bool nod = false;
 };
 
 } // namespace lc1

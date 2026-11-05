@@ -44,11 +44,10 @@ void MapCameraController::pan(float delta_seconds, glm::vec2 direction, GroundBo
     if (locked_)
         return;
     direction /= std::max(glm::length(direction), 1.0F);
-    float const elapsed = std::clamp(delta_seconds, 0.0F, 0.1F);
     auto const heading = glm::normalize(glm::vec3{-offset.x, 0, -offset.z});
     auto const right = glm::cross(heading, glm::vec3{0, 1, 0});
-    center_ +=
-        (right * direction.x + heading * direction.y) * smoothed_view_height_ * 0.7F * elapsed;
+    center_ += (right * direction.x + heading * direction.y) * smoothed_view_height_ * 0.7F *
+               delta_seconds;
     center_.x = std::clamp(center_.x, bounds.min.x, bounds.max.x);
     center_.z = std::clamp(center_.z, bounds.min.y, bounds.max.y);
 }
@@ -58,8 +57,7 @@ void MapCameraController::update(float delta_seconds, scene::FpsCamera &camera,
 {
     if (locked_)
         recenter(player_position);
-    float const elapsed = std::clamp(delta_seconds, 0.0F, 0.1F);
-    float const blend = std::clamp(elapsed * 12.0F, 0.0F, 1.0F);
+    float const blend = std::clamp(delta_seconds * 12.0F, 0.0F, 1.0F);
     smoothed_center_ = glm::mix(smoothed_center_, center_, blend);
     smoothed_view_height_ = glm::mix(smoothed_view_height_, view_height_, blend);
     apply(camera);

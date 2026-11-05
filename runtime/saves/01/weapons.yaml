@@ -1,1 +1,45 @@
-- {"keyid":1001,"name":"sword","type":"MeleeWeapon","attack":10,"range":1}
+- keyid: 1001
+  name: sword
+  type: MeleeWeapon
+  attack: 10
+  range: 1
+  model: &longsword_model
+    path: lc-res/KingdomLongsword.obj
+    nodes:
+    - name: Grip
+    - name: KingdomLongsword
+      parent_index: 0
+      mesh_index: 0
+      transform:
+        translation: [0, 0.585, 0]
+        rotation_degrees: [-90, 0, 0]
+        scale: [0.45, 0.45, 0.45]
+    animations:
+    - name: Swing
+      channels:
+      - node: 0
+        path: Rotation
+        times: [0, 0.12, 0.28, 0.55]
+        values:
+        - [0, 0, 0]
+        - [70, 0, 0]
+        - [-75, 0, 0]
+        - [0, 0, 0]
+    action_animation: Swing
+    material:
+      base_color: [0.65, 0.7, 0.8, 1]
+      metallic: 0.85
+      roughness: 0.3
+      base_color_texture: textures/prototype-white.png
+- keyid: 1002
+  name: sword
+  type: MeleeWeapon
+  attack: 10
+  range: 1
+  model: *longsword_model
+- keyid: 1003
+  name: sword
+  type: MeleeWeapon
+  attack: 10
+  range: 1
+  model: *longsword_model

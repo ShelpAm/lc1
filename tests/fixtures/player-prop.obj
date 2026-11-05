@@ -1,0 +1,15 @@
+# Off-centre static prop to verify normalization without external assets.
+v 2 3 4
+v 4 3 4
+v 4 7 4
+v 2 7 4
+v 2 3 6
+v 4 3 6
+v 4 7 6
+v 2 7 6
+f 1 4 3 2
+f 5 6 7 8
+f 1 5 8 4
+f 2 3 7 6
+f 4 8 7 3
+f 1 2 6 5

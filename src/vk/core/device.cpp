@@ -45,12 +45,7 @@ Device::Device(Instance const &instance, vk::raii::PhysicalDevice physical,
 
 void Device::wait_idle() const
 {
-    try {
-        device_.waitIdle();
-    }
-    catch (vk::SystemError const &error) {
-        fail("vkDeviceWaitIdle failed: {}", error.what());
-    }
+    device_.waitIdle();
 }
 
 vk::SampleCountFlagBits Device::max_sample_count() const

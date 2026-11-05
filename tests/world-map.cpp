@@ -1,5 +1,6 @@
 #include "lc1/error.hpp"
 #include "lc1/game/continent/continent.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 
 #include <algorithm>
 #include <array>
@@ -194,7 +195,8 @@ void prototype_network()
             for (bool reverse : {false, true}) {
                 auto const from = road.points[reverse ? i : i - 1];
                 auto const to = road.points[reverse ? i - 1 : i];
-                auto const result = world.move({from.x, 0, from.y}, to - from, 0.3F, 1.8F);
+                auto const result =
+                    lc1::WorldCollision{world}.move({from.x, 0, from.y}, to - from, 0.3F, 1.8F);
                 check(glm::distance(result, glm::vec3{to.x, 0, to.y}) < 0.001F,
                       "every road segment is walkable in both directions");
             }
@@ -243,26 +245,29 @@ void present_outline()
     auto const *city = world.location(lc1::LocationId{1});
     check(city && city->bounds.max - city->bounds.min == glm::vec2{320, 384},
           "continent scaling does not stretch the city");
-    auto const through_gate = world.move(world.spawn(), {0, -160}, 0.3F, 1.8F);
+    auto const through_gate = lc1::WorldCollision{world}.move(world.spawn(), {0, -160}, 0.3F, 1.8F);
     check(std::abs(through_gate.z + 128.0F) < 0.001F, "the actual city gate remains traversable");
-    auto const back = world.move(through_gate, {0, 160}, 0.3F, 1.8F);
+    auto const back = lc1::WorldCollision{world}.move(through_gate, {0, 160}, 0.3F, 1.8F);
     check(glm::distance(back, world.spawn()) < 0.001F, "the city gate allows returning to spawn");
     for (auto const &road : world.roads()) {
         for (bool reverse : {false, true}) {
             auto const from = reverse ? road.points.back() : road.points.front();
             auto const to = reverse ? road.points.front() : road.points.back();
-            check(glm::distance(world.move({from.x, 0, from.y}, to - from, road.width * 0.5F, 1.8F),
+            check(glm::distance(lc1::WorldCollision{world}.move({from.x, 0, from.y}, to - from,
+                                                                road.width * 0.5F, 1.8F),
                                 glm::vec3{to.x, 0, to.y}) < 0.001F,
                   "the village and shore paths have full-width clearance in both directions");
         }
     }
-    auto const shoreline = world.move(world.spawn(), {0, 2000}, 0.3F, 1.8F);
-    check(std::abs(shoreline.z - 271.7F) < 0.001F && world.can_stand(shoreline, 0.3F, 1.8F),
+    auto const shoreline = lc1::WorldCollision{world}.move(world.spawn(), {0, 2000}, 0.3F, 1.8F);
+    check(std::abs(shoreline.z - 271.7F) < 0.001F &&
+              lc1::WorldCollision{world}.can_stand(shoreline, 0.3F, 1.8F),
           "high-speed movement through the village stops at the visible south-bay coast");
     auto const island = source_position({2140, 780});
-    auto const island_edge = world.move({island.x, 0, island.y}, {-2000, 0}, 0.3F, 1.8F);
+    auto const island_edge =
+        lc1::WorldCollision{world}.move({island.x, 0, island.y}, {-2000, 0}, 0.3F, 1.8F);
     check(island_edge.x > source_position({1960, 780}).x &&
-              world.can_stand(island_edge, 0.3F, 1.8F),
+              lc1::WorldCollision{world}.can_stand(island_edge, 0.3F, 1.8F),
           "island shores block walking across the channel to the mainland");
 }
 

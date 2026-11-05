@@ -41,7 +41,7 @@ void PlayerView::follow_first_person(glm::vec3 eye_position, glm::vec3 look_dire
     camera_.look_at(eye_position + look_direction);
 }
 
-void PlayerView::toggle(Character const &player)
+void PlayerView::toggle(CharacterPose const &player)
 {
     if (!oblique_)
         first_person_angles_ = {player.body_yaw() + player.look_yaw(), player.look_pitch()};
@@ -60,7 +60,7 @@ void PlayerView::toggle(Character const &player)
 }
 
 void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_enabled,
-                                  Character const &player)
+                                  CharacterPose const &player)
 {
     if (keyboard_enabled && input.pressed(GameAction::ToggleCameraView))
         toggle(player);
@@ -74,19 +74,24 @@ void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_en
         map_camera_.apply(camera_);
 }
 
-CharacterIntent PlayerView::resolve_input(Character const &player, GameInputRouter const &input,
-                                          glm::vec2 look_delta, bool keyboard_enabled,
-                                          bool mouse_enabled)
+void PlayerView::prepare_input(glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled)
 {
-    glm::vec3 const view_heading =
-        oblique_ && (keyboard_enabled || mouse_enabled) ? camera_.heading() : glm::vec3{};
-    // Motion collected in the previous cursor mode is not camera input in the new view.
-    // GameSession applies capture after resolving input and resets the device baseline.
-    auto intent = PlayerController::update(player, input, view_changed_ ? glm::vec2{} : look_delta,
-                                           keyboard_enabled, mouse_enabled, oblique_, view_changed_,
-                                           first_person_angles_, view_heading);
+    character_input_ = {
+        .look_delta = view_changed_ ? glm::vec2{} : look_delta,
+        .keyboard_enabled = keyboard_enabled,
+        .mouse_enabled = mouse_enabled,
+        .oblique = oblique_,
+        .view_changed = view_changed_,
+        .restored_first_person_angles = first_person_angles_,
+        .view_heading =
+            oblique_ && (keyboard_enabled || mouse_enabled) ? camera_.heading() : glm::vec3{},
+    };
     view_changed_ = false;
-    return intent;
+}
+
+PlayerCharacterInput const &PlayerView::character_input() const
+{
+    return character_input_;
 }
 
 void PlayerView::update_pointer(float delta_seconds, InputState const &devices,
@@ -100,7 +105,7 @@ void PlayerView::update_pointer(float delta_seconds, InputState const &devices,
                         continent_->bounds());
 }
 
-void PlayerView::update_camera(float delta_seconds, Character const &player,
+void PlayerView::update_camera(float delta_seconds, CharacterPose const &player,
                                std::optional<glm::mat4> eye_transform)
 {
     if (!oblique_) {
