@@ -285,3 +285,6 @@ do not include launching the game or validating GPU rendering.
   `<print>`, executable `-static`, and KTX 4.4.2's missing `astcenc-avx2-static`
   companion archive from the same package. Link flags belong in CMake; profile
   `*_FLAGS_INIT` changes do not update an existing cache. TinyGLTF filenames use UTF-8.
+- MinGW project C++ targets use `-Wa,-mbig-obj` in CMake so template-heavy Debug
+  objects can exceed the ordinary COFF section limit. The separate reflect-cpp
+  dependency receives the same option through `profiles/mingw64`.

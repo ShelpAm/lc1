@@ -69,6 +69,14 @@ endif()
 # Static MinGW runtimes are required for standalone Windows executables.
 # Fail during configuration if the selected linker cannot provide them.
 if(MINGW)
+    # Template-heavy Debug objects (including save.cpp) exceed ordinary COFF's
+    # section limit. This must cover project targets, not only Conan dependencies.
+    check_cxx_compiler_flag("-Wa,-mbig-obj" lc1_supports_big_obj)
+    if(NOT lc1_supports_big_obj)
+        message(FATAL_ERROR "The MinGW target requires an assembler supporting -mbig-obj")
+    endif()
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wa,-mbig-obj>)
+
     check_linker_flag(CXX "-static" lc1_supports_static_link)
     if(NOT lc1_supports_static_link)
         message(FATAL_ERROR "The MinGW target requires a linker supporting -static")
