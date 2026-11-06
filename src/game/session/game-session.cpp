@@ -114,7 +114,6 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         {
             .world = snapshot_,
             .player = player_id,
-            .bag = snapshot_.players.at(connection_.player_id()).bag,
             .player_parties = std::move(player_parties),
             .saves = saves_,
             .current_save = slot_name(save_directory_),

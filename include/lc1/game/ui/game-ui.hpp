@@ -15,7 +15,6 @@ struct GameLocation;
 struct GameUiInfo {
     WorldSnapshot const &world;
     CharacterId player;
-    game::Bag const &bag;
     std::vector<Party const *> player_parties; // Parties related to current player
     std::span<std::string const> saves;
     std::string_view current_save;
