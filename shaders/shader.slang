@@ -3,6 +3,7 @@ import shadow_values;
 import modules.pbr;
 #include "generated/modules/material.slang"
 import modules.normal;
+import ddgi_screen;
 
 struct PushData {
     uint frame_buffer_index;
@@ -20,6 +21,7 @@ struct FrameBufferObject {
     uint object_data_index; // model
     uint material_index;
     uint shadow_visibility_index;
+    uint diffuse_gi_index;
 };
 
 struct VSInput {
@@ -127,6 +129,11 @@ float4 fragMain(VSOutput input, uint sample_index: SV_SampleIndex) : SV_TARGET
     float3 color =
         material.emissive_texture.Sample(material.emissive_texture_sampler, input.uv).rgb *
         material.emissive_factor;
+    if (frame_buffer.diffuse_gi_index != 0xffffffffu) {
+        float3 irradiance = ddgi_screen_irradiance(frame_buffer.diffuse_gi_index,
+                                                 input.pos.xy, input.world_position, surface_normal);
+        color += irradiance * base_color * (1.0 - metallic) / 3.14159265359;
+    }
     for (uint i = 0; i < min(lights.count, 10u); ++i) {
         // Read fields before passing the light by value: nested arrays read
         // through a heap ConstantBuffer are mishandled; see docs/external-defects.md.

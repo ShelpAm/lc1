@@ -6,6 +6,7 @@
 #include "lc1/vk/render/draw-item.hpp"
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -27,6 +28,13 @@ struct SceneModel {
     static ModelDefinition const &definition(GpuModel const *model);
 };
 
+// Local diffuse irradiance volume. Radiance is linear RGB; zero sky emits no light.
+struct DiffuseGi {
+    glm::vec3 center{};
+    glm::vec3 sky_radiance{};
+    bool emissive_lighting = false;
+};
+
 struct SceneLight {
     Light parameters;
     bool enabled = true;
@@ -38,6 +46,9 @@ struct SceneLight {
 // preserve them; removing the object or destroying the scene invalidates its pointer.
 class Scene {
   public:
+    void set_diffuse_gi(std::optional<DiffuseGi> settings);
+    std::optional<DiffuseGi> const &diffuse_gi() const;
+
     SceneLight *add_light(Light light);
     void remove_light(SceneLight const *light);
 
@@ -54,6 +65,7 @@ class Scene {
     std::size_t draw_count() const;
 
   private:
+    std::optional<DiffuseGi> diffuse_gi_;
     std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
     std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;
 };

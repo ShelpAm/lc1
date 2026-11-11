@@ -43,6 +43,21 @@ void GpuMesh::draw(vk::raii::CommandBuffer const &command_buffer) const
 
 namespace lc1 {
 
+vk::DeviceAddress GpuMesh::vertex_address() const
+{
+    return vertices_.device_address();
+}
+
+vk::DeviceAddress GpuMesh::index_address() const
+{
+    return indices_.device_address();
+}
+
+std::uint32_t GpuMesh::index_stride() const
+{
+    return index_type_ == vk::IndexType::eUint16 ? 2U : 4U;
+}
+
 bool GpuMesh::has_tangents() const
 {
     return has_tangents_;

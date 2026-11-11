@@ -167,7 +167,8 @@ Device make_device(Instance const &instance, Surface const &surface)
 
 OutputSettings output_settings(vk::Format format)
 {
-    return {.encoding = format == vk::Format::eR8G8B8A8Unorm || format == vk::Format::eB8G8R8A8Unorm
+    return {.exposure = 2.0F,
+            .encoding = format == vk::Format::eR8G8B8A8Unorm || format == vk::Format::eB8G8R8A8Unorm
                             ? OutputEncoding::Srgb
                             : OutputEncoding::Linear};
 }

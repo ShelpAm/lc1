@@ -492,6 +492,11 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
                                   ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
     if (changed && std::isfinite(rate))
         actions.time_rate = std::clamp(rate, 0.01F, 100.0F);
+    int density = info.grass_density;
+    auto const density_label = std::format("{}%%", density * 25);
+    if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
+                         ImGuiSliderFlags_AlwaysClamp))
+        actions.grass_density = std::clamp(density, 0, 8);
     if (ImGui::Button("Save game (F6)"))
         open_save(info.current_save);
     if (ImGui::Button("Load game")) {

@@ -72,7 +72,7 @@ Renderer::Renderer(Device const &device, std::vector<vk::Format> const &color_at
                   .depth_test = true},
       shaders_{device, "shaders/shader.spv"}, tone_map_shaders_{device, "shaders/tone-map.spv"},
       text_pass_{device, main_state_.samples}, ray_query_shadows_{device, depth_format_},
-      default_sampler_info_{Sampler::default_create_info(device)},
+      ddgi_{device}, default_sampler_info_{Sampler::default_create_info(device)},
       white_srgb_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Srgb),
       white_linear_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Linear),
       flat_normal_(device, {.width = 1, .height = 1}, normal_pixel, TextureColorSpace::Linear)
@@ -91,12 +91,13 @@ FrameResources Renderer::make_frame_resources(std::uint32_t object_capacity) con
                          vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
     };
     // Samplers: five material slots per draw plus the texture cache's default and
-    // the text pass's clamped font sampler. Images: the same five per draw, the
-    // HDR resolve, shadow visibility and the font atlas. Buffers: three per draw,
-    // the camera/lights/temporal/tone-mapping uniforms and the TLAS address.
-    auto heap =
-        std::make_unique<DescriptorHeap>(*device_, 5ULL * object_capacity + 2,
-                                         5ULL * object_capacity + 8, 3ULL * object_capacity + 6);
+    // the text pass's clamped font sampler and DDGI's linear sampler. Images also
+    // include the HDR/shadow histories, font atlas and the DDGI input/output slots.
+    // Buffers: three per draw, the shared frame uniforms, TLAS address and DDGI UBO.
+    auto heap = std::make_unique<DescriptorHeap>(
+        *device_, 5ULL * object_capacity + 3,
+        5ULL * object_capacity + 8 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
+        3ULL * object_capacity + 7);
     FrameResources result{std::move(heap), make_buffer(sizeof(CameraData)),
                           make_buffer(sizeof(LightsData)), make_buffer(sizeof(TemporalShadowData)),
                           make_buffer(sizeof(ToneMapData))};
@@ -194,10 +195,17 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .camera = camera,
         .lights = std::move(lights),
         .draws = std::move(draws),
+        .diffuse_gi = input.diffuse_gi(),
     });
     ray_query_shadows_.add_passes(graph, resources, target.extent, scene);
     graph.add_pass(
-        "HDR lighting", {"shadow.frame", "shadow.filtered_visibility"}, {"hdr.color"},
+        "Material preparation", {"frame.inputs"}, {"material.frame"},
+        [this, &resources, scene](CommandBuffer &) { prepare_materials(resources, scene->draws); });
+    ddgi_.add_passes(graph, resources, target.extent, scene);
+    graph.add_pass(
+        "HDR lighting",
+        {"shadow.frame", "shadow.filtered_visibility", "material.frame", "ddgi.irradiance"},
+        {"hdr.color"},
         [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
             record_hdr(commands, resources, extent, scene->draws, scene->camera, text);
         });
@@ -211,6 +219,59 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
                    [this, &resources, target, text](CommandBuffer &commands) {
                        record_screen_text(commands, resources, target, text);
                    });
+}
+
+void Renderer::prepare_materials(FrameResources &resources, std::span<DrawItem const> draws)
+{
+    auto &heap = *resources.descriptor_heap;
+    for (std::size_t i = 0; i < draws.size(); ++i) {
+        // RayQueryShadows already uploaded these object transforms and receiver IDs.
+        auto const &info = *draws[i].material;
+        auto const &p = info.parameters;
+        std::array const textures{info.base_color, info.metallic_roughness, info.normal,
+                                  info.occlusion, info.emissive};
+        std::array const fallbacks{&white_srgb_, &white_linear_, &flat_normal_, &white_linear_,
+                                   &white_srgb_};
+        std::array<HeapIndex, 5> images;
+        std::array<HeapIndex, 5> samplers;
+        for (std::size_t slot = 0; slot < textures.size(); ++slot) {
+            auto const &texture =
+                textures[slot].texture ? *textures[slot].texture : *fallbacks[slot];
+            auto const sampler_info = textures[slot].sampler ? textures[slot].sampler->create_info()
+                                                             : default_sampler_info_;
+            auto &indices = resources.material_textures[i][slot];
+            if (indices.image)
+                heap.write_image(*indices.image, texture.image());
+            else
+                indices.image = heap.allocate_image(texture.image());
+            if (indices.sampler)
+                heap.write_sampler(*indices.sampler, sampler_info);
+            else
+                indices.sampler = heap.allocate_sampler(sampler_info);
+            images[slot] = *indices.image;
+            samplers[slot] = *indices.sampler;
+        }
+        FrameResources::MaterialBufferObject const material_bo{
+            .base_color_factor = p.base_color_factor,
+            .metallic_factor = p.metallic_factor,
+            .roughtness_factor = p.roughness_factor,
+            .base_color_texture_index = images[0],
+            .base_color_texture_sampler_index = samplers[0],
+            .metallic_roughness_texture_index = images[1],
+            .metallic_roughness_texture_sampler_index = samplers[1],
+            .normal_scale = p.normal_scale,
+            .normal_texture_index = images[2],
+            .normal_texture_sampler_index = samplers[2],
+            .occlusion_strength = p.occlusion_strength,
+            .occlusion_texture_index = images[3],
+            .occlusion_texture_sampler_index = samplers[3],
+            .emissive_factor = p.emissive_factor,
+            .emissive_texture_index = images[4],
+            .emissive_texture_sampler_index = samplers[4],
+            .flags = info.normal.texture ? 1U : 0U,
+        };
+        resources.material_buffers[i].upload(std::as_bytes(std::span{&material_bo, 1}));
+    }
 }
 
 void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
@@ -310,52 +371,6 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
     command_buffer.setScissorWithCount(vk::Rect2D{.offset = {.x = 0, .y = 0}, .extent = extent});
 
     for (std::size_t i = 0; i < draws.size(); ++i) {
-        // RayQueryShadows already uploaded these object transforms and receiver IDs.
-        auto const &info = *draws[i].material;
-        auto const &p = info.parameters;
-        std::array const textures{info.base_color, info.metallic_roughness, info.normal,
-                                  info.occlusion, info.emissive};
-        std::array const fallbacks{&white_srgb_, &white_linear_, &flat_normal_, &white_linear_,
-                                   &white_srgb_};
-        std::array<HeapIndex, 5> images;
-        std::array<HeapIndex, 5> samplers;
-        for (std::size_t slot = 0; slot < textures.size(); ++slot) {
-            auto const &texture =
-                textures[slot].texture ? *textures[slot].texture : *fallbacks[slot];
-            auto const sampler_info = textures[slot].sampler ? textures[slot].sampler->create_info()
-                                                             : default_sampler_info_;
-            auto &indices = resources.material_textures[i][slot];
-            if (indices.image)
-                heap.write_image(*indices.image, texture.image());
-            else
-                indices.image = heap.allocate_image(texture.image());
-            if (indices.sampler)
-                heap.write_sampler(*indices.sampler, sampler_info);
-            else
-                indices.sampler = heap.allocate_sampler(sampler_info);
-            images[slot] = *indices.image;
-            samplers[slot] = *indices.sampler;
-        }
-        FrameResources::MaterialBufferObject const material_bo{
-            .base_color_factor = p.base_color_factor,
-            .metallic_factor = p.metallic_factor,
-            .roughtness_factor = p.roughness_factor,
-            .base_color_texture_index = images[0],
-            .base_color_texture_sampler_index = samplers[0],
-            .metallic_roughness_texture_index = images[1],
-            .metallic_roughness_texture_sampler_index = samplers[1],
-            .normal_scale = p.normal_scale,
-            .normal_texture_index = images[2],
-            .normal_texture_sampler_index = samplers[2],
-            .occlusion_strength = p.occlusion_strength,
-            .occlusion_texture_index = images[3],
-            .occlusion_texture_sampler_index = samplers[3],
-            .emissive_factor = p.emissive_factor,
-            .emissive_texture_index = images[4],
-            .emissive_texture_sampler_index = samplers[4],
-            .flags = info.normal.texture ? 1U : 0U,
-        };
-        resources.material_buffers[i].upload(std::as_bytes(std::span{&material_bo, 1}));
         FrameResources::FrameBufferObject const frame_bo{
             .clear_color = {},
             .camera_index = resources.camera_index,
@@ -363,6 +378,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
             .object_data_index = resources.object_indices[i],
             .material_index = resources.material_indices[i],
             .shadow_visibility_index = *resources.shadow_visibility_index,
+            .diffuse_gi_index = resources.ddgi_active ? *resources.ddgi_index : 0xffffffffU,
         };
         resources.frame_buffers[i].upload(std::as_bytes(std::span{&frame_bo, 1}));
         FrameResources::PushData const push_data{.frame_buffer_index = resources.frame_indices[i]};

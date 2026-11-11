@@ -33,6 +33,10 @@ function(add_slang_shaders target)
         cmake_path(GET source STEM name)
         set(spv ${CMAKE_CURRENT_BINARY_DIR}/${name}.spv)
 
+        set(shader_capabilities)
+        if(name STREQUAL "ddgi-trace")
+            list(APPEND shader_capabilities -capability spvShaderNonUniformEXT)
+        endif()
         add_custom_command(
             OUTPUT  ${spv}
             COMMAND ${SLANGC_EXECUTABLE} ${source}
@@ -41,6 +45,7 @@ function(add_slang_shaders target)
                     -profile spirv_1_4
                     -capability spvRayQueryKHR
                     -capability spvDescriptorHeapEXT
+                    ${shader_capabilities}
                     -emit-spirv-directly
                     -fvk-use-entrypoint-name
                     "$<$<CONFIG:Debug>:-O0;-g>"
@@ -81,6 +86,11 @@ set_target_properties(descriptor_heap_bulk_test_shader PROPERTIES EXCLUDE_FROM_A
 
 add_slang_shaders(shaders
     shader.slang
+    ddgi-emitter-prepare.slang
+    ddgi-candidates.slang
+    ddgi-trace.slang
+    ddgi-blend.slang
+    ddgi-resolve.slang
     visibility.slang
     tone-map.slang
     temporal-shadows.slang

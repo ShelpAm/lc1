@@ -41,7 +41,12 @@ class GpuMesh {
 
     bool has_tangents() const;
 
+    std::uint32_t triangle_count() const { return index_count_ / 3; }
+
     vk::DeviceAddress acceleration_structure_address() const;
+    vk::DeviceAddress vertex_address() const;
+    vk::DeviceAddress index_address() const;
+    std::uint32_t index_stride() const;
 
   private:
     void build_acceleration_structure(Device const &device);
@@ -63,7 +68,7 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
                     vk::BufferUsageFlagBits2::eShaderDeviceAddress |
                     vk::BufferUsageFlagBits2::eAccelerationStructureBuildInputReadOnlyKHR},
       vertex_count_{static_cast<std::uint32_t>(vertices.size())},
-      indices_{device, indices.size_bytes(),
+      indices_{device, (indices.size_bytes() + 3) & ~std::size_t{3},
                vk::BufferUsageFlagBits2::eIndexBuffer | vk::BufferUsageFlagBits2::eTransferDst |
                    vk::BufferUsageFlagBits2::eShaderDeviceAddress |
                    vk::BufferUsageFlagBits2::eAccelerationStructureBuildInputReadOnlyKHR},
@@ -95,7 +100,8 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
             .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
             .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
             .dstStageMask = vk::PipelineStageFlagBits2::eVertexAttributeInput |
-                            vk::PipelineStageFlagBits2::eAccelerationStructureBuildKHR,
+                            vk::PipelineStageFlagBits2::eAccelerationStructureBuildKHR |
+                            vk::PipelineStageFlagBits2::eFragmentShader,
             .dstAccessMask =
                 vk::AccessFlagBits2::eVertexAttributeRead | vk::AccessFlagBits2::eShaderRead,
             .buffer = *vertices_.raii(),
@@ -113,7 +119,8 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
             .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
             .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
             .dstStageMask = vk::PipelineStageFlagBits2::eIndexInput |
-                            vk::PipelineStageFlagBits2::eAccelerationStructureBuildKHR,
+                            vk::PipelineStageFlagBits2::eAccelerationStructureBuildKHR |
+                            vk::PipelineStageFlagBits2::eFragmentShader,
             .dstAccessMask = vk::AccessFlagBits2::eIndexRead | vk::AccessFlagBits2::eShaderRead,
             .buffer = *indices_.raii(),
             .offset = 0,

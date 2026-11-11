@@ -200,7 +200,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
     }
 
     scene::DirectionalLight const sun{
-        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.3F},
+        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.45F},
         .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
     scene::SphereLight const lamp{.base = {.color = glm::vec3{1.0F, 0.5F, 0.5F}, .intensity = 128},
                                   .position = continent_->spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
@@ -213,8 +213,11 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         lights_.push_back(scene_.add_light(light));
 
     auto const add_draw = [this](scene::SceneModel const &draw) { return scene_.add_model(draw); };
+    std::vector<scene::SceneModel *> terrain_models;
     for (auto const &draw : continent_view_.draw_items())
-        add_draw(draw);
+        terrain_models.push_back(add_draw(draw));
+    for (auto const &batch : continent_view_.grass_batches())
+        grass_models_.emplace_back(terrain_models[batch.draw_index], batch.level);
     for (auto const &draw : showcase_.draws())
         showcase_models_.push_back(add_draw(draw));
     update_instances();
@@ -346,8 +349,12 @@ void WorldPresentation::update_lighting()
     auto const angle = (time_of_day_ - 6.0) * std::numbers::pi / 12.0;
     auto const altitude = static_cast<float>(std::sin(angle));
     sun_->parameters.direction = glm::vec3{-static_cast<float>(std::cos(angle)), -altitude, 0.0F};
-    sun_->parameters.intensity = 0.3F * std::max(altitude, 0.0F);
+    sun_->parameters.intensity = 0.45F * std::max(altitude, 0.0F);
     sun_->enabled = sun_->enabled && altitude > 0.0F;
+    scene_.set_diffuse_gi(scene::DiffuseGi{
+        .center = world_->player(observer_).pose.position() + glm::vec3{0, 6, 0},
+        .sky_radiance = sun_->enabled ? glm::vec3{0.08F, 0.105F, 0.14F} * altitude : glm::vec3{0},
+    });
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
         auto &light = *models.flashlight;
@@ -513,6 +520,18 @@ float WorldPresentation::time_rate() const
 void WorldPresentation::set_time_rate(float rate)
 {
     time_rate_ = rate;
+}
+
+int WorldPresentation::grass_density() const
+{
+    return grass_density_;
+}
+
+void WorldPresentation::set_grass_density(int density)
+{
+    grass_density_ = density;
+    for (auto const &[model, level] : grass_models_)
+        model->visible = level <= density;
 }
 
 } // namespace lc1

@@ -17,6 +17,8 @@
 #include "lc1/scene/lights/spot-light.hpp"
 #include "lc1/scene/model-instance.hpp"
 #include "lc1/scene/model.hpp"
+#include "lc1/vk/render/graphics-shaders.hpp"
+#include "lc1/vk/render/graphics-state.hpp"
 #include "lc1/vk/render/renderer.hpp"
 
 #include "lc1/game/camera/map-camera-controller.hpp"
@@ -77,8 +79,12 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
                 lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
                 vk::Extent2D extent = {.width = 65, .height = 65},
                 lc1::OutputSettings settings = {}, vk::Format format = vk::Format::eR8G8B8A8Unorm,
-                lc1::TextFrameInput text = {})
+                lc1::TextFrameInput text = {}, double *gpu_ms = nullptr)
 {
+    std::optional<vk::raii::QueryPool> timing;
+    if (gpu_ms)
+        timing.emplace(device.raii().createQueryPool(
+            {.queryType = vk::QueryType::eTimestamp, .queryCount = 2}));
     lc1::GpuImage output{device,
                          format,
                          extent,
@@ -102,7 +108,13 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
                                  vk::PipelineStageFlagBits2::eNone, {},
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
                                  vk::AccessFlagBits2::eColorAttachmentWrite);
+        if (timing) {
+            commands.resetQueryPool(**timing, 0, 2);
+            commands.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, **timing, 0);
+        }
         renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, settings, text);
+        if (timing)
+            commands.writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, **timing, 1);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
                                  vk::ImageLayout::eTransferSrcOptimal,
                                  vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -131,6 +143,15 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
                                               .dstAccessMask = vk::AccessFlagBits2::eHostRead};
         commands.pipelineBarrier2(vk::DependencyInfo{}.setMemoryBarriers(host_barrier));
     });
+    if (timing) {
+        std::array<std::uint64_t, 2> timestamps{};
+        check(timing->getResults(0, 2, sizeof(timestamps), timestamps.data(), sizeof(std::uint64_t),
+                                 vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait) ==
+                  vk::Result::eSuccess,
+              "GPU timestamps available after submission completion");
+        *gpu_ms = static_cast<double>(timestamps[1] - timestamps[0]) *
+                  device.raii_physical().getProperties().limits.timestampPeriod / 1e6;
+    }
     Capture result{extent, std::vector<std::uint8_t>(ldr_bytes), {}};
     readback.getAllocation().copyToMemory(0, result.output.data(), ldr_bytes);
     std::vector<std::uint16_t> half(extent.width * extent.height * 4);
@@ -178,6 +199,306 @@ void check_tone_map(Capture const &result, float exposure, bool encoded)
             near(result.output[i * 4 + c] / 255.0F, expected, "tone mapping after HDR resolve",
                  2.0F / 255);
         }
+}
+
+void ddgi_candidate_tests(lc1::Device const &device, lc1::FrameResources &frame)
+{
+    auto const extent = frame.ddgi_resolved->extent();
+    lc1::GraphicsShaders reference{device, "shaders/ddgi-resolve.spv", "ddgiVert",
+                                   "ddgiResolveReference"};
+    lc1::GraphicsShaders cached{device, "shaders/ddgi-resolve.spv", "ddgiVert", "ddgiResolve"};
+    std::array shaders{&reference, &cached};
+    auto make_target = [&] {
+        return lc1::GpuImage{device,
+                             vk::Format::eR32G32B32A32Sfloat,
+                             extent,
+                             1,
+                             vk::SampleCountFlagBits::e1,
+                             vk::ImageUsageFlagBits::eColorAttachment |
+                                 vk::ImageUsageFlagBits::eTransferSrc,
+                             vk::ImageAspectFlagBits::eColor};
+    };
+    std::array targets{make_target(), make_target()};
+    auto const bytes = vk::DeviceSize{extent.width} * extent.height * sizeof(glm::vec4);
+    auto readback = device.allocator().createBuffer(
+        {.size = bytes * 2, .usage = vk::BufferUsageFlagBits::eTransferDst},
+        {.flags = vma::AllocationCreateFlagBits::eHostAccessRandom,
+         .usage = vma::MemoryUsage::eAuto});
+    auto queries =
+        device.raii().createQueryPool({.queryType = vk::QueryType::eTimestamp, .queryCount = 32});
+    lc1::one_time_submit(device, [&](lc1::CommandBuffer &cmd) {
+        auto const &commands = cmd.raii();
+        cmd.bind_descriptor_heap(*frame.descriptor_heap);
+        cmd.push_data(std::span{&*frame.ddgi_index, 1});
+        commands.resetQueryPool(*queries, 0, 32);
+        for (std::uint32_t i = 0; i < 16; ++i) {
+            // Reverse order every pair to reduce ordering and clock-ramp bias.
+            std::uint32_t const mode = (i & 1U) ^ ((i / 2U) & 1U);
+            auto &target = targets[mode];
+            target.transition_layout(commands, vk::ImageLayout::eUndefined,
+                                     vk::ImageLayout::eColorAttachmentOptimal,
+                                     vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                     vk::AccessFlagBits2::eColorAttachmentWrite,
+                                     vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                     vk::AccessFlagBits2::eColorAttachmentWrite);
+            commands.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, *queries, i * 2);
+            vk::RenderingAttachmentInfo attachment{.imageView = *target.view(),
+                                                   .imageLayout =
+                                                       vk::ImageLayout::eColorAttachmentOptimal,
+                                                   .loadOp = vk::AttachmentLoadOp::eDontCare,
+                                                   .storeOp = vk::AttachmentStoreOp::eStore};
+            vk::RenderingInfo rendering{.renderArea = {{0, 0}, extent}, .layerCount = 1};
+            rendering.setColorAttachments(attachment);
+            commands.beginRendering(rendering);
+            shaders[mode]->bind_to_command_buffer(cmd);
+            lc1::set_graphics_state(commands, {});
+            commands.setViewportWithCount(vk::Viewport{.width = static_cast<float>(extent.width),
+                                                       .height = static_cast<float>(extent.height),
+                                                       .minDepth = 0,
+                                                       .maxDepth = 1});
+            commands.setScissorWithCount(vk::Rect2D{{0, 0}, extent});
+            commands.draw(3, 1, 0, 0);
+            commands.endRendering();
+            commands.writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, *queries,
+                                     i * 2 + 1);
+        }
+        for (std::size_t i = 0; i < targets.size(); ++i) {
+            targets[i].transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
+                                         vk::ImageLayout::eTransferSrcOptimal,
+                                         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                         vk::AccessFlagBits2::eColorAttachmentWrite,
+                                         vk::PipelineStageFlagBits2::eCopy,
+                                         vk::AccessFlagBits2::eTransferRead);
+            vk::BufferImageCopy region{
+                .bufferOffset = bytes * i,
+                .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+                .imageExtent = {extent.width, extent.height, 1}};
+            commands.copyImageToBuffer(*targets[i].raii(), vk::ImageLayout::eTransferSrcOptimal,
+                                       *readback, region);
+        }
+        vk::MemoryBarrier2 host{.srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+                                .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                                .dstStageMask = vk::PipelineStageFlagBits2::eHost,
+                                .dstAccessMask = vk::AccessFlagBits2::eHostRead};
+        commands.pipelineBarrier2(vk::DependencyInfo{}.setMemoryBarriers(host));
+    });
+    std::array<std::uint64_t, 32> stamps{};
+    check(queries.getResults(0, 32, sizeof(stamps), stamps.data(), sizeof(std::uint64_t),
+                             vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait) ==
+              vk::Result::eSuccess,
+          "candidate timestamps available");
+    std::array<double, 2> milliseconds{};
+    double const scale = device.raii_physical().getProperties().limits.timestampPeriod / 1e6;
+    for (unsigned i = 0; i < 16; ++i)
+        milliseconds[(i & 1U) ^ ((i / 2U) & 1U)] += (stamps[i * 2 + 1] - stamps[i * 2]) * scale / 8;
+    std::vector<glm::vec4> values(extent.width * extent.height * 2);
+    readback.getAllocation().copyToMemory(0, values.data(), bytes * 2);
+    float maximum_error = 0;
+    auto const count = extent.width * extent.height;
+    for (std::size_t i = 0; i < count; ++i)
+        for (int c = 0; c < 3; ++c)
+            maximum_error = std::max(maximum_error, std::abs(values[i][c] - values[i + count][c]));
+    check(maximum_error < 1e-5F, "candidate cache must preserve the full emission integral");
+    std::cout << "DDGI resolve A/B " << extent.width << 'x' << extent.height << ": full "
+              << milliseconds[0] << " ms, spatial cache " << milliseconds[1]
+              << " ms, max RGB error " << maximum_error << std::endl;
+}
+
+void ddgi_tests(lc1::Device const &device)
+{
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    std::array frames{renderer.make_frame_resources(4), renderer.make_frame_resources(4)};
+    lc1::scene::FpsCamera camera;
+    camera.set_position({0, 0, 4});
+    camera.look_at({0, 0, 0});
+    camera.set_zfar(100.0F);
+    std::array const vertices{
+        lc1::Vertex{.position = {-20, -20, 0}, .normal = {0, 0, 1}, .uv = {0, 0}},
+        lc1::Vertex{.position = {20, -20, 0}, .normal = {0, 0, 1}, .uv = {1, 0}},
+        lc1::Vertex{.position = {20, 20, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
+        lc1::Vertex{.position = {-20, 20, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
+    std::array<std::uint16_t, 6> const indices{0, 1, 2, 0, 2, 3};
+    lc1::scene::GpuModel plane{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                            std::span<std::uint16_t const>{indices}}};
+    std::array<std::uint32_t, 6> const wide_indices{0, 1, 2, 0, 2, 3};
+    lc1::scene::GpuModel emitter_plane{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                                    std::span<std::uint32_t const>{wide_indices}}};
+    lc1::MaterialInfo receiver;
+    receiver.parameters.metallic_factor = 0;
+    receiver.parameters.roughness_factor = 1;
+    receiver.parameters.base_color_factor = {0.5F, 0.5F, 0.5F, 1};
+    lc1::scene::Scene scene;
+    auto *receiver_model = scene.add_model({.model = &plane, .material = &receiver});
+    unsigned frame = 0;
+    auto render = [&] {
+        return capture(device, renderer, frames[frame++ % 2], camera, scene,
+                       {.width = 33, .height = 33})
+            .center();
+    };
+    near(render().r, 0, "DDGI disabled has no ambient floor");
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.sky_radiance = {0.08F, 0.04F, 0.02F}});
+    auto sky = render();
+    // Uniform sky has irradiance pi*L on a fully exposed normal. The diffuse
+    // receiver reflects albedo*L; tolerate the finite 64-ray/probe estimate.
+    near(sky.r, 0.04F, "DDGI uniform sky energy", 0.008F);
+    near(sky.g, 0.02F, "DDGI sky RGB", 0.004F);
+    near(sky.b, 0.01F, "DDGI sky RGB", 0.002F);
+    for (int i = 0; i < 12; ++i)
+        sky = render();
+    near(sky.r, 0.04F, "DDGI two frame slots share probe history", 0.008F);
+    scene.set_diffuse_gi(
+        lc1::scene::DiffuseGi{.center = {4, 0, 0}, .sky_radiance = {0.08F, 0.04F, 0.02F}});
+    for (int i = 0; i < 8; ++i)
+        sky = render();
+    near(sky.r, 0.04F, "DDGI scroll retains world-aligned probes", 0.008F);
+
+    // Move the receiver and camera together while keeping the GI center fixed.
+    // Every sample outside the old +/-30m volume must still receive sky light.
+    // Sweep through all cascade boundaries, including the formerly dark far scene.
+    for (float const x : {20.0F, 26.0F, 28.0F, 30.0F, 32.0F, 36.0F, 80.0F, 112.0F, 120.0F, 128.0F,
+                          200.0F, 448.0F, 480.0F, 512.0F, 800.0F}) {
+        receiver_model->world_transform = glm::translate(glm::mat4{1}, glm::vec3{x, 0, 0});
+        camera.set_position({x, 0, 4});
+        camera.look_at({x, 0, 0});
+        auto const value = render();
+        near(value.r, 0.04F, "DDGI cascades keep far receivers lit at x=" + std::to_string(x),
+             0.01F);
+    }
+    // Crossing a grid-cell boundary must retain coarse coverage while fresh near
+    // cells fill; this also catches histories accidentally copied across cascades.
+    scene.set_diffuse_gi(
+        lc1::scene::DiffuseGi{.center = {260, 0, 0}, .sky_radiance = {0.08F, 0.04F, 0.02F}});
+    for (int i = 0; i < 8; ++i)
+        near(render().r, 0.04F, "DDGI cascade scrolling preserves far light", 0.01F);
+    receiver_model->world_transform = glm::mat4{1};
+    camera.set_position({0, 0, 4});
+    camera.look_at({0, 0, 0});
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.sky_radiance = {0.08F, 0.04F, 0.02F}});
+
+    scene.set_diffuse_gi(std::nullopt);
+    near(render().r, 0, "DDGI disable does not retain irradiance");
+    lc1::MaterialInfo emission;
+    emission.parameters.metallic_factor = 0;
+    std::array<std::uint8_t, 4> const red_pixel{255, 0, 0, 255};
+    lc1::GpuTexture emission_texture{
+        device, {.width = 1, .height = 1}, red_pixel, lc1::TextureColorSpace::Srgb};
+    emission.emissive.texture = &emission_texture;
+    emission.parameters.emissive_factor = {2, 2, 2};
+    auto const facing_receiver = glm::rotate(glm::mat4{1}, glm::pi<float>(), glm::vec3{0, 1, 0});
+    auto *emitter = scene.add_model(
+        {.model = &emitter_plane,
+         .material = &emission,
+         .world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, 5}) * facing_receiver});
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{});
+    near(render().r, 0, "default DDGI excludes offscreen emissive lighting");
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{
+        .emissive_lighting = true}); // Zero sky: only the emitter can illuminate.
+    auto bounced = render();
+    check(bounced.r > 0.2F, "DDGI transfers offscreen emitter light to a diffuse receiver");
+    near(bounced.g, 0, "DDGI emission bounce preserves color", 0.002F);
+    // A static one-metre LED must not blink when the camera and scene are fixed.
+    emitter->world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, 5}) * facing_receiver *
+                               glm::scale(glm::mat4{1}, glm::vec3{0.025F});
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+    float minimum = std::numeric_limits<float>::max();
+    float maximum = 0;
+    double total = 0;
+    for (int i = 0; i < 512; ++i) {
+        auto const value = render().r;
+        if (i >= 256) {
+            minimum = std::min(minimum, value);
+            maximum = std::max(maximum, value);
+            total += value;
+        }
+    }
+    std::cout << "Static LED: min=" << minimum << " max=" << maximum << " mean=" << total / 256
+              << std::endl;
+    check(minimum > 0.002F && maximum - minimum < 0.001F,
+          "static small LED must remain lit without temporal flashes");
+    float previous_brightness = std::numeric_limits<float>::max();
+    for (float const distance : {1.0F, 2.0F, 3.0F, 3.9F, 4.1F, 5.0F, 7.9F, 8.1F}) {
+        emitter->world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, distance}) *
+                                   facing_receiver * glm::scale(glm::mat4{1}, glm::vec3{0.025F});
+        scene.set_diffuse_gi(std::nullopt);
+        render();
+        scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+        float const brightness = render().r;
+        // Independent numerical surface integral for a 1x1 Lambert emitter.
+        // Albedo .5 times emission 2 equals one; dA is 1/64^2.
+        double reference = 0;
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x) {
+                double const u = (x + 0.5) / 64.0 - 0.5;
+                double const v = (y + 0.5) / 64.0 - 0.5;
+                double const d2 = distance * distance;
+                double const r2 = u * u + v * v + d2;
+                reference += d2 / (glm::pi<double>() * r2 * r2 * 4096.0);
+            }
+        check(brightness > 0 && brightness < previous_brightness * 1.1F,
+              "LED distance sweep has no dark gaps or large brightness jumps");
+        near(brightness, static_cast<float>(reference),
+             "LED surface integral at distance " + std::to_string(distance),
+             static_cast<float>(reference * 0.3));
+        previous_brightness = brightness;
+        std::cout << "LED distance " << distance << ": " << brightness << std::endl;
+    }
+    emitter->world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, 2}) * facing_receiver *
+                               glm::scale(glm::mat4{1}, glm::vec3{-0.025F, 0.025F, 0.025F});
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+    near(render().r, 0.0735F, "mirrored LED preserves its emitting side", 0.005F);
+    emission.parameters.emissive_factor = {0, 0, 0};
+    check(render().r < 0.001F, "near LED switch-off does not retain a frozen bright value");
+    emission.parameters.emissive_factor = {2, 2, 2};
+    emitter->world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, 5}) * facing_receiver;
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+    render();
+    // Exclude the receiver from shadow rays to isolate the offscreen wall's
+    // reflected direct light. Its visible normal faces away from the sun.
+    receiver_model->casts_shadow = false;
+    emission.parameters.emissive_factor = {0, 0, 0};
+    emission.parameters.base_color_factor = {0.9F, 0.1F, 0.1F, 1};
+    auto *sun = scene.add_light(lc1::scene::to_light(
+        lc1::scene::DirectionalLight{.base = {.intensity = 3}, .direction = {0, 0, 1}}));
+    scene.set_diffuse_gi(std::nullopt);
+    near(render().r, 0, "back-facing receiver has no direct sun contribution");
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{});
+    auto reflected_sun = render();
+    check(reflected_sun.r > 0.05F && reflected_sun.r > reflected_sun.g * 4,
+          "DDGI transfers colored diffuse sunlight from an offscreen wall");
+    scene.remove_light(sun);
+    receiver_model->casts_shadow = true;
+    emission.parameters.emissive_factor = {2, 2, 2};
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+    render();
+    // The blocker is behind the camera: visible receiver geometry is unchanged.
+    lc1::MaterialInfo black;
+    black.parameters.base_color_factor = {0, 0, 0, 1};
+    black.parameters.metallic_factor = 0;
+    scene.add_model(
+        {.model = &plane,
+         .material = &black,
+         .world_transform = glm::translate(glm::mat4{1}, glm::vec3{0, 0, 4.5F}) * facing_receiver});
+    for (int i = 0; i < 256; ++i)
+        bounced = render();
+    check(bounced.r < 0.03F, "DDGI opaque blocker removes the offscreen emission bounce: " +
+                                 std::to_string(bounced.r));
+    scene.remove_model(emitter);
+    scene.set_diffuse_gi(std::nullopt);
+    render();
+    scene.set_diffuse_gi(lc1::scene::DiffuseGi{.emissive_lighting = true});
+    near(render().r, 0, "DDGI re-enable initializes a black unlit scene");
+    device.wait_idle();
+    std::cout << "DDGI sky, emission bounce, occlusion, scrolling and frame slots passed\n";
 }
 
 void material_tests(lc1::Device const &device, vk::SampleCountFlagBits samples)
@@ -611,6 +932,17 @@ void player_models_test(lc1::Device const &device)
     {
         lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
                                             {},     lc1::PlayerId{73}};
+        auto const grass_capacity = presentation.object_capacity();
+        auto const default_draws = presentation.scene().draws().size();
+        presentation.set_grass_density(0);
+        auto const bare_draws = presentation.scene().draws().size();
+        presentation.set_grass_density(8);
+        check(presentation.grass_density() == 8 && bare_draws < default_draws &&
+                  default_draws < presentation.scene().draws().size(),
+              "grass density changes visible grass batches");
+        check(presentation.object_capacity() == grass_capacity,
+              "grass density changes preserve frame resource capacity");
+        presentation.set_grass_density(4);
         auto const observed_eye = glm::vec3{presentation.observer_eye_transform()[3]};
         auto const expected_eye = world.player(lc1::PlayerId{73}).eye_position();
         check(glm::distance(observed_eye, expected_eye) < 0.001F,
@@ -831,8 +1163,8 @@ void showcase_test(lc1::Device const &device)
         lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 0.3F},
                                      .direction = glm::normalize(glm::vec3{-1, -1, -1})})};
     lights.insert(lights.end(), scene.lights().begin(), scene.lights().end());
-    auto save = [&](Capture const &result, char const *path) {
-        check_tone_map(result, 1, true);
+    auto save = [&](Capture const &result, char const *path, float exposure = 1.0F) {
+        check_tone_map(result, exposure, true);
         std::ofstream image{path, std::ios::binary};
         image << "P6\n" << result.extent.width << ' ' << result.extent.height << "\n255\n";
         for (std::size_t i = 0; i < result.output.size(); i += 4)
@@ -841,6 +1173,115 @@ void showcase_test(lc1::Device const &device)
         check(image.good(), "failed to save showcase capture");
     };
     std::filesystem::create_directories("artifacts");
+    lc1::scene::Scene gi_scene;
+    std::vector<lc1::scene::SceneModel *> gi_models;
+    for (auto const &draw : draws)
+        gi_models.push_back(gi_scene.add_model(draw));
+    for (auto const &light : lights)
+        gi_scene.add_light(light);
+    auto timed_scene = [&](double &elapsed) {
+        return capture(device, renderer, frame, camera, gi_scene, {.width = 800, .height = 600}, {},
+                       vk::Format::eR8G8B8A8Srgb, {}, &elapsed);
+    };
+    double elapsed = 0;
+    for (int i = 0; i < 4; ++i)
+        timed_scene(elapsed);
+    double direct_ms = 0;
+    for (int i = 0; i < 8; ++i) {
+        timed_scene(elapsed);
+        direct_ms += elapsed / 8;
+    }
+    save(timed_scene(elapsed), "artifacts/ddgi-disabled.ppm");
+    gi_scene.set_diffuse_gi(lc1::scene::DiffuseGi{.center = continent.spawn() + glm::vec3{0, 6, 0},
+                                                  .sky_radiance = {0.08F, 0.105F, 0.14F}});
+    timed_scene(elapsed);
+    auto const initial_ms = elapsed;
+    for (int i = 0; i < 16; ++i)
+        timed_scene(elapsed);
+    double gi_ms = 0;
+    for (int i = 0; i < 8; ++i) {
+        timed_scene(elapsed);
+        gi_ms += elapsed / 8;
+    }
+    save(timed_scene(elapsed), "artifacts/ddgi-enabled.ppm");
+    save(capture(device, renderer, frame, camera, gi_scene, {.width = 800, .height = 600},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/ddgi-daylight.ppm", 2.0F);
+    auto const overview_camera = camera;
+    camera.set_position(continent.spawn() + glm::vec3{-6, 1.65F, 4});
+    camera.look_at(continent.spawn() + glm::vec3{-6, 0, 12});
+    save(capture(device, renderer, frame, camera, gi_scene, {.width = 1200, .height = 800},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/pbr-ground.ppm", 2.0F);
+    camera.set_position({-72, 1.2F, 110});
+    camera.look_at({-82, 0.12F, 107.5F});
+    save(capture(device, renderer, frame, camera, gi_scene, {.width = 1200, .height = 800},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/pbr-roadside.ppm", 2.0F);
+    for (auto const &batch : terrain.grass_batches())
+        gi_models[batch.draw_index]->visible = false;
+    auto const bare_road =
+        capture(device, renderer, frame, camera, gi_scene, {.width = 1200, .height = 800},
+                {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb);
+    save(bare_road, "artifacts/pbr-grass-zero.ppm", 2.0F);
+    for (auto const &batch : terrain.grass_batches())
+        gi_models[batch.draw_index]->visible = true;
+    auto const grassy_road =
+        capture(device, renderer, frame, camera, gi_scene, {.width = 1200, .height = 800},
+                {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb);
+    save(grassy_road, "artifacts/pbr-grass-full.ppm", 2.0F);
+    check(bare_road.output != grassy_road.output, "grass density must change the rendered scene");
+    for (auto const &batch : terrain.grass_batches())
+        gi_models[batch.draw_index]->visible = batch.level <= 4;
+
+    camera.set_position({-93, 0.65F, 108});
+    camera.look_at({-95.4F, 0.1F, 105.5F});
+    save(capture(device, renderer, frame, camera, gi_scene, {.width = 1200, .height = 800},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/pbr-roadside-detail.ppm", 2.0F);
+    camera = overview_camera;
+    gi_scene.set_diffuse_gi(lc1::scene::DiffuseGi{.center = continent.spawn() + glm::vec3{0, 6, 0},
+                                                  .emissive_lighting = true});
+    for (int i = 0; i < 128; ++i)
+        timed_scene(elapsed);
+    save(timed_scene(elapsed), "artifacts/ddgi-zero-sky.ppm");
+    lc1::scene::Scene led_scene;
+    for (auto const &draw : draws)
+        led_scene.add_model(draw);
+    // Explicit disable resets the shared renderer's previous daylight history.
+    capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600});
+    led_scene.set_diffuse_gi(lc1::scene::DiffuseGi{.center = continent.spawn() + glm::vec3{0, 6, 0},
+                                                   .emissive_lighting = true});
+    for (int i = 0; i < 32; ++i)
+        capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600});
+    ddgi_candidate_tests(device, frame);
+    auto previous_led =
+        capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600});
+    float maximum_led_delta = 0;
+    for (int i = 0; i < 32; ++i) {
+        auto current_led =
+            capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600});
+        for (std::size_t pixel = 0; pixel < current_led.hdr.size(); ++pixel)
+            for (int c = 0; c < 3; ++c)
+                maximum_led_delta =
+                    std::max(maximum_led_delta,
+                             std::abs(current_led.hdr[pixel][c] - previous_led.hdr[pixel][c]));
+        previous_led = std::move(current_led);
+    }
+    std::cout << "Static LED showcase maximum frame delta: " << maximum_led_delta << std::endl;
+    check(maximum_led_delta < 0.005F, "static LED showcase must not flash across probe updates");
+    save(capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/ddgi-led-only.ppm", 2.0F);
+    camera.set_position(continent.spawn() + glm::vec3{-13, 3.3F, 28});
+    camera.look_at(continent.spawn() + glm::vec3{-13, 1.2F, 15});
+    save(capture(device, renderer, frame, camera, led_scene, {.width = 800, .height = 600},
+                 {.exposure = 2.0F}, vk::Format::eR8G8B8A8Srgb),
+         "artifacts/ddgi-led-near.ppm", 2.0F);
+    camera = overview_camera;
+    std::cout << "GPU scene 800x600, " << vk::to_string(renderer.sample_count()) << ": direct "
+              << direct_ms << " ms, DDGI steady " << gi_ms << " ms, DDGI initialization "
+              << initial_ms << " ms\n";
     for (int i = 0; i < 8; ++i)
         capture(device, renderer, frame, camera, lights, draws, {.width = 1200, .height = 800}, {},
                 vk::Format::eR8G8B8A8Srgb);
@@ -854,8 +1295,8 @@ void showcase_test(lc1::Device const &device)
     check(overview.output != unlettered.output, "panel lettering is missing from the scene");
     save(overview, "artifacts/pbr-showcase.ppm");
     check(frame.ray_query.built_instances.size() ==
-              static_cast<std::size_t>(
-                  std::ranges::count_if(draws, [](auto const &draw) { return draw.casts_shadow; })),
+              static_cast<std::size_t>(std::ranges::count_if(
+                  draws, [](auto const &draw) { return draw.visible && draw.casts_shadow; })),
           "printed exhibit labels must not cast duplicate shadows");
     camera.set_position(continent.spawn() + glm::vec3{13, 1.8F, 33});
     camera.look_at(continent.spawn() + glm::vec3{13, 2.9F, 15});
@@ -886,8 +1327,9 @@ int main(int argc, char **argv)
     try {
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
         bool const player_only = argc == 2 && std::string_view{argv[1]} == "--player-models";
-        check(argc == 1 || animation_only || player_only,
-              "usage: lc1_pbr_tests [--model-animation|--player-models]");
+        bool const showcase_only = argc == 2 && std::string_view{argv[1]} == "--showcase";
+        check(argc == 1 || animation_only || player_only || showcase_only,
+              "usage: lc1_pbr_tests [--model-animation|--player-models|--showcase]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -909,6 +1351,13 @@ int main(int argc, char **argv)
             std::cout << "Model node animation GPU tests passed\n";
             return 0;
         }
+        if (showcase_only) {
+            showcase_test(device);
+            device.wait_idle();
+            std::cout << "Terrain, grass density and showcase GPU tests passed\n";
+            return 0;
+        }
+        ddgi_tests(device);
         mutable_material_tests(device);
         material_tests(device, vk::SampleCountFlagBits::e1);
         material_tests(device, vk::SampleCountFlagBits::e4);

@@ -24,6 +24,7 @@ struct GameUiInfo {
     float exposure;
     double time_of_day;
     float time_rate;
+    int grass_density;
     bool showcase_animated;
     std::string_view interaction_target;
 };
@@ -36,6 +37,7 @@ struct GameUiActions {
     bool quit = false;
     std::optional<float> volume;
     std::optional<float> time_rate;
+    std::optional<int> grass_density;
     std::optional<EquipmentRequest> equipment;
 };
 

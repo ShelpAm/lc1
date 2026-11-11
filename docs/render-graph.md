@@ -22,13 +22,15 @@
 | Shadow visibility | `shadow.scene`、`shadow.frame` | `shadow.raw_visibility`、`shadow.surface` |
 | Temporal shadow resolve | `shadow.raw_visibility`、`shadow.surface`、`shadow.history`、`shadow.frame` | `shadow.temporal_visibility`、`shadow.temporal_surface` |
 | Spatial shadow filter | `shadow.temporal_visibility`、`shadow.surface`、`shadow.frame` | `shadow.filtered_visibility` |
-| HDR lighting（含世界文字） | `shadow.frame`、`shadow.filtered_visibility` | `hdr.color` |
+| Material preparation | `frame.inputs` | `material.frame` |
+| DDGI probes | `shadow.scene`、`shadow.frame`、`shadow.surface`、`shadow.filtered_visibility`、`material.frame` | `ddgi.irradiance` |
+| HDR lighting（含世界文字） | `shadow.frame`、`shadow.filtered_visibility`、`material.frame`、`ddgi.irradiance` | `hdr.color` |
 | Tone mapping | `hdr.color`、`output.target` | `output.color` |
 | UI text | `output.color` | `output.ui_text` |
 | ImGui overlay（应用添加） | `output.ui_text` | `output.ui` |
 
 `RayQueryShadows::add_passes()` 注册前四个 pass，Renderer 注册光照与色调映射以及界面文字的
-pass；应用将 ImGui 绘制注册为消费 `output.ui_text` 的最后一个节点，渲染层不依赖 ImGui。
+pass，以及材质上传和 DDGI 探针更新；应用将 ImGui 绘制注册为消费 `output.ui_text` 的最后一个节点，渲染层不依赖 ImGui。
 场景准备包括 camera/light/object UBO 上传、TLAS 更新、附件创建与历史准备；
 光照 pass 保留线性 RGBA16F HDR、最多 4× MSAA 和 pass 内 resolve，之后才执行色调映射。
 世界文字在光照 pass 的同一个渲染实例末尾混合绘制：瞬态 MSAA 附件不保证跨实例内容，
@@ -48,7 +50,9 @@ pass；应用将 ImGui 绘制注册为消费 `output.ui_text` 的最后一个节
 图只负责依赖校验和命令录制调度，不分配图片或自动生成屏障。
 现有附件 layout transition、TLAS barrier、描述符 heap 绑定仍由各 pass 负责。
 原始附件和 HDR 附件属于 `FrameResources`，只能在其帧槽 fence 完成后复用。
-跨帧历史仍由 `RayQueryShadows` 双缓冲持有，resize 时等待整个设备空闲；
+阴影跨帧历史仍由 `RayQueryShadows` 双缓冲持有，resize 时等待整个设备空闲；
+DDGI 的固定尺寸双缓冲由 `Ddgi` 持有，发光三角形预处理、射线采集、探针融合、空间分块发光候选筛选（仅在缓存失效时）与半分辨率间接光在一个节点内顺序录制，
+与 HDR 采样之间有显式附件写入到片元读取屏障；
 空间滤波结果不写回时间历史。历史索引和上一帧信息在空间滤波录制后更新。
 
 `FrameLoop` 继续负责 acquire、submit、present 及输出图片转换。

@@ -208,7 +208,8 @@ void RayQueryShadows::update_acceleration_structure(vk::raii::CommandBuffer cons
     // The current scene submits the entire loaded continent, without view culling.
     std::vector<vk::AccelerationStructureInstanceKHR> instances;
     instances.reserve(draws.size());
-    for (auto const &draw : draws) {
+    for (std::size_t i = 0; i < draws.size(); ++i) {
+        auto const &draw = draws[i];
         if (!draw.casts_shadow)
             continue;
         vk::AccelerationStructureInstanceKHR instance{};
@@ -216,6 +217,7 @@ void RayQueryShadows::update_acceleration_structure(vk::raii::CommandBuffer cons
         for (int row = 0; row < 3; ++row)
             for (int column = 0; column < 4; ++column)
                 instance.transform.matrix[row][column] = draw.model_matrix[column][row];
+        instance.instanceCustomIndex = static_cast<std::uint32_t>(i);
         instance.mask = 0xff;
         // Opaque two-sided occluders also handle mirrored instances and thin walls.
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;

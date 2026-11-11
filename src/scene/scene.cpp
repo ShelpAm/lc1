@@ -27,6 +27,22 @@ glm::mat4 SceneModel::node_world_matrix(std::size_t node) const
     return pose.node_world_matrix(node, world_transform);
 }
 
+void Scene::set_diffuse_gi(std::optional<DiffuseGi> settings)
+{
+    if (settings) {
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(settings->center[axis]) ||
+                !std::isfinite(settings->sky_radiance[axis]) || settings->sky_radiance[axis] < 0)
+                fail("diffuse GI requires a finite center and finite nonnegative sky radiance");
+    }
+    diffuse_gi_ = settings;
+}
+
+std::optional<DiffuseGi> const &Scene::diffuse_gi() const
+{
+    return diffuse_gi_;
+}
+
 SceneLight *Scene::add_light(Light light)
 {
     auto owned = std::make_unique<SceneLight>(SceneLight{light});

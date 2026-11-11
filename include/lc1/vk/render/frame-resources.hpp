@@ -14,6 +14,8 @@
 
 namespace lc1 {
 
+class GpuMesh;
+
 // Per-slot ray-query resources, reused only after the slot fence.
 struct RayQueryShadowFrameResources {
     std::optional<GpuBuffer> instances;
@@ -41,6 +43,20 @@ struct FrameResources {
     FrameResources &operator=(FrameResources &&) = delete;
 
     RayQueryShadowFrameResources ray_query;
+    bool ddgi_active = false;
+    std::optional<GpuBuffer> ddgi_uniform;
+    std::optional<GpuBuffer> ddgi_geometry;
+    std::optional<GpuBuffer> ddgi_emitters;
+    std::optional<GpuImage> ddgi_rays;
+    std::optional<GpuImage> ddgi_emission;
+    std::optional<GpuImage> ddgi_candidates;
+    std::optional<std::array<glm::vec4, 4>> ddgi_candidate_origins;
+    // Borrowed mesh identities, never dereferenced; only emitting placements affect the list.
+    std::vector<std::pair<GpuMesh const *, glm::mat4>> ddgi_candidate_emitters;
+    std::optional<GpuImage> ddgi_resolved;
+    std::optional<HeapIndex> ddgi_index;
+    std::array<std::optional<HeapIndex>, 8> ddgi_images;
+    std::optional<HeapIndex> ddgi_sampler;
     // Main material pass attachments; created lazily from the output extent.
     std::optional<GpuImage> depth_image;
     std::optional<GpuImage> color_image;
@@ -59,6 +75,7 @@ struct FrameResources {
         HeapIndex object_data_index; // model
         HeapIndex material_index;
         HeapIndex shadow_visibility_index;
+        HeapIndex diffuse_gi_index;
     };
 
     using CameraBufferObject = CameraData;
@@ -134,7 +151,7 @@ struct FrameResources {
     std::vector<std::array<TextureSlots, 5>> material_textures;
 };
 
-static_assert(sizeof(FrameResources::FrameBufferObject) == 36);
+static_assert(sizeof(FrameResources::FrameBufferObject) == 40);
 static_assert(offsetof(FrameResources::MaterialBufferObject, emissive_factor) == 64);
 static_assert(sizeof(FrameResources::MaterialBufferObject) == 88);
 

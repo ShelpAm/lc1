@@ -64,6 +64,9 @@ class WorldPresentation {
     float time_rate() const;
     // Finite multiplier in [0.01, 100], validated by the UI.
     void set_time_rate(float rate);
+    int grass_density() const;
+    // UI-validated density level in [0, 8], where 4 is the default.
+    void set_grass_density(int density);
 
     std::uint32_t object_capacity() const;
 
@@ -140,6 +143,8 @@ class WorldPresentation {
     float showcase_time_ = 0.0F;
     double time_of_day_ = 9.0; // Hours, wrapped to [0, 24).
     float time_rate_ = 1.0F;
+    int grass_density_ = 4;
+    std::vector<std::pair<scene::SceneModel *, int>> grass_models_;
     scene::SceneLight *sun_ = nullptr; // Scene-owned, valid until scene_ is destroyed.
     audio::AudioContext audio_context_;
     audio::Listener audio_listener_{audio_context_};

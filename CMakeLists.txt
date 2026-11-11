@@ -173,6 +173,7 @@ add_library(lc1_engine STATIC
     src/vk/presentation/swapchain.cpp
 
     # Concrete lighting, shadow and output passes.
+    src/vk/render/ddgi.cpp
     src/vk/render/draw-validation.cpp
     src/vk/render/frame-resources.cpp
     src/vk/render/render-graph.cpp
@@ -359,6 +360,9 @@ if(BUILD_TESTING)
             --sample-shading "${PROJECT_BINARY_DIR}/shaders/shader.spv"
             "${PROJECT_BINARY_DIR}/shaders/shader.spv"
             "${PROJECT_BINARY_DIR}/shaders/visibility.spv"
+            "${PROJECT_BINARY_DIR}/shaders/ddgi-trace.spv"
+            "${PROJECT_BINARY_DIR}/shaders/ddgi-blend.spv"
+            "${PROJECT_BINARY_DIR}/shaders/ddgi-resolve.spv"
             "${PROJECT_BINARY_DIR}/shaders/temporal-shadows.spv"
             "${PROJECT_BINARY_DIR}/shaders/spatial-shadows.spv"
             "${PROJECT_BINARY_DIR}/shaders/tone-map.spv"

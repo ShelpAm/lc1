@@ -122,6 +122,7 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
             .exposure = world_presentation_.output().exposure,
             .time_of_day = world_presentation_.time_of_day(),
             .time_rate = world_presentation_.time_rate(),
+            .grass_density = world_presentation_.grass_density(),
             .showcase_animated = world_presentation_.showcase_animated(),
             .interaction_target = snapshot_.players.at(connection_.player_id()).interaction_target,
         },
@@ -133,6 +134,8 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     quit_requested_ |= ui_actions.quit;
     if (ui_actions.time_rate)
         world_presentation_.set_time_rate(*ui_actions.time_rate);
+    if (ui_actions.grass_density)
+        world_presentation_.set_grass_density(*ui_actions.grass_density);
     if (ui_actions.volume)
         world_presentation_.set_volume(*ui_actions.volume);
 

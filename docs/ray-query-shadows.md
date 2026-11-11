@@ -1,7 +1,7 @@
 # Ray query 阴影
 
 使用 `VK_KHR_ray_query` 查询场景遮挡，方向光、点光和聚光灯发射一条硬阴影射线。
-`SphereLight` 支持球形面积光近似，结合帧内采样和跨帧累积求可见度。当前尚未实现环境光或 IBL。
+`SphereLight` 支持球形面积光近似，结合帧内采样和跨帧累积求可见度。可选漫反射间接光复用同一 TLAS，见 [DDGI](lighting.md#ddgi-漫反射间接光)；当前没有镜面 IBL。
 
 ## 球形光
 
@@ -71,6 +71,7 @@ visibility = 未被遮挡的射线数 / shadow_sample_count
 构建完成后通过屏障连接到后续 TLAS 构建或片元射线查询。整个已加载大陆参与遮挡；
 未来增加视锥剔除时，需单独保留视野外阴影投射者。
 
+TLAS 实例 custom index 保存当帧 draw 索引，供 DDGI 命中后读取对应 geometry/material。
 所有几何体按不透明、双面遮挡处理，未实现透明贴图裁剪或半透明阴影。
 需要支持 ray query、acceleration structure 和 buffer device address 的 GPU，未提供硬件回退。
 旧方向光深度图诊断接口已删除，渲染器只保留正常 ray-query 阴影路径。

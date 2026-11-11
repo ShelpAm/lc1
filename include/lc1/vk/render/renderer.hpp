@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/vk/render/ddgi.hpp"
 #include "lc1/vk/render/draw-item.hpp"
 
 #include "lc1/scene/scene.hpp"
@@ -92,6 +93,7 @@ class Renderer {
   private:
     // The caller has waited for the resources' previous GPU use.
     void ensure_attachments(FrameResources &resources, vk::Extent2D extent) const;
+    void prepare_materials(FrameResources &resources, std::span<DrawItem const> draws);
     void record_hdr(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent,
                     std::span<DrawItem const> draws, scene::FpsCamera const &camera,
                     TextFrameInput const &text);
@@ -109,6 +111,7 @@ class Renderer {
     GraphicsShaders tone_map_shaders_;
     TextPass text_pass_;
     RayQueryShadows ray_query_shadows_;
+    Ddgi ddgi_;
     vk::SamplerCreateInfo default_sampler_info_;
     // Fallback textures for omitted material slots.
     GpuTexture white_srgb_;
