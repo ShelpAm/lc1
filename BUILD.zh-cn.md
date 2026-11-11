@@ -51,7 +51,8 @@ make
 ```
 
 `make` 默认使用 `PLATFORM=linux-x86_64`、`BUILD_TYPE=Debug`、`JOBS=8`，依次执行
-依赖安装、CMake 配置和构建。首次运行会下载依赖，并编译缓存中缺失的包，需要联网且耗时较长。
+首次构建所需的依赖安装、CMake 配置和增量构建。后续不会无条件重复安装和配置。
+首次运行会下载依赖，并编译缓存中缺失的包，需要联网且耗时较长。
 
 ```sh
 make run                        # 构建并启动
@@ -61,14 +62,20 @@ make run BUILD_TYPE=Release      # 运行 Release
 make JOBS=4                     # 限制依赖和项目构建的并行度
 ```
 
+`make deps` 可强制刷新依赖；修改上述 profile 文件以外的 Conan 配置后也应执行它。
+`make configure` 可强制刷新 CMake 配置。显式传入 `SLANGC=...` 时同样会执行配置，
+确保已有缓存采用指定路径。仅修改 `JOBS` 不会重跑 Conan，项目构建仍使用指定的并行度。
+
 Make 默认的 8 个并行任务用于控制本地内存占用，可按机器资源调整。
 
 ## 构建流程与输出
 
 1. `make deps` 调用 `conan install`，使用目标平台的 host profile 和本机的 `default`
    build profile。Conan 安装依赖并生成 CMake toolchain、presets 和运行环境脚本。
-2. `make configure` 先安装依赖，再执行 `cmake --preset <platform>-<build_type>`。
-3. `make build`（也是 `make` 的默认目标）完成前两步，再调用 CMake build preset。
+2. `make configure` 按需准备依赖，再显式执行 `cmake --preset <platform>-<build_type>`。
+3. `make build`（也是 `make` 的默认目标）补齐缺失的依赖和配置，再调用 CMake build preset。
+   后续仅在 `conanfile.py`、所选 host profile、默认 build profile 或已有的 `conan.lock`
+   变化时重新执行 Conan。CMake 输入变化时由构建系统自动重新配置，无变化时不重复显式配置。
    CMake 编译 `lc1_engine`、`lc1_game` 和可执行程序 `lc1`，并调用 Slang 生成 SPIR-V。
 4. 构建同时复制资源和对话文件，覆盖更新种子存档文件；运行时的 `checkpoint.yaml` 进度文件保留。
 

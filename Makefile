@@ -49,6 +49,8 @@ endif
 
 PRESET    := $(PLATFORM)-$(shell echo $(BUILD_TYPE) | tr '[:upper:]' '[:lower:]')
 BUILD_DIR := build/$(PLATFORM)/$(BUILD_TYPE)
+CONAN_TOOLCHAIN := $(BUILD_DIR)/generators/conan_toolchain.cmake
+CONAN_BUILD_PROFILE := $(or $(CONAN_HOME),$(HOME)/.conan2)/profiles/default
 
 # Windows binaries cannot be executed by Linux, but wine runs them, which is the only
 # way to exercise the cross build without rebooting. Inside the gitignored build/ so
@@ -65,15 +67,16 @@ all: build
 
 # --build=missing builds whatever the local cache has no binary for, which is every
 # dependency the first time a platform is built.
-deps:
+deps $(CONAN_TOOLCHAIN): conanfile.py $(HOST_PROFILE) $(wildcard $(CONAN_BUILD_PROFILE) conan.lock)
 	conan install . -pr:h $(HOST_PROFILE) -pr:b default --build=missing -s build_type=$(BUILD_TYPE) -c tools.build:jobs=$(JOBS)
 
-# Configure explicitly instead of leaving it to `cmake --build`: a build preset needs
-# an already-configured tree, and a fresh clone has none.
-configure: deps
+# Bootstrap a fresh tree; subsequent builds let Ninja/CMake detect configuration
+# changes themselves. Keep explicit configure and deps targets for manual refreshes.
+# An explicit SLANGC override must reach the cache even in an existing tree.
+configure $(BUILD_DIR)/CMakeCache.txt: | $(CONAN_TOOLCHAIN)
 	cmake --preset $(PRESET) $(if $(SLANGC),-DSLANGC_EXECUTABLE=$(SLANGC))
 
-build: configure
+build: $(CONAN_TOOLCHAIN) $(if $(SLANGC),configure,$(BUILD_DIR)/CMakeCache.txt)
 	cmake --build --preset $(PRESET) -j $(JOBS)
 
 # `make run` runs whichever platform was asked for, because running the Windows build

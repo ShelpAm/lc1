@@ -58,7 +58,8 @@ make
 ```
 
 `make` defaults to `PLATFORM=linux-x86_64`, `BUILD_TYPE=Debug`, and `JOBS=8`.
-It installs dependencies, configures CMake, and builds the project. The first run
+It installs dependencies and configures CMake when preparing a build tree, then
+builds the project incrementally. The first run
 requires network access and can take a while because it downloads dependencies and
 builds packages missing from the cache.
 
@@ -70,6 +71,12 @@ make run BUILD_TYPE=Release      # Run Release
 make JOBS=4                     # Limit dependency and project build parallelism
 ```
 
+`make deps` explicitly refreshes dependencies (also use it after changing Conan
+configuration outside the tracked profile files). `make configure` explicitly
+refreshes CMake configuration. Supplying `SLANGC=...` also explicitly configures
+CMake so the override reaches an existing cache. Changing `JOBS` alone does not
+rerun Conan; the project build still uses the requested parallelism.
+
 Make defaults to eight parallel jobs to control local memory use. Adjust this to
 suit your machine.
 
@@ -78,10 +85,13 @@ suit your machine.
 1. `make deps` runs `conan install` with the target platform's host profile and the
    local `default` build profile. Conan installs dependencies and generates the
    CMake toolchain, presets, and runtime environment scripts.
-2. `make configure` installs dependencies, then runs
+2. `make configure` prepares dependencies if needed, then explicitly runs
    `cmake --preset <platform>-<build_type>`.
-3. `make build`, also the default `make` target, completes those steps and invokes
-   the CMake build preset. CMake compiles `lc1_engine`, `lc1_game`, and the `lc1`
+3. `make build`, also the default `make` target, prepares missing dependencies and
+   configuration, then invokes the CMake build preset. Subsequent builds skip Conan
+   unless `conanfile.py`, the selected host profile, the default build profile, or
+   an existing `conan.lock` changes. CMake automatically reconfigures when its inputs
+   change; unchanged builds do not explicitly rerun configuration. CMake compiles `lc1_engine`, `lc1_game`, and the `lc1`
    executable, and invokes Slang to generate SPIR-V.
 4. The build also copies assets and dialogue files and refreshes seed save
    files, overwriting existing copies. Runtime checkpoints are preserved.
