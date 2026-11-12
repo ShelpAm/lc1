@@ -133,7 +133,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                     fail("character model is missing eyes mount {}", config.eyes.value());
             }
         }
-        auto const animation = [&](std::string const &name) -> std::optional<std::size_t> {
+        auto const find_animation = [&](std::string const &name) -> std::optional<std::size_t> {
             if (name.empty())
                 return std::nullopt;
             auto const clip = resources.model.definition().find_animatinon(name);
@@ -141,10 +141,10 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                 fail("character model is missing animation {}", name);
             return clip;
         };
-        auto const idle_animation = animation(*config.idle_animation);
-        auto const move_animation = animation(*config.move_animation);
-        auto const body_attack_animation = animation(*config.attack_animation);
-        auto const death_animation = animation(*config.death_animation);
+        auto const idle_animation = find_animation(*config.idle_animation);
+        auto const move_animation = find_animation(*config.move_animation);
+        auto const body_attack_animation = find_animation(*config.attack_animation);
+        auto const death_animation = find_animation(*config.death_animation);
         if (idle_animation) {
             model->pose.play_animation(*idle_animation);
             auto const &clip = resources.model.definition().animations()[*idle_animation];
@@ -203,7 +203,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .mount = mount,
                                      .attack_animation = attack_animation,
                                      .attack_sequence = character.attack_sequence,
-                                     .nod_animation = animation(*config.action_animation),
+                                     .nod_animation = find_animation(*config.action_animation),
                                      .nod_sequence = character.nod_sequence,
                                      .hit_sequence = character.hit_sequence,
                                      .dead = character.dead,
