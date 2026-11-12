@@ -20,8 +20,9 @@
 | Windows x86_64 | Windows Server 2022，MSVC 19.4x，`profiles/windows-ci` | Debug |
 | Windows x86_64 | Fedora 44 容器，MinGW-w64 GCC 16，`profiles/mingw64` | Debug |
 
-所有任务检出时启用 `actions/checkout` 的 `lfs: true`，获取文档图片和实际运行资源。
-Fedora 容器在检出前安装 `git-lfs`；Windows runner 使用预装的 Git LFS。
+所有任务检出时显式设置 `actions/checkout` 的 `lfs: false`，不下载 LFS 对象，
+仅保留指针文件；Fedora 容器不安装 `git-lfs`。当前 CI 只构建和运行 CPU 测试，
+不需要文档图片或实际运行资源。
 资源版本管理规则见[资源管理](resources.md#资源版本管理git-lfs)。
 
 所有任务都通过 Conan 安装依赖，构建完整程序与 Slang 着色器。
