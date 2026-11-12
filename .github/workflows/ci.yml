@@ -58,7 +58,7 @@ jobs:
           lfs: false
       - name: Fetch test fonts
         if: matrix.testing == 'ON'
-        run: git lfs pull --include="runtime/assets/fonts/LiberationSans-Regular.ttf,runtime/assets/fonts/SourceHanSansCN-Regular.otf" --exclude=""
+        run: git -c safe.directory="$PWD" lfs pull --include="runtime/assets/fonts/LiberationSans-Regular.ttf,runtime/assets/fonts/SourceHanSansCN-Regular.otf" --exclude=""
       - name: Install MinGW toolchain
         if: matrix.profile == 'mingw64'
         run: dnf install -y mingw64-gcc-c++

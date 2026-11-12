@@ -24,7 +24,8 @@
 仅保留指针文件。运行 CPU 测试的 Linux Clang、GCC 和 Windows MSVC 任务随后通过
 `git lfs pull --include=... --exclude=""` 只下载 `LiberationSans-Regular.ttf` 和
 `SourceHanSansCN-Regular.otf`，供 `font_layout` 测试使用。MinGW 不运行测试，不下载
-LFS 对象。Fedora 安装 `git-lfs`，Windows 使用预装版本；文档图片、模型和纹理均不下载。
+LFS 对象。Linux 下载命令通过单次 `safe.directory` 配置信任当前工作目录，
+因为 checkout 的临时 HOME 配置不会传递给后续容器步骤。Fedora 安装 `git-lfs`，Windows 使用预装版本；文档图片、模型和纹理均不下载。
 资源版本管理规则见[资源管理](resources.md#资源版本管理git-lfs)。
 
 所有任务都通过 Conan 安装依赖，构建完整程序与 Slang 着色器。
