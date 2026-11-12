@@ -6,6 +6,7 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
+#include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/camera.hpp"
@@ -248,6 +249,14 @@ void present_relief()
 
 void showcase_platform_jump()
 {
+    auto const setup = lc1::demo::world_setup({"present", 1});
+    check(lc1::WorldCollision{setup.continent}.can_stand(setup.continent.spawn(), 0.3F, 1.8F),
+          "relocated showcase leaves the spawn clear");
+    check(!lc1::WorldCollision{setup.continent}.can_stand(setup.continent.spawn() +
+                                                              lc1::demo::present_showcase_offset +
+                                                              glm::vec3{13.5F, 0, 16},
+                                                          0.3F, 1.8F),
+          "showcase collision moves with the exhibit");
     auto const blocks = lc1::demo::PbrShowcase::spawn_blocks();
     lc1::Continent const world = lc1::Continent::make_present(blocks);
 

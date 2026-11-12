@@ -32,6 +32,28 @@
   equipment:
   - [Head, 4]
   main_hand: 1002
+  model:
+    path: models/yone/封魔剑魂.glb
+    eyes: ""
+    weapon_mount: R_Hand
+    idle_animation: Idle1_Base
+    move_animation: Run_Base
+    attack_animation: Attack1
+    death_animation: Death
+    action_animation: Joke_Loop
+    material:
+      base_color_texture: textures/yone/base-color.png
+      metallic: 0
+      roughness: 0.8
+- keyid: 3
+  name: 啥句冲个
+  sex: true
+  age: 18
+  party: 1
+  level: 1
+  equipment:
+  - [Head, 4]
+  main_hand: 1003
   model: &npc_model
     nodes:
     - name: Body
@@ -84,16 +106,6 @@
     material:
       metallic: 0
       roughness: 0.8
-- keyid: 3
-  name: 啥句冲个
-  sex: true
-  age: 18
-  party: 1
-  level: 1
-  equipment:
-  - [Head, 4]
-  main_hand: 1003
-  model: *npc_model
 - keyid: 4
   name: Blacksmith
   sex: false
@@ -102,4 +114,16 @@
   level: 1
   equipment: []
   main_hand: 0
-  model: *npc_model
+  model:
+    path: models/western-yone/西部魔影_炽天使_永恩.glb
+    eyes: ""
+    weapon_mount: R_Hand
+    idle_animation: Skin55_idle1.SKINS_Yone_Skin55.anm
+    move_animation: Yone_Walk01.SKINS_Yone_Skin55.anm
+    attack_animation: Attack01.SKINS_Yone_Skin55.anm
+    death_animation: Death
+    action_animation: Joke_Loop.SKINS_Yone_Skin58.anm
+    material:
+      base_color_texture: textures/western-yone/base-color.png
+      metallic: 0
+      roughness: 0.8

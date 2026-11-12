@@ -336,10 +336,64 @@ void roadside_details(Geometry &geometry, Continent const &continent, GroundBoun
     }
 }
 
-void roadside_grass(std::array<Geometry, 8> &grass, Continent const &continent, GroundBounds chunk)
+void ground_grass(std::array<Geometry, 8> &grass, Continent const &continent, GroundBounds chunk)
 {
-    // Sample area, not one tuft per road-side step. Global cells make density
-    // independent of segment lengths and avoid duplicates at bends/intersections.
+    // Use a broad grid across all natural ground and retain fine sampling by roads.
+    // The full continent is resident, so fine sampling everywhere would be enormous.
+    auto emit = [&](glm::vec2 point, glm::vec2 cell, float random, float variation,
+                    float edge_distance, int blade_count) {
+        auto const sample = decoration_ground(continent, point, 0.4F);
+        if (!sample)
+            return;
+        int const group =
+            std::min(7, static_cast<int>(ground_noise(cell + glm::vec2{317, 691}, 4096) * 8.0F));
+        auto &tuft = grass[group];
+        bool const edge = edge_distance < 0.65F;
+        glm::vec3 const base{point.x, sample->height - 0.025F, point.y};
+        for (int blade = 0; blade < blade_count; ++blade) {
+            float const angle = (blade * 0.382F + random) * 2 * std::numbers::pi_v<float>;
+            glm::vec3 const across{std::cos(angle), 0, std::sin(angle)};
+            glm::vec3 const lean{-across.z, 0, across.x};
+            float const height =
+                (edge ? 0.08F : 0.20F) +
+                (edge ? 0.10F : 0.25F) *
+                    ground_noise(cell + glm::vec2{blade * 3.1F, blade * 7.7F}, 4096);
+            auto const root = base + across * ((blade - 3) * 0.04F);
+            auto const middle = root + glm::vec3{0, height * 0.55F, 0} + lean * 0.035F;
+            auto const tip = root + glm::vec3{0, height, 0} + lean * (height * 0.4F);
+            auto const color = glm::mix(glm::vec3{0.09F, 0.19F, 0.03F},
+                                        glm::vec3{0.29F, 0.35F, 0.075F}, variation);
+            tuft.triangle(root - across * 0.025F, root + across * 0.025F, middle + across * 0.016F,
+                          color * 0.75F, true);
+            tuft.triangle(root - across * 0.025F, middle + across * 0.016F,
+                          middle - across * 0.016F, color * 0.85F, true);
+            tuft.triangle(middle - across * 0.016F, middle + across * 0.016F, tip, color, true);
+        }
+    };
+
+    constexpr float broad_spacing = 12.0F;
+    for (int z = static_cast<int>(std::floor(chunk.min.y / broad_spacing));
+         z < std::ceil(chunk.max.y / broad_spacing); ++z)
+        for (int x = static_cast<int>(std::floor(chunk.min.x / broad_spacing));
+             x < std::ceil(chunk.max.x / broad_spacing); ++x) {
+            glm::vec2 const cell{static_cast<float>(x), static_cast<float>(z)};
+            float const random = ground_noise(cell, 4096);
+            float const variation = ground_noise(cell + glm::vec2{71, 197}, 4096);
+            glm::vec2 const point =
+                (cell + glm::vec2{0.15F + random * 0.7F, 0.15F + variation * 0.7F}) * broad_spacing;
+            if (glm::any(glm::lessThan(point, chunk.min)) ||
+                glm::any(glm::greaterThanEqual(point, chunk.max)) ||
+                ground_noise(point / 4.0F, 4096) < 0.25F)
+                continue;
+            float edge_distance = std::numeric_limits<float>::max();
+            for (auto const &road : continent.roads())
+                edge_distance =
+                    std::min(edge_distance, road_distance(road, point) - road.width * 0.5F);
+            if (edge_distance <= 10.0F)
+                continue;
+            emit(point, cell, random, variation, edge_distance, 3);
+        }
+
     constexpr float spacing = 0.6F;
     constexpr float verge_width = 10.0F;
     std::set<std::pair<int, int>> cells;
@@ -373,33 +427,7 @@ void roadside_grass(std::array<Geometry, 8> &grass, Continent const &continent, 
             random > glm::clamp((verge_width - edge_distance) / 3.0F, 0.0F, 1.0F) ||
             ground_noise(point / 4.0F, 4096) < 0.25F)
             continue;
-        auto const sample = decoration_ground(continent, point, 0.4F);
-        if (!sample)
-            continue;
-        int const group =
-            std::min(7, static_cast<int>(ground_noise(cell + glm::vec2{317, 691}, 4096) * 8.0F));
-        auto &tuft = grass[group];
-        bool const edge = edge_distance < 0.65F;
-        glm::vec3 const base{point.x, sample->height - 0.025F, point.y};
-        for (int blade = 0; blade < 7; ++blade) {
-            float const angle = (blade * 0.382F + random) * 2 * std::numbers::pi_v<float>;
-            glm::vec3 const across{std::cos(angle), 0, std::sin(angle)};
-            glm::vec3 const lean{-across.z, 0, across.x};
-            float const height =
-                (edge ? 0.08F : 0.20F) +
-                (edge ? 0.10F : 0.25F) *
-                    ground_noise(cell + glm::vec2{blade * 3.1F, blade * 7.7F}, 4096);
-            auto const root = base + across * ((blade - 3) * 0.04F);
-            auto const middle = root + glm::vec3{0, height * 0.55F, 0} + lean * 0.035F;
-            auto const tip = root + glm::vec3{0, height, 0} + lean * (height * 0.4F);
-            auto const color = glm::mix(glm::vec3{0.09F, 0.19F, 0.03F},
-                                        glm::vec3{0.29F, 0.35F, 0.075F}, variation);
-            tuft.triangle(root - across * 0.025F, root + across * 0.025F, middle + across * 0.016F,
-                          color * 0.75F, true);
-            tuft.triangle(root - across * 0.025F, middle + across * 0.016F,
-                          middle - across * 0.016F, color * 0.85F, true);
-            tuft.triangle(middle - across * 0.016F, middle + across * 0.016F, tip, color, true);
-        }
+        emit(point, cell, random, variation, edge_distance, 7);
     }
 }
 
@@ -488,7 +516,7 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
                            .material = &material});
     };
     // Grass shares eight density batches across the resident world, rather than
-    // multiplying draw count by the number of chunks along every road.
+    // multiplying draw count by the number of chunks.
     std::array<Geometry, 8> grass;
     for (auto &batch : grass)
         batch.origin = glm::vec3{0};
@@ -507,7 +535,7 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
                     buildings.box(min, max, color_of(block.surface));
             }
             roadside_details(buildings, continent, chunk);
-            roadside_grass(grass, continent, chunk);
+            ground_grass(grass, continent, chunk);
             append_geometry(terrain, ground_material_);
             append_geometry(buildings, material_);
         }

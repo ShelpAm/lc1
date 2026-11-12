@@ -26,7 +26,13 @@ std::vector<ContinentBlock> showcase_blocks()
 
 WorldSetup world_setup(ContinentIdentity const &identity)
 {
-    WorldSetup setup{.continent = Continent::load(identity, showcase_blocks()),
+    auto blocks = showcase_blocks();
+    if (identity.id == "present")
+        for (auto &block : blocks) {
+            block.min += present_showcase_offset;
+            block.max += present_showcase_offset;
+        }
+    WorldSetup setup{.continent = Continent::load(identity, blocks),
                      .example_patrol = PatrolSetup{},
                      .initial_player_resources = {{game::moneta.keyid, 10},
                                                   {game::wood.keyid, 2},

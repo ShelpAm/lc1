@@ -1,5 +1,6 @@
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/game/character/character-model.hpp"
+#include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/resources/catalog.hpp"
 #include "lc1/image.hpp"
@@ -69,7 +70,10 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
       font_{device,
             text::GlyphAtlas{asset_root / font_file, {.codepoints = font_codepoints(world)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
-      continent_view_{device, white_, continent}, showcase_{device, continent.spawn()},
+      continent_view_{device, white_, continent},
+      showcase_{device, continent.spawn() + (continent.identity().id == "present"
+                                                 ? demo::present_showcase_offset
+                                                 : glm::vec3{0})},
       helmet_model_(device, make_helmet_model()), output_(output)
 {
     character_models_.reserve(world.characters.size());
@@ -399,7 +403,9 @@ GameLocation WorldPresentation::location() const
     auto const *region = continent_->region_at(position);
     auto const *place = continent_->location_at(position);
     auto const *road = continent_->road_at(position);
-    auto const local = world_->player(observer_).pose.position() - continent_->spawn();
+    auto const local =
+        world_->player(observer_).pose.position() - continent_->spawn() -
+        (continent_->identity().id == "present" ? demo::present_showcase_offset : glm::vec3{0});
     bool const in_showcase = std::abs(local.x) < 24 && std::abs(local.z) < 23;
     return {.region = region->name,
             .place = in_showcase ? "Material Showcase"

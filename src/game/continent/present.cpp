@@ -31,9 +31,7 @@ void add_terrain_relief(ContinentData &data)
     // the current controller to climb without stairs. The others shape the horizon.
     auto const height_at = [](glm::vec2 position) {
         float height = 0.0F;
-        // Keep the spawn/showcase clearing flat. The nearest hill starts well east of
-        // the exhibit floor, whose world footprint is roughly x in [-22, 22] and
-        // z in [11, 53] around the spawn.
+        // Keep the spawn clearing flat; the nearest hill starts to its east.
         height += hill_height(position, {96.0F, 32.0F}, 48.0F, 10.0F);
         height += hill_height(position, {-64.0F, 64.0F}, 32.0F, 7.0F);
         height += hill_height(position, {-180.0F, 150.0F}, 65.0F, 14.0F);

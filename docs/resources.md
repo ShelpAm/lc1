@@ -173,6 +173,13 @@ Scene 的 DrawItem 保存本帧变形顶点的不可变快照。Renderer 在各�
 透明护盾和使用零缩放切换可见性的其他片段属于尚未实现的特效路径，不纳入人物变体；原文件不修改。
 `runtime/saves/01` 和 `blacksmith` 中 lc 使用该变体；已有 checkpoint 保留自己的外观配置，不自动迁移。
 
+yyx 使用 `models/yone/封魔剑魂.glb`。`python scripts/prepare-yone.py yone` 从 `models/yone/source.glb`
+生成模型及 `textures/yone/base-color.png`，将原文件的四张底色图拼为一张图集并改写各网格的 UV，
+以适配当前单模型单材质绑定。原文件的节点、骨骼和动画保持不变；已有 checkpoint 仍保留自己的外观配置。
+铁匠使用 `models/western-yone/西部魔影_炽天使_永恩.glb`。`python scripts/prepare-yone.py western-yone`
+从同目录的 `source.glb` 生成模型及 `textures/western-yone/base-color.png`，并只保留兼容可逆变换约束的
+待机、行走、攻击、死亡与玩笑动画。两份原始 GLB 都已从 `unused/` 移入对应的模型目录。
+
 CPU 导入测试覆盖权重混合、逆绑定矩阵、网格局部空间、独立实例和非法绑定；
 可额外执行 `lc1_model_loading_tests <rumble.glb>` 逐段采样真实资源。
 GPU `lc1_pbr_tests --player-models` 覆盖真实模型的变形绘制、帧槽一致性及生产装配路径。
