@@ -989,7 +989,13 @@ void player_models_test(lc1::Device const &device)
               "grass density changes preserve frame resource capacity");
         presentation.set_grass_density(4);
         auto const observed_eye = glm::vec3{presentation.observer_eye_transform()[3]};
-        auto const expected_eye = world.player(lc1::PlayerId{73}).eye_position();
+        auto const &observer = world.player(lc1::PlayerId{73});
+        auto const &observer_model = presentation.character_model(observer.config().keyid);
+        auto const &observer_config = observer.config().model;
+        auto const expected_eye =
+            glm::vec3{(observer_model.node_world_matrix(
+                           *observer_model.pose.model().find_node(observer_config.eyes.value())) *
+                       observer_config.eyes_offset.value().transform().matrix())[3]};
         check(glm::distance(observed_eye, expected_eye) < 0.001F,
               "the observer camera mount belongs to the explicitly bound second player");
         auto const *equipped =
@@ -1172,6 +1178,199 @@ void player_models_test(lc1::Device const &device)
     }
     std::filesystem::remove(slot / "checkpoint.yaml");
     std::filesystem::remove(slot);
+}
+
+void particle_render_test(lc1::Device const &device, vk::SampleCountFlagBits samples)
+{
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, samples};
+    std::array frames{renderer.make_frame_resources(1), renderer.make_frame_resources(1)};
+    lc1::scene::FpsCamera camera;
+    camera.set_position({0, 0, 2});
+    camera.set_aspect_ratio(1);
+    lc1::scene::Scene scene;
+    scene.set_particles(
+        {{.position = {0, 0, 0}, .size = {1, 1}, .radiance = {2, 0, 0}, .opacity = 0.5F}});
+    auto const single = capture(device, renderer, frames[0], camera, scene);
+    near(single.center().r, 1.12F, "transparent flame blends with the background", 0.025F);
+    near(single.center().g, 0.21F, "alpha preserves the background green", 0.025F);
+    near(single.center().b, 0.32F, "alpha preserves the background blue", 0.025F);
+    scene.set_particles(
+        {{.position = {0, 0, 0.3F}, .size = {1, 1}, .radiance = {0, 2, 0}, .opacity = 0.5F},
+         {.position = {0, 0, 0}, .size = {1, 1}, .radiance = {2, 0, 0}, .opacity = 0.5F}});
+    auto const ordered = capture(device, renderer, frames[0], camera, scene);
+    near(ordered.center().r, 0.56F, "back particle remains visible through front particle", 0.03F);
+    near(ordered.center().g, 1.105F, "front particle is composed last", 0.03F);
+    auto reversed =
+        std::vector<lc1::scene::Particle>{scene.particles().begin(), scene.particles().end()};
+    std::ranges::reverse(reversed);
+    scene.set_particles(std::move(reversed));
+    auto const reordered = capture(device, renderer, frames[1], camera, scene);
+    near(reordered.center().r, ordered.center().r,
+         "particle sorting is independent of insertion order");
+    // An opaque receiver in front must hide the particles even though particles do not write depth.
+    std::array const vertices{lc1::Vertex{.position = {-2, -2, 0.5F}, .normal = {0, 0, 1}},
+                              lc1::Vertex{.position = {2, -2, 0.5F}, .normal = {0, 0, 1}},
+                              lc1::Vertex{.position = {2, 2, 0.5F}, .normal = {0, 0, 1}},
+                              lc1::Vertex{.position = {-2, 2, 0.5F}, .normal = {0, 0, 1}}};
+    std::array<std::uint32_t, 6> const indices{0, 1, 2, 0, 2, 3};
+    lc1::scene::GpuModel blocker{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                              std::span<std::uint32_t const>{indices}}};
+    lc1::MaterialInfo dark{};
+    auto *placement = scene.add_model({.model = &blocker, .material = &dark});
+    near(capture(device, renderer, frames[0], camera, scene).center().r, 0,
+         "opaque geometry occludes transparent particles");
+    scene.remove_model(placement);
+    scene.set_particles({{.size = {0.12F, 0.12F}, .radiance = {30, 8, 1}, .opacity = 1}});
+    auto const no_bloom = capture(device, renderer, frames[0], camera, scene);
+    auto const bloom = capture(device, renderer, frames[1], camera, scene,
+                               {.width = 65, .height = 65}, {.bloom_strength = 0.3F});
+    std::size_t halo_pixels = 0;
+    for (std::size_t pixel = 0; pixel < bloom.hdr.size(); ++pixel) {
+        near(bloom.hdr[pixel].r, no_bloom.hdr[pixel].r, "Bloom preserves linear HDR source");
+        if (bloom.output[pixel * 4] > no_bloom.output[pixel * 4] + 2 &&
+            no_bloom.hdr[pixel].r < 0.3F)
+            ++halo_pixels;
+    }
+    check(halo_pixels > 10, "Bloom spreads HDR highlights onto neighboring pixels");
+    capture(device, renderer, frames[1], camera, scene, {.width = 17, .height = 19},
+            {.bloom_strength = 0.3F});
+    capture(device, renderer, frames[1], camera, scene, {.width = 1, .height = 1},
+            {.bloom_strength = 0.3F});
+    auto const restored = capture(device, renderer, frames[1], camera, scene);
+    near(restored.center().r, no_bloom.center().r, "Bloom can be disabled after frame-slot resize");
+    device.wait_idle();
+}
+
+void first_person_test(lc1::Device const &device)
+{
+    lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
+                                        {},     lc1::PlayerId{1}};
+    auto const capacity = presentation.object_capacity();
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e4};
+    std::array frames{renderer.make_frame_resources(capacity),
+                      renderer.make_frame_resources(capacity)};
+    std::filesystem::create_directories("artifacts");
+    for (auto const &actor : state.characters) {
+        state.players.at(lc1::PlayerId{1}).character_id = lc1::CharacterId{actor.keyid};
+        presentation.update(0, {});
+        auto const complete = presentation.scene().draws();
+        presentation.update(0, {.first_person = true});
+        auto const concealed = presentation.scene().draws();
+        check(complete.size() == concealed.size() && presentation.object_capacity() == capacity,
+              "first person retains complete scene and frame capacity");
+        std::size_t reduced = 0;
+        std::size_t hidden = 0;
+        for (auto const &draw : concealed) {
+            if (!draw.view_index_count)
+                continue;
+            check(draw.casts_shadow,
+                  "view-hidden geometry still casts shadows and contributes to GI");
+            if (*draw.view_index_count == 0)
+                ++hidden;
+            else if (*draw.view_index_count < draw.mesh->triangle_count() * 3)
+                ++reduced;
+        }
+        check(reduced > 0,
+              "each imported character hides head triangles and retains body triangles");
+        check(hidden <= 1,
+              "only the observer helmet is fully hidden, other characters stay visible");
+        lc1::scene::FpsCamera camera;
+        camera.set_zfar(12800);
+        camera.set_aspect_ratio(4.0F / 3.0F);
+        auto const eye = presentation.observer_eye_transform();
+        auto const position = glm::vec3{eye[3]};
+        camera.set_position(position);
+        camera.look_at(position + glm::normalize(glm::vec3{eye * glm::vec4{0, 0, -1, 0}}));
+        auto const image =
+            capture(device, renderer, frames[actor.keyid % 2], camera, presentation.scene(),
+                    {.width = 800, .height = 600}, presentation.output());
+        std::ofstream file{std::format("artifacts/first-person-{}.ppm", actor.keyid),
+                           std::ios::binary};
+        file << "P6\n800 600\n255\n";
+        for (std::size_t pixel = 0; pixel < image.output.size(); pixel += 4)
+            for (int channel = 0; channel < 3; ++channel)
+                file.put(static_cast<char>(image.output[pixel + channel]));
+        check(file.good(), "first-person capture saved");
+        presentation.update(0, {});
+        check(std::ranges::none_of(
+                  presentation.scene().draws(),
+                  [](auto const &draw) { return draw.view_index_count.has_value(); }),
+              "third person restores all meshes and the observer helmet");
+    }
+    device.wait_idle();
+}
+
+void torch_test(lc1::Device const &device)
+{
+    lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
+                                        {},     lc1::PlayerId{1}};
+    presentation.update(0, {});
+    auto const capacity = presentation.object_capacity();
+    auto const unlit_draws = presentation.scene().draws().size();
+    auto const unlit_lights = presentation.scene().lights().size();
+    auto &player = state.characters.front();
+    auto const original = player.main_hand;
+    player.main_hand = *world.weapons().at(1006);
+    presentation.update(0, {});
+    check(presentation.object_capacity() == capacity &&
+              presentation.scene().draws().size() == unlit_draws &&
+              !presentation.scene().particles().empty(),
+          "torch emits particles without growing mesh frame capacity");
+    check(presentation.scene().lights().size() == unlit_lights + 1,
+          "equipped torch enables its bearer light");
+    auto const lights = presentation.scene().lights();
+    auto const torch_light = *std::ranges::find_if(
+        lights, [](auto const &light) { return light.type == 3 && light.radius == 0.08F; });
+    check(torch_light.color.r > torch_light.color.g && torch_light.color.g > torch_light.color.b,
+          "torch emits warm omnidirectional light");
+    presentation.update(0.13F, {});
+    auto const moved_lights = presentation.scene().lights();
+    auto const moved = *std::ranges::find_if(
+        moved_lights, [](auto const &light) { return light.type == 3 && light.radius == 0.08F; });
+    check(moved.intensity != torch_light.intensity, "torch intensity flickers continuously");
+    presentation.update(0.4F, {});
+    check(std::ranges::any_of(presentation.scene().particles(),
+                              [](auto const &particle) { return particle.spark; }),
+          "torch emits occasional sparks");
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(capacity);
+    lc1::scene::FpsCamera camera;
+    camera.set_position(player.pose.position() + glm::vec3{2, 2, -3});
+    camera.look_at(player.pose.position() + glm::vec3{0, 1.3F, 0});
+    auto const image = capture(device, renderer, frame, camera, presentation.scene(),
+                               {.width = 800, .height = 600}, presentation.output());
+    std::filesystem::create_directories("artifacts");
+    std::ofstream file{"artifacts/torch.ppm", std::ios::binary};
+    file << "P6\n800 600\n255\n";
+    for (std::size_t pixel = 0; pixel < image.output.size(); pixel += 4)
+        for (int channel = 0; channel < 3; ++channel)
+            file.put(static_cast<char>(image.output[pixel + channel]));
+    check(file.good(), "torch capture saved");
+    player.dead = true;
+    presentation.update(0, {});
+    check(presentation.scene().lights().size() == unlit_lights &&
+              presentation.scene().draws().size() == unlit_draws,
+          "death extinguishes both flame and light");
+    check(presentation.scene().particles().empty(), "death removes flame particles");
+    player.dead = false;
+    player.main_hand = original;
+    presentation.update(0, {});
+    check(presentation.scene().lights().size() == unlit_lights &&
+              presentation.scene().draws().size() == unlit_draws,
+          "switching away from the torch extinguishes it");
+    player.main_hand = *world.weapons().at(1005);
+    player.flashlight_on = true;
+    presentation.update(0, {});
+    auto const flashlight_lights = presentation.scene().lights();
+    check(std::ranges::any_of(
+              flashlight_lights,
+              [](auto const &light) { return light.type == 2 && light.intensity == 64; }),
+          "switching to flashlight restores spotlight parameters on the shared light");
+    device.wait_idle();
 }
 
 void showcase_test(lc1::Device const &device)
@@ -1372,9 +1571,14 @@ int main(int argc, char **argv)
     try {
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
         bool const player_only = argc == 2 && std::string_view{argv[1]} == "--player-models";
+        bool const first_person_only = argc == 2 && std::string_view{argv[1]} == "--first-person";
+        bool const particles_only = argc == 2 && std::string_view{argv[1]} == "--particles";
+        bool const torch_only = argc == 2 && std::string_view{argv[1]} == "--torch";
         bool const showcase_only = argc == 2 && std::string_view{argv[1]} == "--showcase";
-        check(argc == 1 || animation_only || player_only || showcase_only,
-              "usage: lc1_pbr_tests [--model-animation|--player-models|--showcase]");
+        check(argc == 1 || animation_only || player_only || showcase_only || torch_only ||
+                  particles_only || first_person_only,
+              "usage: lc1_pbr_tests "
+              "[--model-animation|--player-models|--showcase|--torch|--particles|--first-person]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -1384,6 +1588,24 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (first_person_only) {
+            first_person_test(device);
+            std::cout << "First-person visibility GPU tests passed\n";
+            return 0;
+        }
+        if (particles_only || torch_only) {
+            particle_render_test(device, vk::SampleCountFlagBits::e1);
+            particle_render_test(device, vk::SampleCountFlagBits::e4);
+            if (particles_only) {
+                std::cout << "Transparency, sorting, depth and Bloom GPU tests passed\n";
+                return 0;
+            }
+        }
+        if (torch_only) {
+            torch_test(device);
+            std::cout << "Torch GPU tests passed\n";
+            return 0;
+        }
         if (player_only) {
             player_models_test(device);
             device.wait_idle();
@@ -1402,6 +1624,8 @@ int main(int argc, char **argv)
             std::cout << "Terrain, grass density and showcase GPU tests passed\n";
             return 0;
         }
+        particle_render_test(device, vk::SampleCountFlagBits::e1);
+        particle_render_test(device, vk::SampleCountFlagBits::e4);
         ddgi_tests(device);
         mutable_material_tests(device);
         material_tests(device, vk::SampleCountFlagBits::e1);

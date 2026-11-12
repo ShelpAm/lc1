@@ -10,8 +10,8 @@ void Renderer::tone_map(CommandBuffer &wrapped, FrameResources &resources,
     auto const &commands = wrapped.raii();
     wrapped.bind_descriptor_heap(*resources.descriptor_heap);
     wrapped.push_data(std::span{&resources.pass_data, 1});
-    ToneMapData const data{
-        {output.exposure, output.encoding == OutputEncoding::Srgb ? 1.0F : 0.0F, 0.0F, 0.0F}};
+    ToneMapData const data{{output.exposure, output.encoding == OutputEncoding::Srgb ? 1.0F : 0.0F,
+                            output.bloom_strength, 0.0F}};
     resources.tone_map_buffer.upload(std::as_bytes(std::span{&data, 1}));
     vk::RenderingAttachmentInfo const attachment{
         .imageView = **target.view,

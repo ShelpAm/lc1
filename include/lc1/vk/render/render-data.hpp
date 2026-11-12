@@ -22,12 +22,14 @@ struct PassData {
     std::uint32_t resolved_visibility{};
     std::uint32_t tone_map{};
     std::uint32_t hdr_image{};
+    std::uint32_t bloom_image{};
+    std::uint32_t bloom_sampler{};
 };
 
-static_assert(sizeof(PassData) == 48);
+static_assert(sizeof(PassData) == 56);
 
 struct ToneMapData {
-    glm::vec4 output; // Exposure, manual sRGB encoding (0/1), reserved, reserved.
+    glm::vec4 output; // Exposure, manual sRGB encoding (0/1), Bloom strength, reserved.
 };
 
 static_assert(sizeof(ToneMapData) == 16);

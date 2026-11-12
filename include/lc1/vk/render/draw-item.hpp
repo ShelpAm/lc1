@@ -3,6 +3,7 @@
 #include "lc1/vertex.hpp"
 #include <glm/mat4x4.hpp>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -24,6 +25,8 @@ struct DrawItem {
     // Pulls coplanar decals toward the camera in depth without moving their geometry.
     // Road overlays use this instead of relying on a large visual lift.
     bool depth_bias = false;
+    // Null draws the entire mesh; zero keeps only its shadow/GI contribution.
+    std::optional<std::uint32_t> view_index_count{};
     // Owned deformation snapshot; bind indices borrow the model asset, like mesh.
     std::shared_ptr<std::vector<Vertex> const> skinned_vertices{};
     std::span<std::uint32_t const> skin_indices{};

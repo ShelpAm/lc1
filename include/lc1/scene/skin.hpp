@@ -3,6 +3,7 @@
 #include "lc1/vertex.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace lc1::scene {
@@ -23,5 +24,7 @@ struct SkinnedMesh {
     std::vector<Vertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<VertexInfluences> influences;
+    // Optional raster-only index prefix; the complete index list still casts shadows.
+    std::optional<std::uint32_t> view_index_count{};
 };
 } // namespace lc1::scene

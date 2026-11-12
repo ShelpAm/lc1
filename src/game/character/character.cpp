@@ -60,10 +60,12 @@ scene::Transform validated_transform(Continent const &continent, scene::Transfor
 
 Character::Character(Continent const &continent, scene::Transform transform, CharacterConfig config,
                      CharacterBody body, CharacterMotionSettings motion_settings)
-    : config_(std::move(config)), body_(validated_body(body)), bag_{10000},
+    : config_(std::move(config)), body_(validated_body(body)), bag_{game::default_bag_capacity},
       transform_(validated_transform(continent, transform, body_)),
       motion_(WorldCollision{continent}, body_, transform_.position, motion_settings)
 {
+    if (!std::isfinite(config_.attack_animation_duration) || config_.attack_animation_duration < 0)
+        fail("character attack animation duration must be finite and nonnegative");
     if (!std::isfinite(config_.health_lost) || config_.health_lost < 0 ||
         config_.max_health() <= 0 || config_.health_lost > config_.max_health())
         fail("invalid character health");
@@ -100,26 +102,26 @@ void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
     if (intent.look)
         set_look_angles(intent.look->x, intent.look->y);
 
-    // The jump stays a request; update() grants it only while grounded, so an airborne
-    // intent cannot double jump.
-    if (intent.jump)
-        request_jump();
-
     if (intent.nod)
         ++nod_sequence_;
 
     weapon_attack_cooldown_ = std::max(0.0F, weapon_attack_cooldown_ - delta_seconds);
     if (intent.swing_weapon && config_.main_hand)
         config_.main_hand->use(*this);
+
+    // Resolve attacks first so attacking and jumping in the same tick cannot bypass the lock.
+    if (intent.jump && attack_elapsed_ >= combat::swing_duration)
+        request_jump();
 }
 
 void Character::begin_melee_attack(WeaponProperty property)
 {
-    if (weapon_attack_cooldown_ > 0)
+    if (weapon_attack_cooldown_ > 0 || attack_elapsed_ < combat::swing_duration)
         return;
     weapon_attack_cooldown_ = combat::cooldown;
     ++attack_sequence_;
     attack_elapsed_ = 0;
+    attack_duration_ = std::max(config_.attack_animation_duration, property.attack_duration);
     attack_property_ = property;
     attack_victims_.clear();
 }
@@ -154,7 +156,8 @@ void Character::update(float delta_seconds, Continent const &continent)
         !blocked && controller_ ? controller_->decide(delta_seconds) : CharacterIntent{};
     auto const sequence = attack_sequence_;
     apply_intent(delta_seconds, intent);
-    running_ = intent.sprint && intent.move != glm::vec2{};
+    running_ =
+        attack_elapsed_ >= combat::swing_duration && intent.sprint && intent.move != glm::vec2{};
     if (sequence != attack_sequence_)
         from_yaw = body_yaw();
     auto const velocity =
@@ -163,14 +166,17 @@ void Character::update(float delta_seconds, Continent const &continent)
     auto const displacement = position() - from;
     moving_ = glm::length(glm::vec2{displacement.x, displacement.z}) > 0.0001F;
     float const begin = attack_elapsed_;
-    attack_elapsed_ = std::min(combat::swing_duration, attack_elapsed_ + delta_seconds);
+    auto const attack_delta = delta_seconds * combat::swing_duration / attack_duration_;
+    attack_elapsed_ = std::min(combat::swing_duration, attack_elapsed_ + attack_delta);
     if (!blocked && begin < combat::active_end && attack_elapsed_ > combat::windup)
         attack_sweep_ =
-            AttackSweep{begin, begin + delta_seconds, from, position(), from_yaw, body_yaw()};
+            AttackSweep{begin, begin + attack_delta, from, position(), from_yaw, body_yaw()};
 }
 
 glm::vec3 Character::walking_velocity(glm::vec3 direction, bool running, bool face_movement)
 {
+    if (attack_elapsed_ < combat::swing_duration)
+        return {};
     direction.y = 0.0F;
     // double avoids overflow when normalizing large but finite input vectors.
     double const length =

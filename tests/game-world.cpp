@@ -138,12 +138,12 @@ void inventory_equipment_and_flashlight()
     check(restored.player(PlayerId{1}).config().equipment.at(EquipmentType::Head)->keyid() ==
               iron_helmet.keyid,
           "equipped crafted helmet survives checkpoint assembly");
-    check(bag.add(wood, 10), "fill backpack while helmet is equipped");
+    check(bag.add(wood, 20), "fill backpack while helmet is equipped");
     request(iron_helmet.keyid, false, player.id());
     check(player.config().equipment.contains(EquipmentType::Head) &&
               bag.quantity_of(iron_helmet.keyid) == 0,
           "failed unequip preserves worn item and inventory");
-    check(bag.remove(wood, 10), "make room for unequipping");
+    check(bag.remove(wood, 20), "make room for unequipping");
     request(iron_helmet.keyid, false, player.id());
     request(iron_helmet.keyid, false, player.id());
     check(!player.config().equipment.contains(EquipmentType::Head) &&
@@ -159,12 +159,12 @@ void inventory_equipment_and_flashlight()
     check(bag.remove(iron_helmet, 1) && bag.add(sword, 1) && bag.add(flashlight, 1),
           "prepare hand items");
     request(sword.keyid, true, player.id());
-    check(bag.add(wood, 9), "fill pack before replacing heavy weapon with lighter tool");
+    check(bag.add(wood, 19), "fill pack before replacing heavy weapon with lighter tool");
     request(flashlight.keyid, true, player.id());
     check(player.config().main_hand->keyid() == sword.keyid &&
               bag.quantity_of(flashlight.keyid) == 1 && bag.quantity_of(sword.keyid) == 0,
           "failed swap cannot lose or duplicate either hand item");
-    check(bag.remove(wood, 9), "make room for old weapon");
+    check(bag.remove(wood, 19), "make room for old weapon");
     request(flashlight.keyid, true, player.id());
     check(player.config().main_hand->kind() == WeaponKind::Tool &&
               bag.quantity_of(sword.keyid) == 1 && bag.quantity_of(flashlight.keyid) == 0 &&
@@ -188,6 +188,21 @@ void inventory_equipment_and_flashlight()
     check(!player.config().main_hand && !player.flashlight_on() &&
               bag.quantity_of(flashlight.keyid) == 1,
           "unequipping the flashlight returns it and removes its light");
+    check(bag.add(torch, 1), "prepare torch");
+    request(torch.keyid, true, player.id());
+    check(player.config().main_hand && player.config().main_hand->action() == WeaponAction::Torch &&
+              player.config().main_hand->kind() == WeaponKind::Tool && !player.flashlight_on(),
+          "torch equips as a tool without using the flashlight switch");
+    auto const torch_attacks = player.attack_sequence();
+    world.update(0, {{PlayerId{1}, {.swing_weapon = true}}});
+    check(player.attack_sequence() == torch_attacks, "using a torch never starts melee combat");
+    Save::write(checkpoint.directory(), world.snapshot());
+    GameWorld restored_torch{Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    check(restored_torch.player(PlayerId{1}).config().main_hand->action() == WeaponAction::Torch,
+          "equipped torch survives checkpoint loading");
+    request(torch.keyid, false, player.id());
+    check(!player.config().main_hand && bag.quantity_of(torch.keyid) == 1,
+          "torch returns to backpack on unequip");
 }
 
 void melee_damage_and_checkpoint()
@@ -527,21 +542,21 @@ void scenario_inventory()
     lc1::Save const seed{"saves/01"};
     lc1::GameWorld world{seed, "dialogs/catalog.yaml"};
     auto &bag = world.player(lc1::PlayerId{1}).bag();
-    check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 8600,
+    check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 9300,
           "temporary demonstration setup supplies a bounded initial inventory");
     update_world(world, 0, {});
     update_world(world, 1.0F, {});
-    check(bag.total_weight() == 8600, "simulation does not refill demonstration supplies");
+    check(bag.total_weight() == 9300, "simulation does not refill demonstration supplies");
     check(bag.remove(lc1::game::wood, 1), "consume initial supplies");
     Checkpoint checkpoint;
     lc1::Save::write(checkpoint.directory(), world.snapshot());
     lc1::Save const saved{checkpoint.directory()};
     lc1::GameWorld restored{saved, "dialogs/catalog.yaml"};
     check(restored.player(lc1::PlayerId{1}).bag().quantity_of(lc1::game::wood.keyid) == 1 &&
-              restored.player(lc1::PlayerId{1}).bag().total_weight() == 7600,
+              restored.player(lc1::PlayerId{1}).bag().total_weight() == 8300,
           "checkpoint restores consumed inventory without applying initial supplies again");
     world.load(saved);
-    check(world.player(lc1::PlayerId{1}).bag().total_weight() == 7600,
+    check(world.player(lc1::PlayerId{1}).bag().total_weight() == 8300,
           "in-place reload also restores inventory exactly");
 }
 
@@ -605,6 +620,42 @@ void world_applies_control()
     }
     check(rejected && world.player(lc1::PlayerId{1}).position() == pose,
           "invalid control is rejected before mutating the player");
+}
+
+void attack_animation_timing()
+{
+    Checkpoint checkpoint;
+    auto data = lc1::Save{checkpoint.directory()}.data();
+    auto &record = *std::ranges::find(data.characters, 1U, &lc1::SerializedCharacterConfig::keyid);
+    record.main_hand = 1001;
+    lc1::ModelConfig model;
+    model.nodes.value().push_back({.name = "Body"});
+    lc1::ModelAnimationConfig clip{.name = "Attack", .channels = {}};
+    lc1::ModelAnimationChannelConfig channel;
+    channel.node = 0;
+    channel.path = lc1::scene::AnimationChannel::Path::Rotation;
+    channel.times = {0, 3};
+    channel.values = {{0, 0, 0}, {0, 20, 0}};
+    clip.channels.push_back(channel);
+    model.animations.value().push_back(clip);
+    model.attack_animation.value() = "Attack";
+    record.model.value() = model;
+    lc1::Save::write(checkpoint.directory(), data);
+    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    check(world.player(lc1::PlayerId{1}).config().attack_animation_duration == 3,
+          "world resolves the configured attack clip duration without graphics");
+    lc1::PlayerControls controls;
+    controls.view.keyboard_enabled = true;
+    controls.swing_weapon = true;
+    controls.movement = {1, 0};
+    auto const before = world.player(lc1::PlayerId{1}).position();
+    world.update(0, {{lc1::PlayerId{1}, controls}});
+    controls.swing_weapon = false;
+    world.update(1.5F, {{lc1::PlayerId{1}, controls}});
+    auto const state = lc1::capture_world(world);
+    check(std::abs(state.player(lc1::PlayerId{1}).attack_progress - 0.5F) < 0.0001F &&
+              world.player(lc1::PlayerId{1}).position().x == before.x,
+          "snapshot animation progress and movement lock share the resolved three-second timeline");
 }
 
 void transfer_control_and_checkpoint()
@@ -699,6 +750,7 @@ int main()
         reload_world();
         world_applies_control();
         transfer_control_and_checkpoint();
+        attack_animation_timing();
         restored_house_patrol();
         scenario_inventory();
         std::cout << "Game world tests passed\n";

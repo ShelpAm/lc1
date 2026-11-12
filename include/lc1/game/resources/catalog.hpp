@@ -23,9 +23,11 @@ inline Resource const bow{.keyid=1004, .name="Bow", .category=ResourceCategory::
 
 inline Resource const flashlight{.keyid=1005, .name="Flashlight", .category=ResourceCategory::Equipment, .weight=500};
 
+inline Resource const torch{.keyid=1006, .name="Torch", .category=ResourceCategory::Equipment, .weight=700};
+
 // Pointers, so the named definitions above stay the only instances: a lookup returns the same
 // object a recipe or a caller holds.
-inline std::array const resources{&moneta, &wood, &pig_iron, &iron_helmet, &body_armor, &boots, &sword, &sword_2, &sword_3, &bow, &flashlight};
+inline std::array const resources{&moneta, &wood, &pig_iron, &iron_helmet, &body_armor, &boots, &sword, &sword_2, &sword_3, &bow, &flashlight, &torch};
 // clang-format on
 // NOLINTEND
 

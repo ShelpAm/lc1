@@ -311,7 +311,7 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
 }
 } // namespace
 
-Model Model::load_from_gltf(std::filesystem::path const &path)
+Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolicy materials)
 {
     auto const extension = path.extension();
     if (extension != ".gltf" && extension != ".glb")
@@ -330,7 +330,7 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
         fail("failed to load glTF model {}: {}", filename, error);
     if (!source.extensionsRequired.empty())
         fail("required glTF extensions are unsupported");
-    if (!source.materials.empty())
+    if (!source.materials.empty() && materials == GltfMaterialPolicy::WarnIfPresent)
         spdlog::warn(
             "[gltf] Material bindings are not imported; callers must provide draw materials: {}",
             filename);

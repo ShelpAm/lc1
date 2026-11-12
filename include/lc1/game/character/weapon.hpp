@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/combat.hpp"
 #include "lc1/game/character/model-config.hpp"
 
 #include <cstdint>
@@ -9,12 +10,14 @@ namespace lc1 {
 
 class Character;
 
-enum class WeaponAction : std::uint8_t { MeleeAttack, RangedAttack, ToggleLight };
+enum class WeaponAction : std::uint8_t { MeleeAttack, RangedAttack, ToggleLight, Torch };
 enum class WeaponKind : std::uint8_t { Melee, Ranged, Tool };
 
 struct WeaponProperty {
     float attack;
     float range;
+    float attack_duration =
+        combat::swing_duration; // CPU-resolved animation duration; default for unanimated weapons.
 };
 
 // Copyable definition data for save/presentation snapshots; no runtime behavior.
@@ -35,6 +38,7 @@ class WeaponDefinition {
         case WeaponAction::RangedAttack:
             return WeaponKind::Ranged;
         case WeaponAction::ToggleLight:
+        case WeaponAction::Torch:
             return WeaponKind::Tool;
         }
         return WeaponKind::Tool;
@@ -76,6 +80,12 @@ class RangedWeapon final : public Weapon {
 class Flashlight final : public Weapon {
   public:
     Flashlight(std::uint32_t keyid, WeaponProperty property, ModelConfig model_config = {});
+    void use(Character &user) const override;
+};
+
+class Torch final : public Weapon {
+  public:
+    Torch(std::uint32_t keyid, WeaponProperty property, ModelConfig model_config = {});
     void use(Character &user) const override;
 };
 

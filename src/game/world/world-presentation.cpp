@@ -76,6 +76,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                                  : glm::vec3{0})},
       helmet_model_(device, make_helmet_model()), output_(output)
 {
+    output_.bloom_strength = 0.12F;
     character_models_.reserve(world.characters.size());
     auto const resources_for = [&](ModelConfig const &config,
                                    CharacterBody const &body) -> ModelResources & {
@@ -124,10 +125,12 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         auto const &character = world.characters[i];
         auto const &config = character.model;
         auto &resources = resources_for(config, character.pose.body);
-        auto *model = scene_.add_model(
-            scene::SceneModel{.model = &resources.model,
-                              .material = &resources.material,
-                              .world_transform = character.pose.transform().model_matrix()});
+        auto *model = scene_.add_model(scene::SceneModel{
+            .model = &resources.model,
+            .material = &resources.material,
+            .world_transform = character.pose.transform().model_matrix(),
+            .view_hidden_nodes =
+                first_person_hidden_nodes(config, resources.model.definition().nodes())});
 
         auto const find_animation = [&](std::string const &name) -> std::optional<std::size_t> {
             if (name.empty())
@@ -156,6 +159,12 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                 model->pose.reset_pose();
         }
         auto const mount = resources.model.definition().find_node(config.weapon_mount.value());
+        std::optional<std::size_t> eyes_mount;
+        if (!config.eyes.value().empty()) {
+            eyes_mount = resources.model.definition().find_node(config.eyes.value());
+            if (!eyes_mount)
+                fail("character model is missing eyes mount {}", config.eyes.value());
+        }
         std::map<std::uint32_t, WeaponModel> weapons;
         scene::SceneModel *weapon_model = nullptr;
         std::optional<std::size_t> attack_animation;
@@ -187,13 +196,13 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         }
         auto *helmet = scene_.add_model(
             {.model = &helmet_model_, .material = &helmet_material_, .visible = false});
-        auto *flashlight = scene_.add_light(
+        auto *hand_light = scene_.add_light(
             to_light(scene::SpotLight{.base = {.color = {1.0F, 0.95F, 0.8F}, .intensity = 64},
                                       .position = character.pose.position(),
                                       .direction = character.pose.look_direction(),
                                       .inner_angle = glm::radians(15.0F),
                                       .outer_angle = glm::radians(30.0F)}));
-        flashlight->enabled = character.flashlight_on;
+        hand_light->enabled = character.flashlight_on;
         character_models_.push_back({.keyid = character.keyid,
                                      .character = model,
                                      .weapon = weapon_model,
@@ -205,10 +214,13 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .hit_sequence = character.hit_sequence,
                                      .dead = character.dead,
                                      .weapons = std::move(weapons),
-                                     .flashlight = flashlight,
+                                     .hand_light = hand_light,
                                      .uses_flashlight = uses_flashlight,
+                                     .particles = {},
                                      .helmet = helmet,
                                      .head_mount = resources.model.definition().find_node("Head"),
+                                     .eyes_mount = eyes_mount,
+                                     .eyes_offset = config.eyes_offset.value().transform().matrix(),
                                      .idle_animation = idle_animation,
                                      .move_animation = move_animation,
                                      .run_animation = run_animation,
@@ -239,6 +251,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         showcase_models_.push_back(add_draw(draw));
     update_instances();
     update_lighting();
+    update_particles(0);
 
     set_volume(50.0F);
 }
@@ -277,6 +290,9 @@ void WorldPresentation::update_instances()
             (state.dead && models.death_animation
                  ? glm::mat4{1}
                  : character_reaction_transform(state.dead, state.reaction_time, state.pose.body));
+        auto const observer = first_person_ && state.keyid == world_->player(observer_).keyid;
+        models.character->use_view_indices = observer;
+        models.helmet->view_visible = !observer;
         auto const head = state.equipment.find(EquipmentType::Head);
         models.helmet->visible =
             head != state.equipment.end() && head->second.keyid() == game::iron_helmet.keyid;
@@ -303,6 +319,11 @@ void WorldPresentation::update_instances()
                     glm::translate(glm::mat4{1}, hand) *
                     glm::mat4_cast(
                         glm::quatLookAt(state.pose.look_direction(), glm::vec3{0, 1, 0}));
+            else if (state.main_hand && state.main_hand->action() == WeaponAction::Torch)
+                models.weapon->world_transform =
+                    glm::translate(glm::mat4{1}, hand) *
+                    glm::rotate(glm::mat4{1}, glm::radians(state.pose.body_yaw()),
+                                glm::vec3{0, 1, 0});
             else if (models.mount)
                 models.weapon->world_transform = models.character->node_world_matrix(*models.mount);
             else
@@ -376,7 +397,28 @@ void WorldPresentation::update_lighting()
     });
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
-        auto &light = *models.flashlight;
+        auto &light = *models.hand_light;
+        auto const &state = world_->characters[i];
+        bool const burning = models.weapon && state.main_hand &&
+                             state.main_hand->action() == WeaponAction::Torch && !state.dead;
+        auto const phase = flame_time_ + static_cast<float>(models.keyid) * 1.73F;
+        auto const flicker = std::sin(phase * 9.1F) * 0.07F + std::sin(phase * 15.7F) * 0.04F;
+        glm::vec3 const tip =
+            burning ? glm::vec3{models.weapon->world_transform * glm::vec4{0, 0.46F, 0, 1}}
+                    : glm::vec3{0};
+        if (burning) {
+            light.parameters = to_light(scene::SphereLight{
+                .base = {.color = {1, 0.38F, 0.07F}, .intensity = 18.0F * (1.0F + flicker)},
+                .position = tip + glm::vec3{0, 0.14F, 0},
+                .radius = 0.08F,
+                .shadow_sample_count = 2});
+            light.enabled = lighting_mode_ == 0 || lighting_mode_ == 4;
+            continue;
+        }
+        light.parameters =
+            to_light(scene::SpotLight{.base = {.color = {1.0F, 0.95F, 0.8F}, .intensity = 64},
+                                      .inner_angle = glm::radians(15.0F),
+                                      .outer_angle = glm::radians(30.0F)});
         light.enabled = world_->characters[i].flashlight_on && models.weapon &&
                         models.uses_flashlight && (lighting_mode_ == 0 || lighting_mode_ == 3);
         if (light.enabled) {
@@ -414,6 +456,7 @@ std::string_view WorldPresentation::lighting_name() const
 
 void WorldPresentation::update(float delta_seconds, WorldPresentationInput const &input)
 {
+    first_person_ = input.first_person;
     // One game hour per real minute at 1x: 24 minutes per day.
     time_of_day_ =
         std::fmod(time_of_day_ + static_cast<double>(delta_seconds) * time_rate_ / 60.0, 24.0);
@@ -426,6 +469,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
                    0.03125F, 16.0F);
     if (showcase_animated_)
         showcase_time_ += delta_seconds;
+    flame_time_ += delta_seconds;
     showcase_.update(showcase_time_);
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
@@ -480,6 +524,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         auto const playback = pose.playback();
         bool const action_playing =
             playback && !playback->looping &&
+            (playback->animation != models.body_attack_animation || state.attack_progress < 1) &&
             playback->time < pose.model().animations()[playback->animation].duration();
         auto const locomotion = state.moving
                                     ? (state.running && models.run_animation ? models.run_animation
@@ -491,8 +536,107 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
             pose.play_animation(*locomotion);
     }
     scene_.update_animations(delta_seconds);
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto &models = character_models_[i];
+        auto const &state = world_->characters[i];
+        if (!state.dead && models.body_attack_animation && state.attack_progress < 1) {
+            auto &pose = models.character->pose;
+            pose.play_animation(*models.body_attack_animation, false);
+            pose.update_animation(
+                state.attack_progress *
+                pose.model().animations()[*models.body_attack_animation].duration());
+        }
+        if (!state.dead && models.weapon && models.attack_animation && state.attack_progress < 1) {
+            auto &pose = models.weapon->pose;
+            pose.play_animation(*models.attack_animation, false);
+            pose.update_animation(state.attack_progress *
+                                  pose.model().animations()[*models.attack_animation].duration());
+        }
+    }
     update_instances();
     update_lighting();
+    update_particles(delta_seconds);
+}
+
+void WorldPresentation::update_particles(float delta_seconds)
+{
+    std::vector<scene::Particle> visible;
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto &emitter = character_models_[i];
+        auto const &state = world_->characters[i];
+        bool const burning = emitter.weapon && state.main_hand && !state.dead &&
+                             state.main_hand->action() == WeaponAction::Torch;
+        if (!burning) {
+            emitter.particles.clear();
+            emitter.burning = false;
+            emitter.emission = 0;
+            continue;
+        }
+        auto const tip = glm::vec3{emitter.weapon->world_transform * glm::vec4{0, 0.46F, 0, 1}};
+        if (!emitter.burning) {
+            emitter.previous_tip = tip;
+            emitter.emission = 8;
+        }
+        for (auto &particle : emitter.particles) {
+            auto const acceleration = glm::vec3{0, particle.spark ? -0.6F : 0.7F, 0};
+            particle.age += delta_seconds;
+            particle.position += particle.velocity * delta_seconds +
+                                 acceleration * (0.5F * delta_seconds * delta_seconds);
+            particle.velocity += acceleration * delta_seconds;
+        }
+        std::erase_if(emitter.particles,
+                      [](auto const &particle) { return particle.age >= particle.lifetime; });
+        // Spawn only births still relevant after a long frame, rather than a stale backlog.
+        auto const interval = std::min(delta_seconds, 1.0F);
+        emitter.emission += interval * 50;
+        auto const count = static_cast<unsigned>(emitter.emission);
+        emitter.emission -= static_cast<float>(count);
+        for (unsigned birth = 0; birth < count; ++birth) {
+            auto const sequence = ++emitter.particle_sequence;
+            // Integer mixing gives repeatable independent variation without shared RNG state.
+            auto hash = sequence * 747796405U + emitter.keyid * 2891336453U;
+            hash = ((hash >> ((hash >> 28U) + 4U)) ^ hash) * 277803737U;
+            hash = (hash >> 22U) ^ hash;
+            float const variation = static_cast<float>(hash & 0xffffU) / 65535.0F;
+            float const angle = static_cast<float>(hash >> 16U) / 65535.0F * glm::two_pi<float>();
+            bool const spark = sequence % 12 == 0;
+            float const lifetime = spark ? 0.8F + variation * 0.7F : 0.38F + variation * 0.25F;
+            float const age =
+                interval * (static_cast<float>(birth) + 0.5F) / static_cast<float>(count);
+            if (age >= lifetime)
+                continue;
+            auto const velocity = glm::vec3{std::cos(angle) * (spark ? 0.25F : 0.08F),
+                                            spark ? 0.9F + variation : 0.45F + variation * 0.35F,
+                                            std::sin(angle) * (spark ? 0.25F : 0.08F)};
+            auto const fraction = delta_seconds > 0 ? age / delta_seconds : 0;
+            auto const origin = glm::mix(tip, emitter.previous_tip, fraction);
+            auto const acceleration = glm::vec3{0, spark ? -0.6F : 0.7F, 0};
+            emitter.particles.push_back(
+                {origin + velocity * age + acceleration * (0.5F * age * age),
+                 velocity + acceleration * age, age, lifetime, variation, spark});
+        }
+        emitter.previous_tip = tip;
+        emitter.burning = true;
+        for (auto const &particle : emitter.particles) {
+            float const life = particle.age / particle.lifetime;
+            float const fade = (1 - life) * (1 - life);
+            auto const width = particle.spark ? 0.012F : 0.19F * (1 - life * 0.7F);
+            visible.push_back({
+                .position = particle.position,
+                .size = {width,
+                         particle.spark ? 0.04F : width * (1.6F + particle.variation * 0.5F)},
+                .radiance = particle.spark ? glm::vec3{8, 2.2F, 0.2F}
+                                           : glm::mix(glm::vec3{12, 5.5F, 0.5F},
+                                                      glm::vec3{4, 0.25F, 0.015F}, life),
+                .opacity = particle.spark ? fade : fade * 0.65F,
+                .rotation = particle.spark
+                                ? particle.variation * 3
+                                : std::sin(flame_time_ * 5 + particle.variation * 8) * 0.16F,
+                .spark = particle.spark,
+            });
+        }
+    }
+    scene_.set_particles(std::move(visible));
 }
 
 void WorldPresentation::update_listener(scene::FpsCamera const &camera)
@@ -509,12 +653,8 @@ glm::mat4 WorldPresentation::observer_eye_transform() const
     auto const &observer = world_->player(observer_);
     auto const models =
         std::ranges::find(character_models_, observer.keyid, &CharacterModels::keyid);
-    if (models != character_models_.end() && !observer.model.eyes.value().empty()) {
-        auto const node = models->character->pose.model().find_node(observer.model.eyes.value());
-        if (!node)
-            fail("character model is missing eyes mount {}", observer.model.eyes.value());
-        return models->character->node_world_matrix(*node);
-    }
+    if (models != character_models_.end() && models->eyes_mount)
+        return models->character->node_world_matrix(*models->eyes_mount) * models->eyes_offset;
     auto transform = world_->player(observer_).pose.transform().model_matrix();
     transform[3] = glm::vec4{world_->player(observer_).pose.eye_position(), 1.0F};
     return transform;

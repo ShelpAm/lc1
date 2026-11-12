@@ -71,8 +71,12 @@ Renderer::Renderer(Device const &device, std::vector<vk::Format> const &color_at
                   .samples = hdr_sample_count(device, depth_format_, samples),
                   .depth_test = true},
       shaders_{device, "shaders/shader.spv"}, tone_map_shaders_{device, "shaders/tone-map.spv"},
-      text_pass_{device, main_state_.samples}, ray_query_shadows_{device, depth_format_},
-      ddgi_{device}, default_sampler_info_{Sampler::default_create_info(device)},
+      particle_shaders_{device, "shaders/particles.spv"},
+      particle_state_{
+          .samples = main_state_.samples, .depth_test = true, .depth_write = false, .blend = true},
+      bloom_shaders_{device, "shaders/bloom.spv"}, text_pass_{device, main_state_.samples},
+      ray_query_shadows_{device, depth_format_}, ddgi_{device},
+      default_sampler_info_{Sampler::default_create_info(device)},
       white_srgb_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Srgb),
       white_linear_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Linear),
       flat_normal_(device, {.width = 1, .height = 1}, normal_pixel, TextureColorSpace::Linear)
@@ -91,12 +95,12 @@ FrameResources Renderer::make_frame_resources(std::uint32_t object_capacity) con
                          vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
     };
     // Samplers: five material slots per draw plus the texture cache's default and
-    // the text pass's clamped font sampler and DDGI's linear sampler. Images also
-    // include the HDR/shadow histories, font atlas and the DDGI input/output slots.
+    // the text pass's clamped font sampler, DDGI and Bloom filters. Images also
+    // include HDR/shadow histories, font atlas, DDGI and two Bloom images.
     // Buffers: three per draw, the shared frame uniforms, TLAS address and DDGI UBO.
     auto heap = std::make_unique<DescriptorHeap>(
-        *device_, 5ULL * object_capacity + 3,
-        5ULL * object_capacity + 8 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
+        *device_, 5ULL * object_capacity + 4,
+        5ULL * object_capacity + 10 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
         3ULL * object_capacity + 7);
     FrameResources result{std::move(heap), make_buffer(sizeof(CameraData)),
                           make_buffer(sizeof(LightsData)), make_buffer(sizeof(TemporalShadowData)),
@@ -199,6 +203,8 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
 
     if (!std::isfinite(output.exposure) || output.exposure <= 0.0F)
         fail("exposure must be finite and positive");
+    if (!std::isfinite(output.bloom_strength) || output.bloom_strength < 0)
+        fail("bloom strength must be finite and nonnegative");
     if (output.encoding == OutputEncoding::Srgb && color_format_ != vk::Format::eR8G8B8A8Unorm &&
         color_format_ != vk::Format::eB8G8R8A8Unorm)
         fail("manual sRGB output requires an RGBA8/BGRA8 UNORM target");
@@ -210,6 +216,8 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .lights = std::move(lights),
         .draws = std::move(draws),
         .diffuse_gi = input.diffuse_gi(),
+        .particles =
+            std::vector<scene::Particle>{input.particles().begin(), input.particles().end()},
     });
     graph.add_pass("Skinned geometry", {"frame.inputs"}, {"geometry.ready"},
                    [this, &resources, scene](CommandBuffer &cmd) {
@@ -228,10 +236,17 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         {"shadow.frame", "shadow.filtered_visibility", "material.frame", "ddgi.irradiance"},
         {"hdr.color"},
         [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
-            record_hdr(commands, resources, extent, scene->draws, scene->camera, text);
+            record_hdr(commands, resources, extent, scene->draws, scene->camera, text,
+                       scene->particles);
         });
-    graph.add_pass("Tone mapping", {"hdr.color", "output.target"}, {"output.color"},
-                   [this, &resources, target, output](CommandBuffer &commands) {
+    if (output.bloom_strength > 0)
+        graph.add_pass("Bloom", {"hdr.color"}, {"bloom.color"},
+                       [this, &resources, extent = target.extent](CommandBuffer &commands) {
+                           record_bloom(commands, resources, extent);
+                       });
+    graph.add_pass("Tone mapping",
+                   {output.bloom_strength > 0 ? "bloom.color" : "hdr.color", "output.target"},
+                   {"output.color"}, [this, &resources, target, output](CommandBuffer &commands) {
                        tone_map(commands, resources, target, output);
                    });
     // Always registered, even with nothing to draw: the overlay passes consume its
@@ -297,7 +312,7 @@ void Renderer::prepare_materials(FrameResources &resources, std::span<DrawItem c
 
 void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
                           std::span<DrawItem const> draws, scene::FpsCamera const &camera,
-                          TextFrameInput const &text)
+                          TextFrameInput const &text, std::span<scene::Particle const> particles)
 {
     auto &command_buffer = cmd.raii();
     ensure_attachments(resources, extent);
@@ -418,16 +433,17 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         command_buffer.setFrontFace(glm::determinant(glm::mat3{item.model_matrix}) < 0.0F
                                         ? vk::FrontFace::eClockwise
                                         : vk::FrontFace::eCounterClockwise);
-        item.mesh->draw(command_buffer);
+        item.mesh->draw(command_buffer, item.view_index_count);
     }
 
-    // World text closes the scene: it shares this scope's colour and depth
+    // World text shares this scope's colour and depth
     // attachments, so it is occluded like any other scene geometry, needs no
     // second resolve, and the transient MSAA attachment keeps loadOp Clear.
     if (text.font != nullptr && !text.world.empty())
         text_pass_.draw_world(cmd, resources, *text.font, text.world,
                               camera.view_projection_matrix());
 
+    record_particles(cmd, camera, particles);
     command_buffer.endRendering();
     resources.hdr_image->transition_layout(
         command_buffer, vk::ImageLayout::eColorAttachmentOptimal,

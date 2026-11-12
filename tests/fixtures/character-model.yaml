@@ -45,6 +45,9 @@ animations:
     - [0, 0, 0]
     - [0, 0, 0]
 eyes: Eyes
+eyes_offset:
+  translation: [0.1, 0.2, -0.3]
+  rotation_degrees: [0, 180, 0]
 weapon_mount: RightHandGrip
 action_animation: Nod
 material:

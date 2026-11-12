@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/weapon.hpp"
 #include "lc1/game/continent/identity.hpp"
@@ -91,7 +92,7 @@ struct SerializedCharacterState {
     float look_pitch;
     bool patrol;
     CompanionOrder companion_order = CompanionOrder::None;
-    std::uint32_t bag_capacity = 10000; // Grams.
+    std::uint32_t bag_capacity = game::default_bag_capacity; // Grams.
     std::vector<SerializedResourceStack> bag = {};
     rfl::DefaultVal<float> health_lost{0.0F};
     rfl::DefaultVal<bool> flashlight_on{false};

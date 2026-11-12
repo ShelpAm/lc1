@@ -200,8 +200,8 @@ Application::Application(ApplicationConfig config)
       renderer_{device_,
                 {surface_format_.format},
                 std::min(device_.max_sample_count(), vk::SampleCountFlagBits::e4)},
-      simulation_(std::make_unique<GameSimulation>(Save{config_.save_root},
-                                                   config_.dialog_root / "catalog.yaml")),
+      simulation_(std::make_unique<GameSimulation>(
+          Save{config_.save_root}, config_.dialog_root / "catalog.yaml", config_.asset_root)),
       game_(std::make_unique<GameSession>(
           device_, config_.asset_root, *simulation_, config_.save_root,
           output_settings(surface_format_.format), &window_, config_.local_player)),
@@ -353,8 +353,8 @@ void Application::load_game(std::filesystem::path const &directory)
     // Drain all slots before creating uploads or releasing any resources borrowed by a frame.
     device_.wait_idle();
     try {
-        auto simulation =
-            std::make_unique<GameSimulation>(Save{directory}, config_.dialog_root / "catalog.yaml");
+        auto simulation = std::make_unique<GameSimulation>(
+            Save{directory}, config_.dialog_root / "catalog.yaml", config_.asset_root);
         auto next = std::make_unique<GameSession>(device_, config_.asset_root, *simulation,
                                                   directory, game_->world_presentation().output(),
                                                   &window_, config_.local_player);

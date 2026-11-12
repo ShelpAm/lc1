@@ -96,6 +96,8 @@ add_slang_shaders(shaders
     temporal-shadows.slang
     spatial-shadows.slang
     text.slang
+    particles.slang
+    bloom.slang
 )
 
 set(heap_struct_include "${CMAKE_CURRENT_BINARY_DIR}/generated/heap-material.slang")

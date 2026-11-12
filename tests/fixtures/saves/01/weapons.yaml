@@ -16,3 +16,10 @@
     material:
       metallic: 0.7
       roughness: 0.3
+
+- keyid: 1006
+  attack: 0
+  range: 8
+  action: Torch
+  model:
+    path: builtin:torch

@@ -12,7 +12,11 @@
     transform:
       scale: [1.55, 1.55, 1.55]
       rotation_degrees: [0, 180, 0]
-    eyes: ""
+    first_person_hidden_nodes: [Pilot_Head]
+    eyes: Pilot_Head
+    eyes_offset:
+      translation: [0, 0.05068041955, 0.0109300701]
+      rotation_degrees: [0, 180, 0]
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: Run_Base
@@ -35,7 +39,11 @@
   main_hand: 1002
   model:
     path: models/yone/封魔剑魂.glb
-    eyes: ""
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0.00003824915, 0.0661896513, -0.09662374575]
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: Run_Base
@@ -58,6 +66,11 @@
   main_hand: 1003
   model:
     path: models/winterblessed-hwei/北极星使者_彗.glb
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0, 0.0742561955, -0.04809295155]
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: RunSlow
@@ -79,7 +92,11 @@
   main_hand: 0
   model:
     path: models/western-yone/西部魔影_炽天使_永恩.glb
-    eyes: ""
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0.00003824915, 0.0661896513, -0.09662374575]
     weapon_mount: R_Hand
     idle_animation: Skin55_idle1.SKINS_Yone_Skin55.anm
     move_animation: Yone_Walk01.SKINS_Yone_Skin55.anm
@@ -101,6 +118,11 @@
   main_hand: 0
   model:
     path: models/winterblessed-hwei/北极星使者_彗.glb
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0, 0.0742561955, -0.04809295155]
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: RunSlow

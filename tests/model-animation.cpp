@@ -407,6 +407,13 @@ void imported_player_and_weapon()
     config.transform.value().scale = std::array<float, 3>{1, 0, 1};
     rejects([&] { lc1::validate_model_config(config); });
     config = read("character-model.yaml");
+    config.eyes_offset.value().translation =
+        std::array<float, 3>{0, std::numeric_limits<float>::quiet_NaN(), 0};
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
+    config.eyes_offset.value().scale = std::array<float, 3>{1, 0, 1};
+    rejects([&] { lc1::validate_model_config(config); });
+    config = read("character-model.yaml");
     config.nodes.value()[1].parent_index = std::optional<std::size_t>{1};
     rejects([&] { lc1::validate_model_config(config); });
     config = read("character-model.yaml");
@@ -418,6 +425,22 @@ void imported_player_and_weapon()
     config = read("character-model.yaml");
     config.path = std::string{"../outside.obj"};
     rejects([&] { lc1::validate_model_config(config); });
+}
+
+void first_person_visibility_mask()
+{
+    lc1::ModelConfig config;
+    std::vector<ModelNode> nodes{{.name = "Body"},
+                                 {.name = "Head", .parent_index = 0},
+                                 {.name = "Hair", .parent_index = 1},
+                                 {.name = "Hand", .parent_index = 0}};
+    auto const mask = lc1::first_person_hidden_nodes(config, nodes);
+    check(!mask[0] && mask[1] && mask[2] && !mask[3],
+          "head visibility includes descendants but retains torso and hands");
+    config.first_person_hidden_nodes = std::vector<std::string>{};
+    auto const all_visible = lc1::first_person_hidden_nodes(config, nodes);
+    check(std::ranges::none_of(all_visible, [](bool hidden) { return hidden; }),
+          "empty first-person mask retains all nodes");
 }
 
 } // namespace
@@ -433,6 +456,7 @@ int main()
         flashlight_content();
         player_nod_clip();
         imported_player_and_weapon();
+        first_person_visibility_mask();
         std::cout << "Model animation tests passed\n";
     }
     catch (std::exception const &error) {

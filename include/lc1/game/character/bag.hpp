@@ -7,6 +7,8 @@
 
 namespace lc1::game {
 
+inline constexpr std::uint32_t default_bag_capacity = 20000; // Grams.
+
 struct Recipe;
 
 class Bag {

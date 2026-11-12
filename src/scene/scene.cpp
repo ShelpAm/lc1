@@ -62,6 +62,9 @@ SceneModel *Scene::add_model(SceneModel model)
         fail("scene model requires a material");
     if (!model.model || &model.pose.model() != &model.model->definition())
         fail("scene model pose does not match its GPU model");
+    if (!model.view_hidden_nodes.empty() &&
+        model.view_hidden_nodes.size() != model.pose.model().nodes().size())
+        fail("view visibility mask must match the model nodes");
     auto owned = std::make_unique<SceneModel>(std::move(model));
     auto *pointer = owned.get();
     models_.emplace(pointer, std::move(owned));
@@ -79,6 +82,26 @@ void Scene::update_animations(float delta_seconds)
         fail("scene animation delta must be finite and nonnegative");
     for (auto const &[pointer, model] : models_)
         model->pose.update_animation(delta_seconds);
+}
+
+void Scene::set_particles(std::vector<Particle> particles)
+{
+    for (auto const &particle : particles) {
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(particle.position[axis]) ||
+                !std::isfinite(particle.radiance[axis]) || particle.radiance[axis] < 0)
+                fail("particle position and radiance must be finite, radiance nonnegative");
+        if (!std::isfinite(particle.size.x) || !std::isfinite(particle.size.y) ||
+            particle.size.x <= 0 || particle.size.y <= 0 || !std::isfinite(particle.opacity) ||
+            particle.opacity < 0 || particle.opacity > 1 || !std::isfinite(particle.rotation))
+            fail("particle size must be positive, opacity in [0, 1], and rotation finite");
+    }
+    particles_ = std::move(particles);
+}
+
+std::span<Particle const> Scene::particles() const
+{
+    return particles_;
 }
 
 std::vector<Light> Scene::lights() const
@@ -110,13 +133,21 @@ std::vector<DrawItem> Scene::draws() const
                                   .material = model->material,
                                   .model_matrix = mesh.model_matrix,
                                   .casts_shadow = model->casts_shadow,
-                                  .depth_bias = model->depth_bias});
+                                  .depth_bias = model->depth_bias,
+                                  .view_index_count =
+                                      !model->view_visible || (model->use_view_indices &&
+                                                               !model->view_hidden_nodes.empty() &&
+                                                               model->view_hidden_nodes[node])
+                                          ? std::optional<std::uint32_t>{0}
+                                          : std::nullopt});
                 for (auto const &skin : model->model->skins())
                     if (skin.node == node) {
                         result.back().skinned_vertices =
                             std::make_shared<std::vector<Vertex> const>(
                                 model->pose.skin_vertices(skin));
                         result.back().skin_indices = skin.indices;
+                        if (model->use_view_indices && !result.back().view_index_count)
+                            result.back().view_index_count = skin.view_index_count;
                         break;
                     }
             }

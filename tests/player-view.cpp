@@ -5,6 +5,7 @@
 #include "lc1/game/camera/map-camera-controller.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
+#include "lc1/game/character/model-config.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/scene/model-instance.hpp"
 
@@ -305,6 +306,20 @@ void animated_eye_mount()
         glm::inverse(glm::mat3{player.transform().model_matrix()}) * player.look_direction();
     check(near(view.camera().forward(), glm::normalize(glm::mat3{eye_transform()} * local_look)),
           "mount rotation composes with mouse look without applying body yaw twice");
+    lc1::ModelConfig config;
+    config.eyes_offset.value().translation = std::array<float, 3>{0.1F, 0.2F, -0.3F};
+    config.eyes_offset.value().rotation_degrees = std::array<float, 3>{0, 180, 0};
+    lc1::validate_model_config(config);
+    auto const offset = config.eyes_offset.value().transform().matrix();
+    auto const mounted_eye = eye_transform() * offset;
+    view.update_camera(0, player, mounted_eye);
+    check(near(view.camera().position(),
+               glm::vec3{eye_transform() * glm::vec4{0.1F, 0.2F, -0.3F, 1}}),
+          "eye offsets use the animated node axes and current character world transform");
+    check(near(view.camera().forward(),
+               glm::normalize(glm::mat3{eye_transform()} *
+                              glm::vec3{-local_look.x, local_look.y, -local_look.z})),
+          "local eye rotation corrects the mount axes before mouse look is applied");
     view.update_camera(0, player);
     check(near(view.camera().position(), player.eye_position()),
           "callers without a mount retain the gameplay eye fallback");

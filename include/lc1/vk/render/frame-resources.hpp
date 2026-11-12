@@ -70,6 +70,9 @@ struct FrameResources {
     std::optional<GpuImage> color_image;
     // Single-sampled linear HDR resolve, kept for tone mapping and debug readback.
     std::optional<GpuImage> hdr_image;
+    std::array<std::optional<GpuImage>, 2> bloom_images;
+    std::array<std::optional<HeapIndex>, 2> bloom_indices;
+    std::optional<HeapIndex> bloom_sampler;
 
     struct PushData {
         HeapIndex frame_buffer_index;

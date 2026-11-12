@@ -1,6 +1,6 @@
 import pass_data;
 struct ToneMapData {
-    float4 output; // Exposure, manual sRGB encoding, reserved, reserved.
+    float4 output; // Exposure, manual sRGB encoding, Bloom strength, reserved.
 };
 
 [shader("vertex")]
@@ -23,6 +23,13 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     Texture2D<float4> hdr_color = ResourceDescriptorHeap[pass_data.hdr_image];
 
     float3 value = max(hdr_color.Load(int3(int2(position.xy), 0)).rgb, float3(0));
+    if (settings.output.z > 0) {
+        Texture2D<float4> bloom = ResourceDescriptorHeap[pass_data.bloom_image];
+        SamplerState filter = SamplerDescriptorHeap[pass_data.bloom_sampler];
+        uint width, height;
+        hdr_color.GetDimensions(width, height);
+        value += bloom.SampleLevel(filter, position.xy / float2(width, height), 0).rgb * settings.output.z;
+    }
     // Equivalent to x/(1+x), also finite if a very large exposure overflows x.
     float3 mapped = 1.0 - 1.0 / (1.0 + value * settings.output.x);
     if (settings.output.y > 0.5)

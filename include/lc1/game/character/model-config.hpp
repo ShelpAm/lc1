@@ -77,6 +77,9 @@ struct ModelConfig {
     rfl::DefaultVal<std::vector<ModelNodeConfig>> nodes;
     rfl::DefaultVal<std::vector<ModelAnimationConfig>> animations;
     rfl::DefaultVal<std::string> eyes{"Eyes"};
+    rfl::DefaultVal<ModelTransformConfig> eyes_offset;
+    rfl::DefaultVal<std::vector<std::string>> first_person_hidden_nodes{
+        std::vector<std::string>{"Head"}};
     rfl::DefaultVal<std::string> weapon_mount{"RightHandGrip"};
     rfl::DefaultVal<std::string> idle_animation;
     rfl::DefaultVal<std::string> action_animation;
@@ -90,6 +93,10 @@ struct ModelConfig {
 
 // Checks YAML content without loading external assets or creating a device.
 void validate_model_config(ModelConfig const &config);
+float configured_animation_duration(ModelConfig const &config, std::string const &name,
+                                    std::filesystem::path const &asset_root);
+std::vector<bool> first_person_hidden_nodes(ModelConfig const &config,
+                                            std::span<scene::ModelNode const> nodes);
 scene::Model load_configured_model(ModelConfig const &config,
                                    std::filesystem::path const &asset_root,
                                    CharacterBody const &body);

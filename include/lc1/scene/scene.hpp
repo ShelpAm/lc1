@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -21,11 +22,26 @@ struct SceneModel {
     bool casts_shadow = true;
     bool depth_bias = false;
     bool visible = true;
+    // View-only controls; retained draws still participate in shadows and GI.
+    bool view_visible = true;
+    bool use_view_indices = false;
+    std::vector<bool> view_hidden_nodes{};
 
     glm::mat4 node_world_matrix(std::size_t node) const;
 
   private:
     static ModelDefinition const &definition(GpuModel const *model);
+};
+
+// Camera-facing emissive effects. Size is the full world-space width/height.
+// Opacity uses straight alpha; sparks use a tighter radial profile.
+struct Particle {
+    glm::vec3 position{};
+    glm::vec2 size{0.1F};
+    glm::vec3 radiance{1};
+    float opacity = 1;
+    float rotation = 0;
+    bool spark = false;
 };
 
 // Local diffuse irradiance volume. Radiance is linear RGB; zero sky emits no light.
@@ -56,6 +72,8 @@ class Scene {
     void remove_model(SceneModel const *model);
 
     void update_animations(float delta_seconds);
+    void set_particles(std::vector<Particle> particles);
+    std::span<Particle const> particles() const;
 
     // Value snapshots, with unspecified collection order.
     // Subsequent scene edits cannot change them.
@@ -65,6 +83,7 @@ class Scene {
     std::size_t draw_count() const;
 
   private:
+    std::vector<Particle> particles_;
     std::optional<DiffuseGi> diffuse_gi_;
     std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
     std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;

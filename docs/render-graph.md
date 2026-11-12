@@ -24,8 +24,9 @@
 | Spatial shadow filter | `shadow.temporal_visibility`、`shadow.surface`、`shadow.frame` | `shadow.filtered_visibility` |
 | Material preparation | `frame.inputs` | `material.frame` |
 | DDGI probes | `shadow.scene`、`shadow.frame`、`shadow.surface`、`shadow.filtered_visibility`、`material.frame` | `ddgi.irradiance` |
-| HDR lighting（含世界文字） | `shadow.frame`、`shadow.filtered_visibility`、`material.frame`、`ddgi.irradiance` | `hdr.color` |
-| Tone mapping | `hdr.color`、`output.target` | `output.color` |
+| HDR lighting（含世界文字与粒子） | `shadow.frame`、`shadow.filtered_visibility`、`material.frame`、`ddgi.irradiance` | `hdr.color` |
+| Bloom（可选） | `hdr.color` | `bloom.color` |
+| Tone mapping | `hdr.color` 或 `bloom.color`、`output.target` | `output.color` |
 | UI text | `output.color` | `output.ui_text` |
 | ImGui overlay（应用添加） | `output.ui_text` | `output.ui` |
 
@@ -33,8 +34,10 @@
 pass，以及材质上传和 DDGI 探针更新；应用将 ImGui 绘制注册为消费 `output.ui_text` 的最后一个节点，渲染层不依赖 ImGui。
 场景准备包括 camera/light/object UBO 上传、TLAS 更新、附件创建与历史准备；
 光照 pass 保留线性 RGBA16F HDR、最多 4× MSAA 和 pass 内 resolve，之后才执行色调映射。
-世界文字在光照 pass 的同一个渲染实例末尾混合绘制：瞬态 MSAA 附件不保证跨实例内容，
+世界文字和透明粒子在光照 pass 的同一个渲染实例末尾依次混合绘制：瞬态 MSAA 附件不保证跨实例内容，
 留在同一实例里既能复用场景深度做遮挡，也不需要第二次 resolve。详见[文字渲染](text-rendering.md)。
+粒子启用深度测试但不写深度，按相机深度从后向前排序；不进入 TLAS 和 DDGI。
+Bloom 在 resolve 后执行半分辨率高亮提取和两次分离模糊；帧槽图片在各阶段显式同步，色调映射读取最终结果。
 图的执行顺序由输入／输出依赖决定，不要求生产者先于消费者注册。
 
 ## 逻辑资源与同步

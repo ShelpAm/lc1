@@ -6,6 +6,48 @@
 #include <utility>
 
 namespace lc1 {
+namespace {
+// Closed surfaces of revolution, shared by the wooden shaft and flame silhouette.
+scene::Model revolved_model(std::span<glm::vec2 const> profile, glm::vec3 color)
+{
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    constexpr unsigned sides = 12;
+    for (std::size_t ring = 1; ring < profile.size(); ++ring) {
+        auto const bottom = profile[ring - 1];
+        auto const top = profile[ring];
+        for (unsigned side = 0; side < sides; ++side) {
+            float const a = glm::two_pi<float>() * static_cast<float>(side) / sides;
+            float const b = glm::two_pi<float>() * static_cast<float>(side + 1) / sides;
+            auto const base = static_cast<std::uint32_t>(vertices.size());
+            for (auto const sample :
+                 std::array{glm::vec3{bottom.x, bottom.y, a}, glm::vec3{top.x, top.y, a},
+                            glm::vec3{top.x, top.y, b}, glm::vec3{bottom.x, bottom.y, b}}) {
+                auto const normal = glm::normalize(
+                    glm::vec3{(top.y - bottom.y) * std::cos(sample.z), bottom.x - top.x,
+                              (top.y - bottom.y) * std::sin(sample.z)});
+                vertices.push_back({.position = {sample.x * std::cos(sample.z), sample.y,
+                                                 sample.x * std::sin(sample.z)},
+                                    .normal = normal,
+                                    .color = color,
+                                    .uv = {0.5F, 0.5F}});
+            }
+            for (auto const index : {0U, 1U, 2U, 0U, 2U, 3U})
+                indices.push_back(base + index);
+        }
+    }
+    return scene::Model{std::move(vertices), std::move(indices)};
+}
+} // namespace
+
+scene::Model make_torch_model()
+{
+    std::array const profile{glm::vec2{0, -0.18F},     glm::vec2{0.025F, -0.18F},
+                             glm::vec2{0.035F, 0.32F}, glm::vec2{0.065F, 0.36F},
+                             glm::vec2{0.065F, 0.46F}, glm::vec2{0, 0.46F}};
+    return revolved_model(profile, {0.25F, 0.12F, 0.045F});
+}
+
 scene::Model make_flashlight_model()
 {
     std::vector<Vertex> vertices;

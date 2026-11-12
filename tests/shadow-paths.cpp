@@ -193,6 +193,21 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     occlusion_draws[1].casts_shadow = false;
     check(render(device, renderer, occlusion_frame, camera, lights, occlusion_draws) == unshadowed,
           "removing the TLAS occluder did not restore the unshadowed image");
+    occlusion_draws[1].view_visible = false;
+    auto const hidden_unshadowed =
+        render(device, renderer, occlusion_frame, camera, lights, occlusion_draws);
+    occlusion_draws[1].casts_shadow = true;
+    auto const hidden_shadowed =
+        render(device, renderer, occlusion_frame, camera, lights, occlusion_draws);
+    std::size_t hidden_shadow_pixels = 0;
+    for (std::size_t i = 0; i < hidden_shadowed.size(); i += 4) {
+        int const before =
+            hidden_unshadowed[i] + hidden_unshadowed[i + 1] + hidden_unshadowed[i + 2];
+        int const after = hidden_shadowed[i] + hidden_shadowed[i + 1] + hidden_shadowed[i + 2];
+        if (before > after + 30)
+            ++hidden_shadow_pixels;
+    }
+    check(hidden_shadow_pixels > 10, "camera-hidden geometry must keep its full ray-query shadow");
     device.wait_idle();
 }
 

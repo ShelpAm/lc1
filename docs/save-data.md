@@ -119,12 +119,14 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 
 | 字段 | 含义与默认值 |
 |---|---|
-| `path` | 相对 asset root 的 OBJ/glTF/GLB 路径；`builtin:flashlight` 为程序生成手电筒；空路径为角色占位几何，武器空路径不装配显示实例 |
+| `path` | 相对 asset root 的 OBJ/glTF/GLB 路径；`builtin:flashlight` / `builtin:torch` 为程序生成手电筒 / 火把；空路径为角色占位几何，武器空路径不装配显示实例 |
 | `transform` | 整个模型的局部变换，默认单位变换 |
 | `nodes` | 可选节点数组；非空时替换文件节点层级，复用文件中的网格；带蒙皮的文件禁止替换绑定层级 |
 | `animations` | 与显式节点配套的动画片段数组；未提供节点时保留文件自带节点和动画 |
 | `material` | 覆盖整个模型的 PBR 材质，不自动读取 OBJ MTL 或 glTF 材质 |
 | `eyes` | 相机挂点名称，默认 `Eyes`；空字符串使用角色配置眼高 |
+| `first_person_hidden_nodes` | 第一人称隐藏的头部节点/骨骼及后代，默认 `[Head]`；空列表不隐藏模型部分，独立头盔仍隐藏 |
+| `eyes_offset` | 相对 `eyes` 节点的局部变换，格式同 `transform`，默认单位变换；`eyes` 为空时忽略 |
 | `weapon_mount` | 角色模型的主手挂点名称，默认 `RightHandGrip` |
 | `idle_animation` | 角色待机循环动画名称，默认不播放 |
 | `move_animation` | 位置移动时的循环动画名称，默认沿用待机 |
@@ -135,6 +137,9 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 
 `transform` 包含 `translation`、`rotation_degrees`、`scale`，均为三元素数组，默认分别为
 `[0, 0, 0]`、`[0, 0, 0]`、`[1, 1, 1]`。旋转使用 XYZ Euler 角并转换为四元数。
+例如 `eyes: Head` 配合 `eyes_offset.translation` 可将相机放在头骨骼前方的双眼中点；
+`eyes_offset.rotation_degrees` 校正骨骼轴向，平移使用该节点的局部单位，随后随节点及模型缩放。
+已有配置不填 `eyes_offset` 即保持原行为；完整跟随规则见[角色](character.md)。
 节点包含必填 `name`、可选 `parent_index`、`mesh_index` 和 `transform`；索引从 0 开始，
 父节点必须在子节点前面。无 `mesh_index` 的节点是挂点。局部变换属于节点，没有独立 correction 字段。
 
@@ -240,7 +245,7 @@ checkpoint 版本 1–4 保留读取迁移，旧 `player` 角色编号迁为玩�
 
 读取 `version: 1` 时按旧的必填字段解析，保留姿态和巡逻，并将所有命令迁移为 `None`；
 下次写入为 version 6。version 2 的 `companion_order` 必填，version 3 另需大陆字段；version 4 还要求每个角色的背包容量和堆叠列表，version 5 使用玩家绑定表，version 6 使用统一资源编号和单个主手，其他版本明确拒绝。
-旧 version 1–3 按各自完整的必填结构解析，迁移为空背包、10 kg 容量，不补发演示物资。
+旧 version 1–3 按各自完整的必填结构解析，迁移为空背包、20 kg 默认容量，不补发演示物资。
 成员关系校验适用于所有版本进度，不自动修正不一致的历史数据。
 当前不保存跳跃速度、巡逻当前路点、对话和相机模式／缩放；重启默认使用斜视角，空中角色以
 零初始速度继续下落，现世房屋巡逻从最近的三维路点接回路线，未启用最近路点恢复的场景巡逻从初始路点重新开始；具体路线见[大陆设计](continent.md#可进入的巡逻房屋)。

@@ -496,7 +496,8 @@ void legacy_checkpoints_are_upgraded()
     auto data = checkpoint_data();
     data.states.front().bag_capacity = 16000;
     data.states.front().bag = {{1, 20}};
-    std::erase_if(data.weapons, [](auto const &weapon) { return weapon.keyid == 1005; });
+    std::erase_if(data.weapons,
+                  [](auto const &weapon) { return weapon.keyid == 1005 || weapon.keyid == 1006; });
     lc1::Save::write(scratch.directory(), data);
     auto stream = std::ifstream{scratch.directory() / "checkpoint.yaml"};
     std::string modern{std::istreambuf_iterator<char>{stream}, {}};
@@ -619,7 +620,7 @@ void legacy_checkpoints_are_upgraded()
     check(upgraded_v3.version == 6 && upgraded_v3.continent.id == "prototype" &&
               std::ranges::all_of(upgraded_v3.states,
                                   [](auto const &state) {
-                                      return state.bag.empty() && state.bag_capacity == 10000;
+                                      return state.bag.empty() && state.bag_capacity == 20000;
                                   }),
           "version 3 preserves continent identity and migrates to empty default bags");
     auto missing_continent = v2;

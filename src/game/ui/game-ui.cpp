@@ -386,7 +386,9 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
                             auto const &weapon = *config.main_hand;
                             ImGui::TextUnformatted(
                                 game::find_resource(weapon.keyid())->name.c_str());
-                            if (weapon.kind() == WeaponKind::Tool)
+                            if (weapon.action() == WeaponAction::Torch)
+                                ImGui::TextUnformatted(person.dead ? "Extinguished" : "Burning");
+                            else if (weapon.action() == WeaponAction::ToggleLight)
                                 ImGui::TextUnformatted(person.flashlight_on ? "Light: on"
                                                                             : "Light: off");
                             else {

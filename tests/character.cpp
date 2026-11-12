@@ -143,10 +143,10 @@ void blacksmith_forging()
     check(!craft(overflow, overflowing_output) &&
               overflow.quantity_of(iron_helmet.keyid) == max_helmets,
           "output overflow preserves the existing inventory");
-    Bag default_bag{10000};
-    check(default_bag.max_weight() == 10000 && default_bag.add(wood, 10) &&
+    Bag default_bag{default_bag_capacity};
+    check(default_bag.max_weight() == 20000 && default_bag.add(wood, 20) &&
               !default_bag.add(moneta, 1),
-          "default bag holds ten kilograms and rejects excess weight");
+          "default bag holds twenty kilograms and rejects excess weight");
     Resource const crystal{9001, "Crystal", ResourceCategory::Material, 125};
     Bag custom{500};
     check(custom.add(crystal, 4) && custom.quantity_of(crystal.keyid) == 4 &&

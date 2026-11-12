@@ -185,7 +185,7 @@ void RayQueryShadows::record_visibility(CommandBuffer &cmd, FrameResources &reso
         auto pass = resources.pass_data;
         pass.object = resources.object_indices[i];
         cmd.push_data(std::span{&pass, 1});
-        item.mesh->draw(commands);
+        item.mesh->draw(commands, item.view_index_count);
     }
     commands.endRendering();
     visibility.transition_layout(
@@ -333,11 +333,11 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
     prepare_history(command_buffer, resources, extent);
     bool const same_topology =
         draws.size() == previous_draws_.size() &&
-        std::equal(draws.begin(), draws.end(), previous_draws_.begin(),
-                   [](auto const &a, auto const &b) {
-                       return a.geometry_identity() == b.geometry_identity() &&
-                              a.casts_shadow == b.casts_shadow;
-                   });
+        std::equal(
+            draws.begin(), draws.end(), previous_draws_.begin(), [](auto const &a, auto const &b) {
+                return a.geometry_identity() == b.geometry_identity() &&
+                       a.casts_shadow == b.casts_shadow && a.view_index_count == b.view_index_count;
+            });
     TemporalShadowData const temporal{
         .previous_view_projection = previous_view_projection_,
         .frame_info = {history_valid_ && same_topology &&

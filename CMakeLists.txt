@@ -190,6 +190,8 @@ add_library(lc1_engine STATIC
     src/vk/render/graphics-state.cpp
     src/vk/render/material.cpp
     src/vk/render/ray-query-shadows.cpp
+    src/vk/render/particles.cpp
+    src/vk/render/bloom.cpp
     src/vk/render/renderer.cpp
     src/vk/render/temporal-shadows.cpp
     src/vk/render/text-pass.cpp

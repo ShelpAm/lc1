@@ -1,5 +1,6 @@
 #include "lc1/game/character/model-config.hpp"
 #include "lc1/error.hpp"
+#include "lc1/game/character/character-body.hpp"
 #include "lc1/game/character/character-model.hpp"
 
 #include <algorithm>
@@ -119,6 +120,8 @@ bool ModelConfig::operator==(ModelConfig const &other) const
     return path.value() == other.path.value() && transform.value() == other.transform.value() &&
            material.value() == other.material.value() && nodes.value() == other.nodes.value() &&
            animations.value() == other.animations.value() && eyes.value() == other.eyes.value() &&
+           eyes_offset.value() == other.eyes_offset.value() &&
+           first_person_hidden_nodes.value() == other.first_person_hidden_nodes.value() &&
            weapon_mount.value() == other.weapon_mount.value() &&
            idle_animation.value() == other.idle_animation.value() &&
            action_animation.value() == other.action_animation.value() &&
@@ -126,6 +129,29 @@ bool ModelConfig::operator==(ModelConfig const &other) const
            run_animation.value() == other.run_animation.value() &&
            attack_animation.value() == other.attack_animation.value() &&
            death_animation.value() == other.death_animation.value();
+}
+
+float configured_animation_duration(ModelConfig const &config, std::string const &name,
+                                    std::filesystem::path const &asset_root)
+{
+    if (name.empty())
+        return 0;
+    if (!config.animations.value().empty()) {
+        for (auto const &clip : config.animations.value())
+            if (clip.name == name) {
+                float duration = 0;
+                for (auto const &channel : clip.channels)
+                    if (!channel.times.empty())
+                        duration = std::max(duration, channel.times.back());
+                return duration;
+            }
+        fail("model is missing animation {}", name);
+    }
+    auto const model = load_configured_model(config, asset_root, CharacterBody{});
+    auto const index = model.definition().find_animatinon(name);
+    if (!index)
+        fail("model is missing animation {}", name);
+    return model.definition().animations()[*index].duration();
 }
 
 void validate_model_config(ModelConfig const &config)
@@ -139,6 +165,7 @@ void validate_model_config(ModelConfig const &config)
             fail("model asset path must stay relative to the asset root: {}", name);
     }
     config.transform.value().transform().matrix();
+    config.eyes_offset.value().transform().matrix();
     validate_material(material.material());
     auto nodes = model_nodes(config);
     if (!nodes.empty()) {
@@ -156,14 +183,28 @@ void validate_model_config(ModelConfig const &config)
         fail("configured animations require explicit model nodes");
 }
 
+std::vector<bool> first_person_hidden_nodes(ModelConfig const &config,
+                                            std::span<scene::ModelNode const> nodes)
+{
+    std::vector<bool> hidden(nodes.size());
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+        hidden[i] = (nodes[i].parent_index && hidden[*nodes[i].parent_index]) ||
+                    std::ranges::find(config.first_person_hidden_nodes.value(), nodes[i].name) !=
+                        config.first_person_hidden_nodes.value().end();
+    return hidden;
+}
+
 scene::Model load_configured_model(ModelConfig const &config,
                                    std::filesystem::path const &asset_root,
                                    CharacterBody const &body)
 {
-    auto const imported = config.path.value() == "builtin:flashlight" ? make_flashlight_model()
-                          : config.path.value().empty()
-                              ? make_character_model(body)
-                              : scene::Model::load_from_file(asset_root / config.path.value());
+    auto const imported =
+        config.path.value() == "builtin:flashlight" ? make_flashlight_model()
+        : config.path.value() == "builtin:torch"    ? make_torch_model()
+        : config.path.value().empty()
+            ? make_character_model(body)
+            : scene::Model::load_from_file(asset_root / config.path.value(),
+                                           scene::GltfMaterialPolicy::UseExternal);
     std::vector<scene::Mesh> meshes;
     for (std::size_t i = 0; i < imported.mesh_count(); ++i) {
         auto const vertices = imported.vertices(i);
@@ -193,6 +234,29 @@ scene::Model load_configured_model(ModelConfig const &config,
         ++skin.node;
         for (auto &joint : skin.skin.joints)
             ++joint;
+    }
+    auto const hidden = first_person_hidden_nodes(config, nodes);
+    for (auto &skin : skins) {
+        std::vector<std::uint32_t> body_indices;
+        std::vector<std::uint32_t> head_indices;
+        for (std::size_t triangle = 0; triangle < skin.indices.size(); triangle += 3) {
+            bool head = false;
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                auto const &influence = skin.influences[skin.indices[triangle + corner]];
+                float head_weight = 0;
+                for (int joint = 0; joint < 4; ++joint)
+                    if (hidden[skin.skin.joints[influence.joints[joint]]])
+                        head_weight += influence.weights[joint];
+                head = head || head_weight >= 0.5F;
+            }
+            auto &indices = head ? head_indices : body_indices;
+            indices.insert(indices.end(), skin.indices.begin() + triangle,
+                           skin.indices.begin() + triangle + 3);
+        }
+        skin.view_index_count = static_cast<std::uint32_t>(body_indices.size());
+        body_indices.insert(body_indices.end(), head_indices.begin(), head_indices.end());
+        skin.indices = std::move(body_indices);
+        meshes[*nodes[skin.node].mesh_index] = scene::Mesh{skin.vertices, skin.indices};
     }
     scene::Model model{std::move(meshes), std::move(nodes), std::move(animations),
                        std::move(skins)};

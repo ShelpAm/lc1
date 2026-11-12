@@ -8,6 +8,7 @@ enum class OutputEncoding { Linear, Srgb };
 
 struct OutputSettings {
     float exposure = 1.0F;
+    float bloom_strength = 0.0F;
     OutputEncoding encoding = OutputEncoding::Linear;
 };
 } // namespace lc1

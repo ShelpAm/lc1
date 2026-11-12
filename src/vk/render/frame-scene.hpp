@@ -16,6 +16,7 @@ struct FrameScene {
     std::vector<scene::Light> lights;
     std::vector<DrawItem> draws;
     std::optional<scene::DiffuseGi> diffuse_gi;
+    std::vector<scene::Particle> particles;
 };
 
 } // namespace lc1

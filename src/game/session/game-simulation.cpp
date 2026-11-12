@@ -8,8 +8,9 @@
 #include <utility>
 
 namespace lc1 {
-GameSimulation::GameSimulation(Save const &save, std::filesystem::path const &dialog_catalog)
-    : world_(save, dialog_catalog),
+GameSimulation::GameSimulation(Save const &save, std::filesystem::path const &dialog_catalog,
+                               std::filesystem::path const &asset_root)
+    : world_(save, dialog_catalog, asset_root),
       snapshot_(std::make_shared<WorldSnapshot const>(capture_world(world_))),
       previous_snapshot_(snapshot_)
 {

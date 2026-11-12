@@ -108,12 +108,13 @@ void GpuMesh::update_vertices(Device const &device, vk::raii::CommandBuffer cons
     acceleration_structure_->build(commands, acceleration_geometry(), index_count_ / 3);
 }
 
-void GpuMesh::draw(vk::raii::CommandBuffer const &command_buffer) const
+void GpuMesh::draw(vk::raii::CommandBuffer const &command_buffer,
+                   std::optional<std::uint32_t> index_count) const
 {
     command_buffer.bindVertexBuffers(0, *vertices_.raii(), vk::DeviceSize{0});
     command_buffer.bindIndexBuffer(*indices_.raii(), vk::DeviceSize{0}, index_type_);
     spdlog::debug("[GpuMesh] drawing {} vertices, {} indices", vertex_count_, index_count_);
-    command_buffer.drawIndexed(index_count_, 1, 0, 0, 0);
+    command_buffer.drawIndexed(index_count.value_or(index_count_), 1, 0, 0, 0);
 }
 
 } // namespace lc1

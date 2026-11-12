@@ -146,6 +146,71 @@ void damage_and_reactions()
     check(!target.accepts_ambient_requests(), "corpses cannot accept ambient conversations");
 }
 
+void attack_blocks_locomotion()
+{
+    Arena arena;
+    auto const start = arena.attacker.position();
+    lc1::CharacterIntent attack{};
+    attack.move = {1, 0};
+    attack.sprint = true;
+    attack.jump = true;
+    attack.swing_weapon = true;
+    apply_character_intent(arena.attacker, 0.1F, arena.world, attack);
+    check(arena.attacker.attack_sequence() == 1, "movement input still allows an attack");
+    check(arena.attacker.position() == start && !arena.attacker.running() &&
+              !arena.attacker.moving(),
+          "an attack immediately blocks movement, sprinting and jumping");
+
+    attack.swing_weapon = false;
+    attack.jump = false;
+    apply_character_intent(arena.attacker, 0.2F, arena.world, attack);
+    check(arena.attacker.position() == start, "movement is blocked during the active swing");
+    apply_character_intent(arena.attacker, 0.25F, arena.world, attack);
+    check(arena.attacker.position() == start, "movement is blocked through recovery");
+    apply_character_intent(arena.attacker, 0.1F, arena.world, attack);
+    check(arena.attacker.position().x > start.x && arena.attacker.running() &&
+              arena.attacker.moving(),
+          "movement resumes after recovery without waiting for the attack cooldown");
+
+    Arena airborne;
+    lc1::Character falling{airborne.world, {.position = {0, 2, 0}}, config(3, &airborne.weapon)};
+    auto const height = falling.position().y;
+    attack.swing_weapon = true;
+    apply_character_intent(falling, 0.1F, airborne.world, attack);
+    check(falling.position().x == 0 && falling.position().y < height,
+          "attack movement lock preserves gravity");
+}
+
+void animation_controls_attack_duration()
+{
+    Arena arena;
+    for (float duration : {0.2F, 1.2F, 3.7F}) {
+        auto setup = config(3, &arena.weapon);
+        setup.attack_animation_duration = duration;
+        lc1::Character actor{arena.world, {}, setup};
+        lc1::CharacterIntent intent{};
+        intent.move = {1, 0};
+        intent.swing_weapon = true;
+        apply_character_intent(actor, 0, arena.world, intent);
+        // The equipped default weapon has a 0.55-second clip.
+        float const expected = std::max(duration, lc1::combat::swing_duration);
+        apply_character_intent(actor, expected * 0.75F, arena.world, intent);
+        check(actor.position().x == 0 && std::abs(actor.attack_progress() - 0.75F) < 0.0001F,
+              "movement lock and progress follow the longest attack animation");
+        check(actor.attack_sequence() == 1, "held attack cannot restart an unfinished animation");
+        intent.swing_weapon = false;
+        apply_character_intent(actor, expected * 0.25F + 0.001F, arena.world, intent);
+        apply_character_intent(actor, 0.01F, arena.world, intent);
+        check(actor.position().x > 0 && actor.attack_progress() == 1,
+              "movement resumes after the complete animation, independent of its duration");
+    }
+    lc1::MeleeWeapon quick{1002, {.attack = 10, .range = 1.5F, .attack_duration = 0.2F}};
+    lc1::Character actor{arena.world, {}, config(4, &quick)};
+    apply_character_intent(actor, 0.1F, arena.world, {.swing_weapon = true});
+    check(std::abs(actor.attack_progress() - 0.5F) < 0.0001F,
+          "short weapon animations do not inherit a fixed minimum attack time");
+}
+
 void attack_timing_and_deduplication()
 {
     Arena arena;
@@ -275,6 +340,8 @@ int main()
     try {
         polymorphic_weapon_use();
         damage_and_reactions();
+        attack_blocks_locomotion();
+        animation_controls_attack_duration();
         attack_timing_and_deduplication();
         frame_rates_and_multiple_targets();
         geometry_and_occlusion();

@@ -23,7 +23,7 @@ extended dynamic state 扩展或无关 feature。
 绑定助手属于 render，`resources/CommandBuffer` 不包含或绑定 render 层的 shader 类型。
 
 各 pass 在所属类中持有自己的 `GraphicsState` 配置，与对应的 `GraphicsShaders` 一起保存。
-`Renderer` 持有主通道和色调映射状态，`TextPass` 持有世界文字与界面文字两套状态；
+`Renderer` 持有主通道、粒子和色调映射状态，`TextPass` 持有世界文字与界面文字两套状态；
 `RayQueryShadows` 持有可见度、时间累积和空间滤波状态。
 主通道附件创建和 `sample_count()` 都读取
 `Renderer` 的主通道状态中的采样数，避免与录制状态维护两份配置。
@@ -39,6 +39,8 @@ viewport/scissor 由调用方用 `setViewportWithCount` / `setScissorWithCount` 
 |---|---|---|---|---|
 | PBR | 完整 Vertex | 1×/2×/4×，逐采样着色 | RGBA16F | 测试并写入 |
 | 世界文字（并入 PBR 通道） | 完整 Vertex | 同 PBR | RGBA16F，alpha 混合 | 测试并写入 |
+| 火焰/火星粒子（并入 HDR 通道） | 无，程序六顶点贴片 | 同 PBR | RGBA16F，alpha 混合 | 测试，不写入 |
+| Bloom 提取/模糊 | 无，全屏三角形 | 1× | 半分辨率 RGBA16F | 关闭 |
 | Ray-query 可见度 | 完整 Vertex | 1× | RGBA32Uint + RGBA32Sfloat | 测试并写入 |
 | 时间累积 | 无，全屏三角形 | 1× | RGBA32Uint + RGBA32Sfloat | 关闭 |
 | 空间滤波 | 无，全屏三角形 | 1× | RGBA32Uint | 关闭 |

@@ -40,7 +40,8 @@ class GpuMesh {
     GpuMesh(Device const &device, std::size_t vertex_count, std::span<std::uint32_t const> indices);
 
     // Binds the vertex buffer and draws. The pipeline must already be bound.
-    void draw(vk::raii::CommandBuffer const &command_buffer) const;
+    void draw(vk::raii::CommandBuffer const &command_buffer,
+              std::optional<std::uint32_t> index_count = {}) const;
 
     // Current frame slot must be idle. Staging and geometry survive GPU execution.
     void update_vertices(Device const &device, vk::raii::CommandBuffer const &commands,

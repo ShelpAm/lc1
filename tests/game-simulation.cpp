@@ -180,8 +180,8 @@ void one_shot_inputs()
         return state.players.at(lc1::PlayerId{1}).input_sequence == pressed.sequence;
     });
     check(applied->player(lc1::PlayerId{1}).attack_sequence == 1 &&
-              applied->player(lc1::PlayerId{1}).pose.position().y > 0,
-          "headless jump and weapon requests are accepted at the tick boundary");
+              std::abs(applied->player(lc1::PlayerId{1}).pose.position().y) < 0.001F,
+          "an attack takes priority over a simultaneous jump at the tick boundary");
     check(std::abs(applied->player(lc1::PlayerId{1}).pose.body_yaw() + 1) < 0.001F,
           "mouse displacement is applied once, independently of the tick rate");
     auto const landed =
@@ -191,6 +191,16 @@ void one_shot_inputs()
               landed->player(lc1::PlayerId{1}).pose.body_yaw() ==
                   applied->player(lc1::PlayerId{1}).pose.body_yaw(),
           "jump, attack and mouse deltas do not repeat while the last input is held");
+
+    lc1::PlayerControls jump;
+    jump.view.keyboard_enabled = true;
+    jump.jump = true;
+    auto const jump_stamp = connection.submit(jump);
+    auto const jumping = wait_for(simulation, [&](auto const &state) {
+        return state.players.at(lc1::PlayerId{1}).input_sequence == jump_stamp.sequence;
+    });
+    check(jumping->player(lc1::PlayerId{1}).pose.position().y > 0,
+          "jumping is accepted again after attack recovery");
 
     // A burst of render frames can release a key before the worker consumes its press.
     input.view.look_delta = {};

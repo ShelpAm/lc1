@@ -11,6 +11,8 @@ WeaponDefinition::WeaponDefinition(std::uint32_t keyid, WeaponProperty property,
                                    ModelConfig model_config, WeaponAction action)
     : keyid_(keyid), property_(property), model_config_(std::move(model_config)), action_(action)
 {
+    if (!std::isfinite(property.attack_duration) || property.attack_duration <= 0)
+        fail("weapon attack duration must be finite and positive");
     if (!std::isfinite(property.attack) || property.attack < 0 || !std::isfinite(property.range) ||
         property.range <= 0)
         fail("weapon attack must be nonnegative and range positive, both finite");
@@ -59,6 +61,16 @@ Flashlight::Flashlight(std::uint32_t keyid, WeaponProperty property, ModelConfig
 void Flashlight::use(Character &user) const
 {
     user.toggle_flashlight();
+}
+
+Torch::Torch(std::uint32_t keyid, WeaponProperty property, ModelConfig model_config)
+    : Weapon(keyid, property, std::move(model_config), WeaponAction::Torch)
+{
+}
+
+void Torch::use(Character &) const
+{
+    // Equipped torches burn continuously; using one does not attack or toggle it.
 }
 
 } // namespace lc1

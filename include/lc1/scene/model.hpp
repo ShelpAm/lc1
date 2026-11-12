@@ -13,12 +13,18 @@
 
 namespace lc1::scene {
 
+// Geometry import does not import glTF materials. Callers supplying draw materials
+// explicitly can acknowledge that contract instead of receiving the default warning.
+enum class GltfMaterialPolicy { WarnIfPresent, UseExternal };
+
 // CPU geometry and shared definition, fully assembled by construction.
 class Model {
   public:
-    static Model load_from_file(std::filesystem::path const &path);
+    static Model load_from_file(std::filesystem::path const &path,
+                                GltfMaterialPolicy materials = GltfMaterialPolicy::WarnIfPresent);
     static Model load_from_obj(std::filesystem::path const &path);
-    static Model load_from_gltf(std::filesystem::path const &path);
+    static Model load_from_gltf(std::filesystem::path const &path,
+                                GltfMaterialPolicy materials = GltfMaterialPolicy::WarnIfPresent);
 
     Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices);
 

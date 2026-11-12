@@ -52,6 +52,7 @@ struct CharacterConfig {
     Weapon *main_hand = nullptr;
     ModelConfig model;
 
+    float attack_animation_duration = 0; // Resolved from CPU animation data during world assembly.
     float health_lost = 0;
 
     float max_health() const { return 1.0F * static_cast<float>(level) + 100.F; }
@@ -122,6 +123,8 @@ class Character {
     void request_jump();
 
     bool on_ground() const;
+
+    float attack_progress() const { return attack_elapsed_ / combat::swing_duration; }
 
     bool running() const { return running_; }
 
@@ -204,7 +207,8 @@ class Character {
     bool running_ = false;
     bool moving_ = false;
     float weapon_attack_cooldown_ = 0;
-    float attack_elapsed_ = combat::swing_duration;
+    float attack_elapsed_ = combat::swing_duration; // Normalized to the default hit timeline.
+    float attack_duration_ = combat::swing_duration;
     float reaction_time_ = combat::death_duration;
     std::uint64_t hit_sequence_ = 0;
     WeaponProperty attack_property_{};

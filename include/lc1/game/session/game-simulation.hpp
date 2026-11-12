@@ -24,7 +24,8 @@ class GameSimulation {
     static constexpr std::uint32_t tick_rate = 60;
     static constexpr float step_seconds = 1.0F / tick_rate;
 
-    explicit GameSimulation(Save const &save, std::filesystem::path const &dialog_catalog);
+    explicit GameSimulation(Save const &save, std::filesystem::path const &dialog_catalog,
+                            std::filesystem::path const &asset_root = "runtime/assets");
 
     GameSimulation(GameSimulation const &) = delete;
     GameSimulation &operator=(GameSimulation const &) = delete;

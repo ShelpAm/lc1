@@ -14,6 +14,7 @@ struct GraphicsState {
     vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1;
     std::uint32_t color_attachment_count = 1;
     bool depth_test = false;
+    bool depth_write = true;
     bool depth_bias = false;
     // Straight-alpha blending (src alpha, one minus src alpha); off keeps the
     // opaque passes byte-identical.

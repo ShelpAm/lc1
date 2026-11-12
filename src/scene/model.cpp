@@ -10,13 +10,13 @@
 
 namespace lc1::scene {
 
-Model Model::load_from_file(std::filesystem::path const &path)
+Model Model::load_from_file(std::filesystem::path const &path, GltfMaterialPolicy materials)
 {
     auto extension = path.extension();
     if (extension == ".obj")
         return load_from_obj(path);
     if (extension == ".gltf" || extension == ".glb")
-        return load_from_gltf(path);
+        return load_from_gltf(path, materials);
     fail("unsupported model file extension: {}", path.extension().string());
 }
 
@@ -93,6 +93,9 @@ Model::Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
             mesh.skin.joints.size() != mesh.skin.inverse_bind_matrices.size() ||
             mesh.vertices.size() != mesh.influences.size())
             fail("invalid skinned mesh binding");
+        if (mesh.view_index_count &&
+            (*mesh.view_index_count > mesh.indices.size() || *mesh.view_index_count % 3 != 0))
+            fail("skin view index prefix must contain complete triangles within the mesh");
         for (std::size_t i = 0; i < mesh.skin.joints.size(); ++i) {
             if (mesh.skin.joints[i] >= definition_.nodes().size())
                 fail("skin joint is out of range");

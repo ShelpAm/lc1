@@ -24,8 +24,9 @@ void insert_unique(Map &map, std::uint32_t keyid, Value value, std::string_view 
 
 } // namespace
 
-GameWorld::GameWorld(Save const &save, std::filesystem::path const &dialog_catalog)
-    : setup_(demo::world_setup(save.continent())), dialogs_(dialog_catalog)
+GameWorld::GameWorld(Save const &save, std::filesystem::path const &dialog_catalog,
+                     std::filesystem::path const &asset_root)
+    : asset_root_(asset_root), setup_(demo::world_setup(save.continent())), dialogs_(dialog_catalog)
 {
     load(save);
 }
@@ -129,7 +130,12 @@ void GameWorld::build_world(Save const &save)
     for (auto const &entry : save.weapons()) {
         auto const &record = entry.second;
         std::unique_ptr<Weapon> weapon;
-        WeaponProperty const property{.attack = record.attack, .range = record.range};
+        auto const duration = configured_animation_duration(
+            record.model.value(), record.model.value().action_animation.value(), asset_root_);
+        WeaponProperty const property{.attack = record.attack,
+                                      .range = record.range,
+                                      .attack_duration =
+                                          duration > 0 ? duration : combat::swing_duration};
         // Decode the saved discriminator once; use() dispatches through the definition.
         switch (record.action.value()) {
         case WeaponAction::MeleeAttack:
@@ -137,6 +143,9 @@ void GameWorld::build_world(Save const &save)
             break;
         case WeaponAction::RangedAttack:
             weapon = std::make_unique<RangedWeapon>(record.keyid, property, record.model.value());
+            break;
+        case WeaponAction::Torch:
+            weapon = std::make_unique<Torch>(record.keyid, property, record.model.value());
             break;
         case WeaponAction::ToggleLight:
             weapon = std::make_unique<Flashlight>(record.keyid, property, record.model.value());
@@ -166,6 +175,8 @@ void GameWorld::build_world(Save const &save)
             .equipment = {},
             .main_hand = nullptr,
             .model = record.model.value(),
+            .attack_animation_duration = configured_animation_duration(
+                record.model.value(), record.model.value().attack_animation.value(), asset_root_),
         };
         for (auto const &slot : record.equipment)
             config.equipment[slot.first] = equipments_.at(slot.second).get();

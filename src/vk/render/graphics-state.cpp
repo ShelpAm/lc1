@@ -31,7 +31,7 @@ void set_graphics_state(vk::raii::CommandBuffer const &commands, GraphicsState s
     commands.setDepthBias(state.depth_bias ? 1.25F : 0.0F, 0.0F, state.depth_bias ? 1.75F : 0.0F);
     commands.setLineWidth(1.0F);
     commands.setDepthTestEnable(state.depth_test);
-    commands.setDepthWriteEnable(state.depth_test);
+    commands.setDepthWriteEnable(state.depth_test && state.depth_write);
     commands.setDepthCompareOp(vk::CompareOp::eLess);
     commands.setDepthBoundsTestEnable(vk::False);
     commands.setStencilTestEnable(vk::False);

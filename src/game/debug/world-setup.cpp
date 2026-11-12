@@ -37,7 +37,8 @@ WorldSetup world_setup(ContinentIdentity const &identity)
                      .initial_player_resources = {{game::moneta.keyid, 10},
                                                   {game::wood.keyid, 2},
                                                   {game::pig_iron.keyid, 3},
-                                                  {game::flashlight.keyid, 1}}};
+                                                  {game::flashlight.keyid, 1},
+                                                  {game::torch.keyid, 1}}};
     auto &patrol = *setup.example_patrol;
     if (identity.id == "present") {
         patrol.spawn = patrol_house_spawn;

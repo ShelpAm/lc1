@@ -26,6 +26,13 @@ template <typename F> void rejects(F &&action)
 void scene_lifetime_and_snapshots()
 {
     lc1::scene::Scene scene;
+    scene.set_particles({{.opacity = 0.5F}});
+    check(scene.particles().size() == 1 && scene.draw_count() == 0,
+          "particles are separate from opaque mesh draws");
+    rejects([&] { scene.set_particles({{.opacity = -1}}); });
+    check(scene.particles().size() == 1, "invalid particles preserve the previous scene");
+    scene.set_particles({});
+    check(scene.particles().empty(), "particle emitters can be removed");
     auto *sun = scene.add_light({.intensity = 3.0F});
     auto const lights = scene.lights();
     sun->parameters.intensity = 8.0F;
