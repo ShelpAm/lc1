@@ -19,6 +19,17 @@
 校正通过模型根节点变换表达，CPU 几何保持导入坐标；法线、镜像与绕序见[角色与模型校正](character.md#模型校正)，
 切线与法线贴图见[光照](lighting.md)。
 
+## 资源版本管理（Git LFS）
+
+`.gitattributes` 将 `runtime/assets/` 下的全部文件，以及 `docs/` 下的 PNG、JPEG、GIF、WebP、
+AVIF、BMP、TIFF、ICO 和 SVG 图片交给 Git LFS（扩展名不区分大小写）。其他文档和代码继续由普通 Git 保存。
+新增资源照常 `git add` / `git commit`；本地 Git LFS 过滤器生成指针，推送钩子先上传资源内容。
+更换机器前安装 Git LFS，已有工作区使用 `git lfs install` 和 `git lfs pull` 补齐资源。
+
+本次接入不重写历史：既有文档图片从新提交开始使用 LFS，旧提交中的普通 Git blob 保留。
+原始资源与运行时派生资源一并跟踪；修改兰博原始 GLB 后需执行 `scripts/prepare-rumble.py`，
+将原文件、派生 GLB 和贴图在同一提交中更新。CI 检出时下载实际 LFS 内容，构建复制的不是指针。
+
 ## 持久渲染场景
 
 `scene::Scene` 是引擎层的持久 CPU 表现状态，由 `WorldPresentation` 拥有；不再是每帧的借用包装。

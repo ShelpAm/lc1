@@ -20,6 +20,10 @@
 | Windows x86_64 | Windows Server 2022，MSVC 19.4x，`profiles/windows-ci` | Debug |
 | Windows x86_64 | Fedora 44 容器，MinGW-w64 GCC 16，`profiles/mingw64` | Debug |
 
+所有任务检出时启用 `actions/checkout` 的 `lfs: true`，获取文档图片和实际运行资源。
+Fedora 容器在检出前安装 `git-lfs`；Windows runner 使用预装的 Git LFS。
+资源版本管理规则见[资源管理](resources.md#资源版本管理git-lfs)。
+
 所有任务都通过 Conan 安装依赖，构建完整程序与 Slang 着色器。
 Linux Clang、GCC 和 Windows MSVC 设置 `BUILD_TESTING=ON`，构建后运行现有五组
 CPU 单元测试：`world_map`、`continent`、`character`、`tangent_space`、`player_view`。

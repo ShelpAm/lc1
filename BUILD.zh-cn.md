@@ -42,13 +42,17 @@ Libtool、pkg-config 等工具；具体安装列表可参考 [CI 配置](.github
 conan profile detect
 ```
 
-仓库不包含 `runtime/assets/` 内的外部资源。将所需资源放入该目录；只编译或运行 CPU 测试时，
-可以创建空目录以满足资源复制步骤。空目录不代表具备完整游戏运行资源。
+`runtime/assets/` 和文档图片通过 Git LFS 随仓库版本管理。克隆前先安装 Git LFS；
+已有工作区可执行以下命令初始化并下载完整资源：
 
 ```sh
-mkdir -p runtime/assets
+git lfs install
+git lfs pull
 make
 ```
+
+禁用 LFS 自动下载的工作区只有文本指针，构建或运行前需要执行 `git lfs pull`。
+具体跟踪范围见[资源版本管理](docs/resources.md#资源版本管理git-lfs)。
 
 `make` 默认使用 `PLATFORM=linux-x86_64`、`BUILD_TYPE=Debug`、`JOBS=8`，依次执行
 首次构建所需的依赖安装、CMake 配置和增量构建。后续不会无条件重复安装和配置。
@@ -90,7 +94,7 @@ build/linux-x86_64/Debug/
 ├── generators/          # Conan toolchain、presets、conanrun.sh 等
 ├── shaders/             # 生成的着色器接口和 .spv
 ├── runtime/
-│   ├── assets/          # 从源码树复制的外部资源
+│   ├── assets/          # 从源码树复制的 LFS 资源
 │   ├── dialogs/         # 对话数据
 │   └── saves/           # 种子存档与运行进度
 ├── compile_commands.json
@@ -172,10 +176,11 @@ LC1_NO_VALIDATION=1 make run PLATFORM=windows-x86_64
 执行 `conan profile detect`。通过 `conan profile show -pr:a default` 核对结果。
 检测到的编译器应为 MSVC，且必须支持项目使用的 C++23 功能；其他版本尚未由 Windows CI 验证。
 切换工具链后，更新 profile 以匹配当前工具链，并先移走旧构建树再安装依赖。
-资源仍需自行准备；以下空目录只满足构建步骤。
+先安装 Git LFS，并下载仓库中的实际资源。
 
 ```bat
-if not exist runtime\assets mkdir runtime\assets
+git lfs install
+git lfs pull
 conan install . -pr:a default -pr:a ./profiles/windows --build=missing -s:h build_type=Debug -s:b build_type=Release
 cmake --preset windows-x86_64-debug
 cmake --build --preset windows-x86_64-debug
