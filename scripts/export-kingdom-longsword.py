@@ -107,7 +107,7 @@ def export(source: Path, destination: Path) -> None:
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[1] / "runtime/assets/lc-res"
+    root = Path(__file__).resolve().parents[1] / "runtime/assets/models/kingdom"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=root / "weapon_set_kingdom.blend")
     parser.add_argument("--output", type=Path, default=root / "KingdomLongsword.obj")

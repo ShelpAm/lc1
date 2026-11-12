@@ -48,7 +48,7 @@ have a `default` profile:
 conan profile detect
 ```
 
-`runtime/assets/` and documentation images are versioned with Git LFS. Install
+Active files under `runtime/assets/` and documentation images are versioned with Git LFS. Install
 Git LFS before cloning, then initialize it and download resources in an existing checkout:
 
 ```sh
@@ -60,7 +60,11 @@ make
 A checkout made with LFS smudging disabled contains text pointers instead of usable
 resources; run `git lfs pull` before building or running the game. See
 [resource versioning](docs/resources.md#资源版本管理git-lfs) for the tracking policy.
-The prepared Rumble variant and atlas are included. After changing its original GLB,
+Runtime resources are grouped under `models/`, `textures/`, and `fonts/`.
+Unreferenced local resources live under `runtime/assets/unused/`, which is ignored
+by Git and excluded from build output. Builds recreate only the generated assets
+directory so removed resources cannot remain as stale copies.
+The prepared Rumble variant and atlas are included. After changing `models/rumble/source.glb`,
 run `python scripts/prepare-rumble.py` and commit the updated generated assets together.
 
 `make` defaults to `PLATFORM=linux-x86_64`, `BUILD_TYPE=Debug`, and `JOBS=8`.

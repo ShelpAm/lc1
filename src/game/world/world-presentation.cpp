@@ -30,7 +30,7 @@ float volume_to_gain(float volume_percent)
 
 // One font per frame, and its atlas is fixed once constructed: the face has to cover every
 // script save data can hold, because the atlas requests only the codepoints that will be
-// drawn. `runtime/assets/` is not tracked, so this is a runtime input; see
+// drawn. `runtime/assets/` is versioned via Git LFS; see
 // docs/text-rendering.md.
 constexpr std::string_view font_file = "fonts/SourceHanSansCN-Regular.otf";
 

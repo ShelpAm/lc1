@@ -3,7 +3,7 @@
 ## 第一阶段（2026-10-03）
 
 默认游戏现在使用 `Continent::make_present()`：海陆轮廓来自
-`assets/textures/continent-present.png` 对应的 `docs/map/continent-present.svg`。
+`runtime/assets/unused/textures/continent-present.png` 对应的 `docs/map/continent-present.svg`。
 主大陆、南部海湾和东侧群岛已经成为地形数据，陆地可以行走，海面阻挡步行。
 
 第一阶段只提取海陆。陆地暂时统一为平原；森林、山地、荒原、湖泊、河流、

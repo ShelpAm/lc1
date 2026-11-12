@@ -21,8 +21,20 @@
 
 ## 资源版本管理（Git LFS）
 
-`.gitattributes` 将 `runtime/assets/` 下的全部文件，以及 `docs/` 下的 PNG、JPEG、GIF、WebP、
+`.gitattributes` 将 `runtime/assets/` 下参与版本管理的文件，以及 `docs/` 下的 PNG、JPEG、GIF、WebP、
 AVIF、BMP、TIFF、ICO 和 SVG 图片交给 Git LFS（扩展名不区分大小写）。其他文档和代码继续由普通 Git 保存。
+资源按用途分类：
+
+| 目录 | 内容 |
+|---|---|
+| `runtime/assets/models/` | 被配置引用的模型，以及生成这些模型所需的 GLB／Blender 源文件 |
+| `runtime/assets/textures/` | 被材质和渲染代码引用的贴图 |
+| `runtime/assets/fonts/` | 游戏和字体测试使用的字体 |
+| `runtime/assets/unused/` | 没有代码、种子存档或生成脚本引用的本地备用资源；由 `.gitignore` 排除 |
+
+`unused/` 只保留本机副本，不进入新提交或构建产物。构建重新生成输出目录的 assets 副本，
+避免旧路径或已停用资源残留；游戏存档不在该生成目录内。
+
 新增资源照常 `git add` / `git commit`；本地 Git LFS 过滤器生成指针，推送钩子先上传资源内容。
 更换机器前安装 Git LFS，已有工作区使用 `git lfs install` 和 `git lfs pull` 补齐资源。
 
@@ -156,7 +168,7 @@ Scene 的 DrawItem 保存本帧变形顶点的不可变快照。Renderer 在各�
 阴影历史使用原始资产身份，避免不同帧槽缓冲导致全场景拓扑失效；变形接收面本身拒绝历史。
 当前是 CPU 蒙皮加 GPU 上传/BLAS rebuild，尚无 GPU 蒙皮、动画混合或 root motion。
 
-兰博接入资源由 `python scripts/prepare-rumble.py` 从原始 `银河魔装机神_兰博.glb` 生成；
+兰博接入资源由 `python scripts/prepare-rumble.py` 从原始 `models/rumble/source.glb` 生成；
 保留骨架、权重与待机、跑步、攻击、死亡、玩笑五段动画并原样提取底色贴图。
 透明护盾和使用零缩放切换可见性的其他片段属于尚未实现的特效路径，不纳入人物变体；原文件不修改。
 `runtime/saves/01` 和 `blacksmith` 中 lc 使用该变体；已有 checkpoint 保留自己的外观配置，不自动迁移。

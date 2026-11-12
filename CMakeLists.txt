@@ -341,8 +341,10 @@ endif()
 # The .spv files are loaded at runtime, so `--target lc1` must build them too.
 # Keep the runtime tree relocatable. Copy on each build so edited assets are refreshed.
 add_custom_target(copy_assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/assets" "${CMAKE_CURRENT_BINARY_DIR}/runtime/assets"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/runtime/assets"
+        "-DDESTINATION_DIR=${CMAKE_CURRENT_BINARY_DIR}/runtime/assets"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/scripts/copy-assets.cmake"
     VERBATIM
 )
 # Dialogue scripts are authored content and refresh on each build.
@@ -482,7 +484,7 @@ if(BUILD_TESTING)
     target_link_libraries(lc1_render_graph_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_render_graph_tests)
     # The font test reads runtime/assets/fonts like the game does, and skips a face that is
-    # absent (runtime/assets/ is not tracked in this repository).
+    # absent from a custom runtime asset tree.
     add_executable(lc1_font_tests tests/font.cpp)
     target_link_libraries(lc1_font_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_font_tests)

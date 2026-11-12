@@ -13,7 +13,7 @@ import struct
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--assets", type=Path, default=Path("runtime/assets"))
 args = parser.parse_args()
-source = args.assets / "lc-res/银河魔装机神_兰博.glb"
+source = args.assets / "models/rumble/source.glb"
 data = source.read_bytes()
 magic, version, length = struct.unpack_from("<III", data)
 if magic != 0x46546C67 or version != 2 or length != len(data):
@@ -40,10 +40,12 @@ image = model["images"][texture["source"]]
 if image["mimeType"] != "image/png":
     raise ValueError("expected the supplied PNG body atlas")
 view = model["bufferViews"][image["bufferView"]]
-output = args.assets / "lc-res/rumble"
+output = args.assets / "models/rumble"
 output.mkdir(parents=True, exist_ok=True)
 start = view.get("byteOffset", 0)
-(output / "base-color.png").write_bytes(binary[start:start + view["byteLength"]])
+texture_output = args.assets / "textures/rumble"
+texture_output.mkdir(parents=True, exist_ok=True)
+(texture_output / "base-color.png").write_bytes(binary[start:start + view["byteLength"]])
 encoded = json.dumps(model, ensure_ascii=False, separators=(",", ":")).encode()
 encoded += b" " * (-len(encoded) % 4)
 binary += b"\0" * (-len(binary) % 4)

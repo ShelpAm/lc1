@@ -3,7 +3,7 @@
   attack: 10
   range: 1
   model: &longsword_model
-    path: lc-res/KingdomLongsword.obj
+    path: models/kingdom/KingdomLongsword.obj
     nodes:
     - name: Grip
     - name: KingdomLongsword

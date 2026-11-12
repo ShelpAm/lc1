@@ -230,14 +230,12 @@ Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中
 
 ## 本地模型试用
 
-玩家当前使用 `runtime/assets/lc-res/Modular Village/Prop_Barrel_1.obj`，NPC 保留方块占位模型。
-木桶的静态几何通过通用模型加载器读取，`characters.yaml` 中的节点局部变换把底部放到脚底、
-水平居中并设定尺寸；运行时不再自动按包围盒拟合。`Eyes` 和持握挂点也在角色 YAML 中以米配置。
-模型外观变换不修改玩法的 `CharacterBody` 或碰撞体。
-木桶挂在原有 `Head` 下，F2 会带动整个桶身摇动并保留相机挂点动画。
-木桶使用统一棕色材质，未导入原素材的 MTL 材质分组。
+玩家 lc 使用 `runtime/assets/models/rumble/rumble.glb`，底色贴图位于
+`runtime/assets/textures/rumble/base-color.png`；NPC 保留方块占位模型。
+`characters.yaml` 指定模型尺度、朝向和动画片段，模型外观变换不修改玩法的 `CharacterBody` 或碰撞体。
+原始模型 `models/rumble/source.glb` 供 `scripts/prepare-rumble.py` 重新生成运行时变体。
 
-武器使用本地 `weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
+武器使用本地 `models/kingdom/weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
 经 `scripts/export-kingdom-longsword.py` 提取为同目录的 `KingdomLongsword.obj`。
 导出仅包含静态网格；`weapons.yaml` 中的模型节点定义局部旋转、缩放和握柄对齐，材质与挥动动画也由 YAML 指定。
 Scene 独立拥有武器实例，表现层按角色 ID 保存关联；`Weapon` 不保存实例借用。会话构造时为有模型的武器定义预留显示实例，只有当前主手对应的实例可见。

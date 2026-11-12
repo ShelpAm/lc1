@@ -16,3 +16,6 @@ runtime/saves/*/checkpoint.yaml.tmp
 
 # AI
 .claude/
+
+# Local assets that are not referenced by the game or asset-generation scripts.
+runtime/assets/unused/

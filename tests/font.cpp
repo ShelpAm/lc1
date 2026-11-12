@@ -22,8 +22,8 @@ namespace {
 
 // A Latin face exercises the atlas and the layout paths, including the "codepoint outside
 // the set is absent" case; the game itself loads the Chinese-capable face below, because
-// save data can hold names in Chinese. runtime/assets/ is not tracked in this repository,
-// so a check whose face is absent is skipped.
+// save data can hold names in Chinese. Both faces are versioned through Git LFS;
+// a check whose face is absent from a custom asset tree is skipped.
 constexpr char const *font_path = "runtime/assets/fonts/LiberationSans-Regular.ttf";
 constexpr char const *chinese_font_path = "runtime/assets/fonts/SourceHanSansCN-Regular.otf";
 

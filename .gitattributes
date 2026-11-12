@@ -1,4 +1,4 @@
-# Runtime resources are stored in Git LFS, including source assets and archives.
+# Active runtime resources and their generation sources are stored in Git LFS.
 runtime/assets/** filter=lfs diff=lfs merge=lfs -text
 
 # Documentation images, including nested directories and uppercase extensions.

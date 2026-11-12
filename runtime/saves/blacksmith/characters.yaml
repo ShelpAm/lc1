@@ -8,7 +8,7 @@
   - [Head, 4]
   main_hand: 1001
   model:
-    path: lc-res/rumble/rumble.glb
+    path: models/rumble/rumble.glb
     transform:
       scale: [1.55, 1.55, 1.55]
       rotation_degrees: [0, 180, 0]
@@ -20,7 +20,7 @@
     death_animation: Death
     action_animation: Rumble_Skin03_Joke.anm
     material:
-      base_color_texture: lc-res/rumble/base-color.png
+      base_color_texture: textures/rumble/base-color.png
       metallic: 0.25
       roughness: 0.65
 - keyid: 2

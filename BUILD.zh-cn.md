@@ -42,7 +42,7 @@ Libtool、pkg-config 等工具；具体安装列表可参考 [CI 配置](.github
 conan profile detect
 ```
 
-`runtime/assets/` 和文档图片通过 Git LFS 随仓库版本管理。克隆前先安装 Git LFS；
+`runtime/assets/` 中启用的资源和文档图片通过 Git LFS 随仓库版本管理。克隆前先安装 Git LFS；
 已有工作区可执行以下命令初始化并下载完整资源：
 
 ```sh
@@ -53,6 +53,8 @@ make
 
 禁用 LFS 自动下载的工作区只有文本指针，构建或运行前需要执行 `git lfs pull`。
 具体跟踪范围见[资源版本管理](docs/resources.md#资源版本管理git-lfs)。
+模型、贴图和字体分别放在 `models/`、`textures/`、`fonts/`；未使用资源移到 `unused/`，
+由 Git 忽略，构建时也不复制。构建会重新生成输出目录中的 assets 副本，清理已移走资源的旧副本。
 
 `make` 默认使用 `PLATFORM=linux-x86_64`、`BUILD_TYPE=Debug`、`JOBS=8`，依次执行
 首次构建所需的依赖安装、CMake 配置和增量构建。后续不会无条件重复安装和配置。
