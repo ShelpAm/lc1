@@ -1,0 +1,20 @@
+{
+  "joints": 53,
+  "clips": {
+    "Idle": {
+      "start_frame": 0.0,
+      "end_frame": 120.0,
+      "loop_error": 0.0
+    },
+    "Walk": {
+      "start_frame": 0.0,
+      "end_frame": 36.0,
+      "loop_error": 4.172325134277344e-07
+    },
+    "Sprint": {
+      "start_frame": 0.0,
+      "end_frame": 19.999998092651367,
+      "loop_error": 0.0
+    }
+  }
+}

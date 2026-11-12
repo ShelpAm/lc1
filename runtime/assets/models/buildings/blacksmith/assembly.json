@@ -1,0 +1,27 @@
+{
+  "units": "metres",
+  "obj_up": "Z",
+  "glb_up": "Y",
+  "kit": "lc-res/Modular Village",
+  "kit_instances": {
+    "Stone_Floor_1": 56,
+    "Stucco_Block": 12,
+    "Stone_Wall_1": 6,
+    "Stucco_Window_Single_Wide": 7,
+    "Stucco_Doorway_Wide_Tall": 1,
+    "Wall_Prop_Door_Simple": 1,
+    "Wood_Post_Large": 10,
+    "Canopy_Beam": 6,
+    "Roof_Straight_Side_Eave": 12,
+    "Roof_Accent_Ridge": 4,
+    "Stucco_Prop_Support_Angled_Small": 2,
+    "Roof_Prop_Chimney_Stone": 1,
+    "Prop_Crate_1": 3,
+    "Prop_Barrel_1": 1,
+    "Prop_Broom": 1,
+    "Wall_Prop_Sign_1": 1,
+    "Wall_Prop_Lamp": 1
+  },
+  "objects": 144,
+  "triangles": 31472
+}

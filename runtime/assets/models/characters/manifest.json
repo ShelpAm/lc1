@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "package": "medieval_characters",
+  "paths_relative_to": "manifest_directory",
+  "units": "meters",
+  "coordinate_system": {
+    "handedness": "right",
+    "up": "+Y",
+    "forward": "-Z",
+    "origin": "feet"
+  },
+  "requires": [
+    "glTF 2.0",
+    "skin deformation",
+    "embedded PBR materials"
+  ],
+  "static_fallback": {
+    "skinning": false,
+    "animations": false,
+    "vertex_colors": true,
+    "material_base_color": [
+      1,
+      1,
+      1,
+      1
+    ]
+  },
+  "characters": {
+    "villager": {
+      "model": "runtime/villager.glb",
+      "static_model": "runtime/static/villager.glb",
+      "source": "source/villager.blend",
+      "default_animation": "Idle",
+      "animation_names": {
+        "idle": "Idle",
+        "walk": "Walk",
+        "sprint": "Sprint"
+      },
+      "animations": {
+        "Idle": {
+          "clip": "Idle",
+          "duration_s": 4.0,
+          "loop": true,
+          "matching_speed_mps": 0.0,
+          "root_motion": false,
+          "events": []
+        },
+        "Walk": {
+          "clip": "Walk",
+          "duration_s": 1.2,
+          "loop": true,
+          "matching_speed_mps": 0.5833333333333334,
+          "root_motion": false,
+          "events": [
+            {
+              "time_s": 0.0,
+              "name": "footstep_left"
+            },
+            {
+              "time_s": 0.6,
+              "name": "footstep_right"
+            }
+          ]
+        },
+        "Sprint": {
+          "clip": "Sprint",
+          "duration_s": 0.6666666666666666,
+          "loop": true,
+          "matching_speed_mps": 4.5,
+          "root_motion": false,
+          "events": [
+            {
+              "time_s": 0.0,
+              "name": "footstep_left"
+            },
+            {
+              "time_s": 0.3333333333333333,
+              "name": "footstep_right"
+            }
+          ]
+        }
+      },
+      "attachments": {
+        "eyes": "Eyes",
+        "right_hand": "RightHandGrip"
+      },
+      "skeleton_joint_count": 53,
+      "height_m": 1.735
+    },
+    "bandit": {
+      "model": "runtime/bandit.glb",
+      "static_model": "runtime/static/bandit.glb",
+      "source": "source/bandit.blend",
+      "default_animation": "Idle",
+      "animation_names": {
+        "idle": "Idle"
+      },
+      "animations": {
+        "Idle": {
+          "clip": "Idle",
+          "duration_s": 4.0,
+          "loop": true,
+          "matching_speed_mps": 0.0,
+          "root_motion": false,
+          "events": []
+        }
+      },
+      "attachments": {
+        "eyes": "Eyes",
+        "right_hand": "RightHandGrip"
+      },
+      "skeleton_joint_count": 53,
+      "height_m": 1.751
+    },
+    "knight": {
+      "model": "runtime/knight.glb",
+      "static_model": "runtime/static/knight.glb",
+      "source": "source/knight.blend",
+      "default_animation": "Idle",
+      "animation_names": {
+        "idle": "Idle"
+      },
+      "animations": {
+        "Idle": {
+          "clip": "Idle",
+          "duration_s": 4.0,
+          "loop": true,
+          "matching_speed_mps": 0.0,
+          "root_motion": false,
+          "events": []
+        }
+      },
+      "attachments": {
+        "eyes": "Eyes",
+        "right_hand": "RightHandGrip"
+      },
+      "skeleton_joint_count": 53,
+      "height_m": 1.864
+    }
+  },
+  "license_files": [
+    "licenses/MakeHuman-CC0.md"
+  ],
+  "preview_files": {}
+}

@@ -1,0 +1,81 @@
+{
+  "villager": {
+    "animations": {
+      "Idle": {
+        "duration_s": 4.0,
+        "loop_error": 9.797174737963282e-19,
+        "channels": 159
+      },
+      "Walk": {
+        "duration_s": 1.2000000476837158,
+        "loop_error": 2.6902979044507447e-07,
+        "channels": 159
+      },
+      "Sprint": {
+        "duration_s": 0.6666666269302368,
+        "loop_error": 1.714505527444786e-18,
+        "channels": 159
+      }
+    },
+    "skinned": {
+      "path": "runtime/villager.glb",
+      "MiB": 15.798,
+      "triangles": 75244,
+      "sha256": "91e7baee7ecdf8f510839bfe934ba438af778376239dc86ee32acb469847d152",
+      "verified": true
+    },
+    "static": {
+      "path": "runtime/static/villager.glb",
+      "MiB": 2.11,
+      "triangles": 75243,
+      "sha256": "149b0ba95061a836305ba650dbe5894115b69ecc23801c227eb07c69b2f01f6d",
+      "verified": true
+    }
+  },
+  "bandit": {
+    "animations": {
+      "Idle": {
+        "duration_s": 4.0,
+        "loop_error": 0,
+        "channels": 159
+      }
+    },
+    "skinned": {
+      "path": "runtime/bandit.glb",
+      "MiB": 14.562,
+      "triangles": 84040,
+      "sha256": "df64c16b28a63937ca896060c4e2f47de3048173fbaa78b9264e99ee3f170d3e",
+      "verified": true
+    },
+    "static": {
+      "path": "runtime/static/bandit.glb",
+      "MiB": 2.415,
+      "triangles": 84040,
+      "sha256": "235db1afa653e119d1f8d8d15a03d96b64a386e8427dd539f1f259f85c809d9b",
+      "verified": true
+    }
+  },
+  "knight": {
+    "animations": {
+      "Idle": {
+        "duration_s": 4.0,
+        "loop_error": 0,
+        "channels": 159
+      }
+    },
+    "skinned": {
+      "path": "runtime/knight.glb",
+      "MiB": 17.519,
+      "triangles": 142827,
+      "sha256": "71fdd3d494a5ace06a29cbcb03566a7e1223bfba0f084efd13ed83c2affd541b",
+      "verified": true
+    },
+    "static": {
+      "path": "runtime/static/knight.glb",
+      "MiB": 3.893,
+      "triangles": 142827,
+      "sha256": "528b120457fc63f09d09c323a9fda9a1d84e546c88d8b9051ee789ea08c38788",
+      "verified": true
+    }
+  }
+}

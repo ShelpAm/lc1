@@ -11,7 +11,13 @@ compile_commands.json
 *.user
 
 # Huge files assets
-runtime/assets/
+runtime/assets/*
+!runtime/assets/models/
+runtime/assets/models/**/cache/
+runtime/assets/models/**/__pycache__/
+runtime/assets/models/**/*.pyc
+runtime/assets/models/**/*.blend1
+runtime/assets/models/**/*.log
 runtime/saves/*/checkpoint.yaml
 runtime/saves/*/checkpoint.yaml.tmp
 
