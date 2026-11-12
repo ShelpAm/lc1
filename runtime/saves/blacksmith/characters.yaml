@@ -16,6 +16,7 @@
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: Run_Base
+    run_animation: Run2
     attack_animation: Rumble_Skin03_Attack1.anm
     death_animation: Death
     action_animation: Rumble_Skin03_Joke.anm
@@ -38,6 +39,7 @@
     weapon_mount: R_Hand
     idle_animation: Idle1_Base
     move_animation: Run_Base
+    run_animation: Run_Fast
     attack_animation: Attack1
     death_animation: Death
     action_animation: Joke_Loop
@@ -46,7 +48,7 @@
       metallic: 0
       roughness: 0.8
 - keyid: 3
-  name: 啥句冲个
+  name: 北极星使者_彗
   sex: true
   age: 18
   party: 1
@@ -54,56 +56,17 @@
   equipment:
   - [Head, 4]
   main_hand: 1003
-  model: &npc_model
-    nodes:
-    - name: Body
-      mesh_index: 0
-    - name: Head
-      parent_index: 0
-      mesh_index: 1
-      transform:
-        translation: [0, 1.2, 0]
-    - name: Eyes
-      parent_index: 1
-      transform:
-        translation: [0, 0.45, 0]
-    - &right_hand_grip
-      name: RightHandGrip
-      parent_index: 0
-      transform:
-        translation: [0.5, 1.05, -0.4]
-        rotation_degrees: [-45, 0, 0]
-    animations:
-    - &idle
-      name: Idle
-      channels:
-      - node: 1
-        path: Rotation
-        times: [0, 1, 2, 3, 4]
-        values:
-        - [0, 0, 0]
-        - [0, 10, 0]
-        - [0, 0, 0]
-        - [0, -10, 0]
-        - [0, 0, 0]
-    - &nod
-      name: Nod
-      channels:
-      - node: 1
-        path: Rotation
-        times: [0, 0.3, 0.6, 0.9, 1.2, 3]
-        values:
-        - [0, 0, 0]
-        - [-25, 0, 0]
-        - [0, 0, 0]
-        - [-25, 0, 0]
-        - [0, 0, 0]
-        - [0, 0, 0]
-    idle_animation: Idle
-    action_animation: Nod
-    eyes: Eyes
-    weapon_mount: RightHandGrip
+  model:
+    path: models/winterblessed-hwei/北极星使者_彗.glb
+    weapon_mount: R_Hand
+    idle_animation: Idle1_Base
+    move_animation: RunSlow
+    run_animation: RunFast
+    attack_animation: Attack1_A
+    death_animation: Death
+    action_animation: Joke
     material:
+      base_color_texture: textures/winterblessed-hwei/base-color.png
       metallic: 0
       roughness: 0.8
 - keyid: 4
@@ -120,10 +83,32 @@
     weapon_mount: R_Hand
     idle_animation: Skin55_idle1.SKINS_Yone_Skin55.anm
     move_animation: Yone_Walk01.SKINS_Yone_Skin55.anm
+    run_animation: Run_Fast
     attack_animation: Attack01.SKINS_Yone_Skin55.anm
     death_animation: Death
     action_animation: Joke_Loop.SKINS_Yone_Skin58.anm
     material:
       base_color_texture: textures/western-yone/base-color.png
+      metallic: 0
+      roughness: 0.8
+- keyid: 5
+  name: 乞丐
+  sex: true
+  age: 40
+  party: 3
+  level: 1
+  equipment: []
+  main_hand: 0
+  model:
+    path: models/winterblessed-hwei/北极星使者_彗.glb
+    weapon_mount: R_Hand
+    idle_animation: Idle1_Base
+    move_animation: RunSlow
+    run_animation: RunFast
+    attack_animation: Attack1_A
+    death_animation: Death
+    action_animation: Joke
+    material:
+      base_color_texture: textures/winterblessed-hwei/base-color.png
       metallic: 0
       roughness: 0.8

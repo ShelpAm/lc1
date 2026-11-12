@@ -123,6 +123,10 @@ class Character {
 
     bool on_ground() const;
 
+    bool running() const { return running_; }
+
+    bool moving() const { return moving_; }
+
     // Resolves the installed controller once, then applies character rules and physics.
     // A character without a controller receives an empty intent.
     void update(float delta_seconds, Continent const &continent);
@@ -197,6 +201,8 @@ class Character {
     std::unique_ptr<Interactable> interactable_;
 
     bool ambient_requests_blocked_ = false;
+    bool running_ = false;
+    bool moving_ = false;
     float weapon_attack_cooldown_ = 0;
     float attack_elapsed_ = combat::swing_duration;
     float reaction_time_ = combat::death_duration;

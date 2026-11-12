@@ -129,14 +129,6 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                               .material = &resources.material,
                               .world_transform = character.pose.transform().model_matrix()});
 
-        if (character.keyid == world.player(observer_).keyid) {
-            observed_model_index_ = i;
-            if (!config.eyes.value().empty()) {
-                eyes_node_index_ = resources.model.definition().find_node(config.eyes.value());
-                if (!eyes_node_index_)
-                    fail("character model is missing eyes mount {}", config.eyes.value());
-            }
-        }
         auto const find_animation = [&](std::string const &name) -> std::optional<std::size_t> {
             if (name.empty())
                 return std::nullopt;
@@ -147,6 +139,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         };
         auto const idle_animation = find_animation(*config.idle_animation);
         auto const move_animation = find_animation(*config.move_animation);
+        auto const run_animation = find_animation(*config.run_animation);
         auto const body_attack_animation = find_animation(*config.attack_animation);
         auto const death_animation = find_animation(*config.death_animation);
         if (idle_animation) {
@@ -218,9 +211,9 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .head_mount = resources.model.definition().find_node("Head"),
                                      .idle_animation = idle_animation,
                                      .move_animation = move_animation,
+                                     .run_animation = run_animation,
                                      .body_attack_animation = body_attack_animation,
-                                     .death_animation = death_animation,
-                                     .previous_position = character.pose.position()});
+                                     .death_animation = death_animation});
     }
 
     scene::DirectionalLight const sun{
@@ -454,9 +447,6 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
             }
             models.attack_sequence = state.attack_sequence;
         }
-        auto const displacement = state.pose.position() - models.previous_position;
-        bool const moving = glm::length(glm::vec2{displacement.x, displacement.z}) > 0.0001F;
-        models.previous_position = state.pose.position();
         if (state.dead || state.hit_sequence != models.hit_sequence) {
             if (state.dead && !models.dead) {
                 if (models.death_animation)
@@ -491,8 +481,11 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         bool const action_playing =
             playback && !playback->looping &&
             playback->time < pose.model().animations()[playback->animation].duration();
-        auto const locomotion =
-            moving && models.move_animation ? models.move_animation : models.idle_animation;
+        auto const locomotion = state.moving
+                                    ? (state.running && models.run_animation ? models.run_animation
+                                       : models.move_animation ? models.move_animation
+                                                               : models.idle_animation)
+                                    : models.idle_animation;
         if (!action_playing && locomotion &&
             (!playback || !playback->looping || playback->animation != *locomotion))
             pose.play_animation(*locomotion);
@@ -513,9 +506,15 @@ void WorldPresentation::update_listener(scene::FpsCamera const &camera)
 
 glm::mat4 WorldPresentation::observer_eye_transform() const
 {
-    if (eyes_node_index_)
-        return character_models_[observed_model_index_].character->node_world_matrix(
-            *eyes_node_index_);
+    auto const &observer = world_->player(observer_);
+    auto const models =
+        std::ranges::find(character_models_, observer.keyid, &CharacterModels::keyid);
+    if (models != character_models_.end() && !observer.model.eyes.value().empty()) {
+        auto const node = models->character->pose.model().find_node(observer.model.eyes.value());
+        if (!node)
+            fail("character model is missing eyes mount {}", observer.model.eyes.value());
+        return models->character->node_world_matrix(*node);
+    }
     auto transform = world_->player(observer_).pose.transform().model_matrix();
     transform[3] = glm::vec4{world_->player(observer_).pose.eye_position(), 1.0F};
     return transform;

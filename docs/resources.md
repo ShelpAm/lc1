@@ -180,6 +180,11 @@ yyx 使用 `models/yone/封魔剑魂.glb`。`python scripts/prepare-yone.py yone
 从同目录的 `source.glb` 生成模型及 `textures/western-yone/base-color.png`，并只保留兼容可逆变换约束的
 待机、行走、攻击、死亡与玩笑动画。两份原始 GLB 都已从 `unused/` 移入对应的模型目录。
 
+北极星使者_彗使用 `models/winterblessed-hwei/北极星使者_彗.glb`。`python scripts/prepare-winterblessed-hwei.py` 从同目录的
+`source.glb` 提取两张内嵌贴图，分别缩放至 1024×1024 后合成为 `textures/winterblessed-hwei/base-color.png`。
+子网格共享 UV accessor，按各子网格索引引用的顶点仅改写一次 UV，映射至对应图集区域；模型保留原始动画，种子存档的
+3 号角色使用 `Idle1_Base`、`RunSlow`、`RunFast`、`Attack1_A`、`Death` 和 `Joke`。
+
 CPU 导入测试覆盖权重混合、逆绑定矩阵、网格局部空间、独立实例和非法绑定；
 可额外执行 `lc1_model_loading_tests <rumble.glb>` 逐段采样真实资源。
 GPU `lc1_pbr_tests --player-models` 覆盖真实模型的变形绘制、帧槽一致性及生产装配路径。

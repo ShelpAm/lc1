@@ -128,6 +128,7 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `weapon_mount` | 角色模型的主手挂点名称，默认 `RightHandGrip` |
 | `idle_animation` | 角色待机循环动画名称，默认不播放 |
 | `move_animation` | 位置移动时的循环动画名称，默认沿用待机 |
+| `run_animation` | 加速跑时的循环动画名称，未配置时沿用移动动画 |
 | `attack_animation` | 角色自身的攻击片段名称，默认不播放，与武器动画独立 |
 | `death_animation` | 死亡时单次播放并停留末帧；未配置时保留程序倒地表现 |
 | `action_animation` | 玩家 F2 / 武器左键单次动画名称，默认不播放 |

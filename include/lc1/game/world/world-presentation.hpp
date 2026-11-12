@@ -82,7 +82,6 @@ class WorldPresentation {
     WorldSnapshot const *world_;
     Continent const *continent_;
     PlayerId observer_;
-    std::size_t observed_model_index_ = 0;
 
     struct WeaponModel {
         scene::SceneModel *model;
@@ -108,9 +107,9 @@ class WorldPresentation {
         std::optional<std::size_t> head_mount;
         std::optional<std::size_t> idle_animation;
         std::optional<std::size_t> move_animation;
+        std::optional<std::size_t> run_animation;
         std::optional<std::size_t> body_attack_animation;
         std::optional<std::size_t> death_animation;
-        glm::vec3 previous_position{};
     };
 
     std::vector<CharacterModels> character_models_;
@@ -139,7 +138,6 @@ class WorldPresentation {
     scene::GpuModel helmet_model_;
     MaterialInfo helmet_material_{
         .parameters = {.metallic_factor = 1.0F, .roughness_factor = 0.35F}};
-    std::optional<std::size_t> eyes_node_index_;
     // Declared after assets: scene instances borrow their meshes and materials.
     scene::Scene scene_;
     OutputSettings output_;

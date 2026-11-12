@@ -69,7 +69,7 @@ void GameWorld::load(Save const &save)
     }
     if (save.has_example()) {
         example_ = character_by_id(save.example(), "AI example");
-        if (setup_.example_patrol &&
+        if (example_->controller() == nullptr && setup_.example_patrol &&
             (save.states().empty() || save.states().at(save.example()).patrol)) {
             auto waypoints = setup_.example_patrol->route;
             if (waypoints.empty())
@@ -429,6 +429,27 @@ Character &GameWorld::player(PlayerId id)
 Character const &GameWorld::player(PlayerId id) const
 {
     return *players_.at(id).character;
+}
+
+bool GameWorld::transfer_control(PlayerId id, CharacterId target)
+{
+    auto &player = players_.at(id);
+    auto found = characters_.find(target.value);
+    if (found == characters_.end() || found->second->dead() ||
+        std::ranges::any_of(players_, [&](auto const &entry) {
+            return entry.first != id && entry.second.character == found->second.get();
+        }))
+        return false;
+    auto *next = found->second.get();
+    if (next == player.character)
+        return true;
+    auto *controller = player.character->controller();
+    player.character->set_controller(next->controller());
+    next->set_controller(controller);
+    player.character = next;
+    player.controls = {};
+    player.interaction_target = nullptr;
+    return true;
 }
 
 std::map<PlayerId, WorldPlayer> const &GameWorld::players() const

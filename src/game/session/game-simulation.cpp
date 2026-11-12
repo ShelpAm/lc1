@@ -38,6 +38,11 @@ InputStamp GameSimulation::Connection::submit(PlayerControls input) const
     return simulation_->submit(id_, std::move(input));
 }
 
+void GameSimulation::Connection::transfer_control(CharacterId target) const
+{
+    simulation_->transfer_control(id_, target);
+}
+
 PlayerId GameSimulation::Connection::player_id() const
 {
     return id_;
@@ -78,6 +83,15 @@ InputStamp GameSimulation::submit(PlayerId id, PlayerControls input)
     slot.pending = std::move(input);
     slot.pending_stamp = {.sequence = ++slot.sequence, .tick = tick_ + 1};
     return slot.pending_stamp;
+}
+
+void GameSimulation::transfer_control(PlayerId id, CharacterId target)
+{
+    std::scoped_lock lock{mutex_};
+    if (failure_)
+        std::rethrow_exception(failure_);
+    transfer_requests_.insert_or_assign(id, target);
+    inputs_.at(id).pending = PlayerControls{};
 }
 
 std::shared_ptr<WorldSnapshot const> GameSimulation::snapshot() const
@@ -131,6 +145,7 @@ void GameSimulation::run(std::stop_token stop)
         auto deadline =
             std::chrono::time_point_cast<std::chrono::duration<double>>(Clock::now()) + period;
         std::map<PlayerId, PlayerControls> controls;
+        std::map<PlayerId, CharacterId> transfers;
         while (!stop.stop_requested()) {
             std::uint64_t tick;
             {
@@ -148,7 +163,11 @@ void GameSimulation::run(std::stop_token stop)
                     }
                 }
                 requests.swap(checkpoint_requests_);
+                transfers.clear();
+                transfers.swap(transfer_requests_);
             }
+            for (auto const &[id, target] : transfers)
+                world_.transfer_control(id, target);
             world_.update(step_seconds, controls);
             auto state = capture_world(world_);
             state.tick = tick;

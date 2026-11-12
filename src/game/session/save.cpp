@@ -564,8 +564,6 @@ void Save::validate_references() const
             fail("character {} has multiple players", binding.character);
     }
     if (session_.example != 0) {
-        if (controlled_characters.contains(session_.example))
-            fail("session example {} is also player-controlled", session_.example);
         character(session_.example, "session example");
     }
     for (auto const &entry : parties_) {

@@ -39,6 +39,7 @@ struct GameUiActions {
     std::optional<float> time_rate;
     std::optional<int> grass_density;
     std::optional<EquipmentRequest> equipment;
+    std::optional<CharacterId> control_target;
 };
 
 class GameUi {

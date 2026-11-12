@@ -154,11 +154,14 @@ void Character::update(float delta_seconds, Continent const &continent)
         !blocked && controller_ ? controller_->decide(delta_seconds) : CharacterIntent{};
     auto const sequence = attack_sequence_;
     apply_intent(delta_seconds, intent);
+    running_ = intent.sprint && intent.move != glm::vec2{};
     if (sequence != attack_sequence_)
         from_yaw = body_yaw();
     auto const velocity =
         walking_velocity({intent.move.x, 0.0F, intent.move.y}, intent.sprint, intent.face_movement);
     motion_.update(delta_seconds, WorldCollision{continent}, body_, transform_.position, velocity);
+    auto const displacement = position() - from;
+    moving_ = glm::length(glm::vec2{displacement.x, displacement.z}) > 0.0001F;
     float const begin = attack_elapsed_;
     attack_elapsed_ = std::min(combat::swing_duration, attack_elapsed_ + delta_seconds);
     if (!blocked && begin < combat::active_end && attack_elapsed_ > combat::windup)

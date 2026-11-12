@@ -685,6 +685,23 @@ void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(104, 86, 55, 255));
     if (ImGui::Begin("Character & inventory", &player_info_opened_,
                      ImGuiWindowFlags_HorizontalScrollbar)) {
+        auto const &controlled = info.world.character(info.player);
+        ImGui::SetNextItemWidth(260.0F);
+        if (ImGui::BeginCombo("Control", controlled.name.c_str())) {
+            for (auto const &candidate : info.world.characters) {
+                bool const occupied =
+                    std::ranges::any_of(info.world.players, [&](auto const &entry) {
+                        return entry.second.character_id == CharacterId{candidate.keyid} &&
+                               candidate.keyid != info.player.value;
+                    });
+                ImGui::BeginDisabled(candidate.dead || occupied);
+                auto const label = std::format("{}##{}", candidate.name, candidate.keyid);
+                if (ImGui::Selectable(label.c_str(), candidate.keyid == info.player.value))
+                    actions.control_target = CharacterId{candidate.keyid};
+                ImGui::EndDisabled();
+            }
+            ImGui::EndCombo();
+        }
         auto available = ImGui::GetContentRegionAvail();
         available.x = std::max(720.0F, available.x);
         float const gap = ImGui::GetStyle().ItemSpacing.x;

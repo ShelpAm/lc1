@@ -81,6 +81,7 @@ struct ModelConfig {
     rfl::DefaultVal<std::string> idle_animation;
     rfl::DefaultVal<std::string> action_animation;
     rfl::DefaultVal<std::string> move_animation;
+    rfl::DefaultVal<std::string> run_animation;
     rfl::DefaultVal<std::string> attack_animation;
     rfl::DefaultVal<std::string> death_animation;
 

@@ -1,0 +1,34 @@
+version: 2
+entry: greeting
+nodes:
+  - id: greeting
+    speaker: Talker
+    respondent: Target
+    text: "牛逼"
+    choices:
+      - id: repeat
+        text: "Say it again."
+        condition: Always
+        action: None
+        recruiter: Talker
+        npc_priority: 0
+        next: repeat
+      - id: goodbye
+        text: "Goodbye."
+        condition: Always
+        action: None
+        recruiter: Talker
+        npc_priority: 0
+        next: end
+  - id: repeat
+    speaker: Talker
+    respondent: Target
+    text: "牛逼"
+    choices:
+      - id: goodbye
+        text: "Goodbye."
+        condition: Always
+        action: None
+        recruiter: Talker
+        npc_priority: 0
+        next: end

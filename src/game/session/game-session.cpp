@@ -129,6 +129,8 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         music_);
     controls.equipment = ui_actions.equipment;
     connection_.submit(std::move(controls));
+    if (ui_actions.control_target)
+        connection_.transfer_control(*ui_actions.control_target);
     if (ui_actions.start)
         ui_.start_game();
     quit_requested_ |= ui_actions.quit;

@@ -196,9 +196,10 @@ void invalid_sessions_are_rejected()
     check_rejected("unknown-example", "session.yaml",
                    "players: [{keyid: 1, character: 1}]\nexample: 4711\n",
                    "session example refers to unknown character 4711");
-    check_rejected("example-is-player", "session.yaml",
-                   "players: [{keyid: 1, character: 1}]\nexample: 1\n",
-                   "session example 1 is also player-controlled");
+    ScratchSave controlled_example{"example-is-player"};
+    controlled_example.write("session.yaml", "players: [{keyid: 1, character: 1}]\nexample: 1\n");
+    check(lc1::Save{controlled_example.directory()}.player(lc1::PlayerId{1}) == 1,
+          "the demonstration character may be player-controlled");
     check_rejected("sequence-session", "session.yaml",
                    "- player: 1\n  example: 2\n- player: 2\n  example: 0\n",
                    "cannot read save file");

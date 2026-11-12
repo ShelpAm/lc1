@@ -73,6 +73,8 @@ WorldSnapshot capture_world(GameWorld const &world)
              .health = character->config().health(),
              .max_health = character->config().max_health(),
              .dead = character->dead(),
+             .running = character->running(),
+             .moving = character->moving(),
              .reaction_time = character->reaction_time(),
              .speech = std::move(speech),
              .dialog_partner =

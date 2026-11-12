@@ -233,6 +233,9 @@ Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中
 玩家 lc 使用 `runtime/assets/models/rumble/rumble.glb`，底色贴图位于
 `runtime/assets/textures/rumble/base-color.png`；NPC 保留方块占位模型。
 `characters.yaml` 指定模型尺度、朝向和动画片段，模型外观变换不修改玩法的 `CharacterBody` 或碰撞体。
+角色在模拟 tick 内根据实际水平位移发布移动状态，避免渲染帧采样到相同位置时误切回待机；
+角色快照也发布本次是否加速跑。表现层移动时选用 `run_animation`，普通移动选用 `move_animation`，
+停止时选用 `idle_animation`。未配置跑步片段时沿用移动片段。
 原始模型 `models/rumble/source.glb` 供 `scripts/prepare-rumble.py` 重新生成运行时变体。
 
 武器使用本地 `models/kingdom/weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，

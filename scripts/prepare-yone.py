@@ -32,6 +32,7 @@ if args.variant == "western-yone":
     clips = {
         "Skin55_idle1.SKINS_Yone_Skin55.anm",
         "Yone_Walk01.SKINS_Yone_Skin55.anm",
+        "Run_Fast",
         "Attack01.SKINS_Yone_Skin55.anm",
         "Death",
         "Joke_Loop.SKINS_Yone_Skin58.anm",

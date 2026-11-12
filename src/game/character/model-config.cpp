@@ -123,6 +123,7 @@ bool ModelConfig::operator==(ModelConfig const &other) const
            idle_animation.value() == other.idle_animation.value() &&
            action_animation.value() == other.action_animation.value() &&
            move_animation.value() == other.move_animation.value() &&
+           run_animation.value() == other.run_animation.value() &&
            attack_animation.value() == other.attack_animation.value() &&
            death_animation.value() == other.death_animation.value();
 }

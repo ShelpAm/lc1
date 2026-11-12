@@ -27,7 +27,7 @@ binary_length, binary_type = struct.unpack_from("<II", data, binary_start)
 if binary_type != 0x004E4942:
     raise ValueError("expected GLB BIN chunk")
 binary = data[binary_start + 8:binary_start + 8 + binary_length]
-clips = {"Idle1_Base", "Run_Base", "Rumble_Skin03_Attack1.anm", "Death", "Rumble_Skin03_Joke.anm"}
+clips = {"Idle1_Base", "Run_Base", "Run2", "Rumble_Skin03_Attack1.anm", "Death", "Rumble_Skin03_Joke.anm"}
 model["animations"] = [clip for clip in model["animations"] if clip["name"] in clips]
 if {clip["name"] for clip in model["animations"]} != clips:
     raise ValueError("source is missing expected Rumble animation clips")

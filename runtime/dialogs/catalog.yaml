@@ -8,6 +8,8 @@ settings:
   max_duration: 90.0
 scripts:
   - {id: blacksmith, file: blacksmith.yaml}
+  - {id: beggar, file: beggar.yaml}
+  - {id: beggar_nearby, file: beggar-nearby.yaml}
   - {id: recruit, file: recruit.yaml}
   - {id: greeting, file: greeting.yaml}
   - {id: companion, file: companion.yaml}
@@ -16,8 +18,10 @@ scripts:
 # Rules are tested in order. Zero participant IDs match any character.
 rules:
   - {trigger: Interaction, talker: 0, target: 4, conditions: [Always], dialog: blacksmith}
+  - {trigger: Interaction, talker: 0, target: 5, conditions: [Always], dialog: beggar}
   - {trigger: Interaction, talker: 0, target: 0, conditions: [CanRecruit], dialog: recruit}
   - {trigger: Interaction, talker: 0, target: 0, conditions: [SameParty], dialog: companion}
   - {trigger: Interaction, talker: 0, target: 0, conditions: [Always], dialog: greeting}
   - {trigger: Nearby, talker: 0, target: 0, conditions: [CanBeRecruited], dialog: request_recruitment}
+  - {trigger: Nearby, talker: 5, target: 0, conditions: [Always], dialog: beggar_nearby}
   - {trigger: Nearby, talker: 0, target: 0, conditions: [Always], dialog: small_talk}

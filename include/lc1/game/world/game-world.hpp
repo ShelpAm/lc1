@@ -56,6 +56,7 @@ class GameWorld {
 
     Character &player(PlayerId id);
     Character const &player(PlayerId id) const;
+    bool transfer_control(PlayerId id, CharacterId target);
 
     std::map<PlayerId, WorldPlayer> const &players() const;
 

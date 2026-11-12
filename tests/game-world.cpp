@@ -607,6 +607,37 @@ void world_applies_control()
           "invalid control is rejected before mutating the player");
 }
 
+void transfer_control_and_checkpoint()
+{
+    Checkpoint checkpoint;
+    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    auto const original = world.player(lc1::PlayerId{1}).id();
+    auto const target = lc1::CharacterId{world.snapshot().session.example};
+    check(world.transfer_control(lc1::PlayerId{1}, target), "transfer to example succeeds");
+    check(world.player(lc1::PlayerId{1}).id() == target &&
+              world.character(original).ai_controller(),
+          "old character resumes AI control");
+    auto const before = world.player(lc1::PlayerId{1}).position();
+    world.update(0.1F,
+                 {{lc1::PlayerId{1},
+                   {.view = {.keyboard_enabled = true}, .movement = {0, 1}, .sprint = true}}});
+    auto const distance = glm::length(world.player(lc1::PlayerId{1}).position() - before);
+    check(distance > world.player(lc1::PlayerId{1}).config().walk_speed() * 0.1F,
+          "Shift sprint reaches the newly controlled character");
+    auto const running = lc1::capture_world(world);
+    check(running.player(lc1::PlayerId{1}).running && running.player(lc1::PlayerId{1}).moving,
+          "newly controlled character publishes running movement from the simulation tick");
+    check(lc1::interpolate_world(running, running, 1.0F).player(lc1::PlayerId{1}).moving,
+          "repeated render samples of one tick keep the movement animation active");
+    world.update(0.1F, {{lc1::PlayerId{1}, {}}});
+    auto const stopped = lc1::capture_world(world).player(lc1::PlayerId{1});
+    check(!stopped.running && !stopped.moving, "stopping returns to idle animation state");
+    lc1::Save::write(checkpoint.directory(), world.snapshot());
+    lc1::GameWorld restored{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    check(restored.player(lc1::PlayerId{1}).id() == target,
+          "checkpoint restores transferred control");
+}
+
 void control_physics_camera_order()
 {
     Checkpoint checkpoint;
@@ -667,6 +698,7 @@ int main()
         world_and_checkpoint();
         reload_world();
         world_applies_control();
+        transfer_control_and_checkpoint();
         restored_house_patrol();
         scenario_inventory();
         std::cout << "Game world tests passed\n";
