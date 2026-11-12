@@ -83,10 +83,39 @@ Model::Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices)
 }
 
 Model::Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
-             std::vector<AnimationClip> animations)
+             std::vector<AnimationClip> animations, std::vector<SkinnedMesh> skins)
     : meshes_(std::move(meshes)),
-      definition_{meshes_.size(), std::move(nodes), std::move(animations)}
+      definition_{meshes_.size(), std::move(nodes), std::move(animations)}, skins_(std::move(skins))
 {
+    for (auto const &mesh : skins_) {
+        if (mesh.node >= definition_.nodes().size() || !definition_.nodes()[mesh.node].mesh_index ||
+            mesh.skin.joints.empty() ||
+            mesh.skin.joints.size() != mesh.skin.inverse_bind_matrices.size() ||
+            mesh.vertices.size() != mesh.influences.size())
+            fail("invalid skinned mesh binding");
+        for (std::size_t i = 0; i < mesh.skin.joints.size(); ++i) {
+            if (mesh.skin.joints[i] >= definition_.nodes().size())
+                fail("skin joint is out of range");
+            auto const &matrix = mesh.skin.inverse_bind_matrices[i];
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    if (!std::isfinite(matrix[c][r]))
+                        fail("skin inverse bind matrix must be finite");
+            if (glm::determinant(matrix) == 0)
+                fail("skin inverse bind matrix must be invertible");
+        }
+        for (auto const &influence : mesh.influences) {
+            float sum = 0;
+            for (int j = 0; j < 4; ++j) {
+                if (influence.joints[j] >= mesh.skin.joints.size() ||
+                    !std::isfinite(influence.weights[j]) || influence.weights[j] < 0)
+                    fail("invalid skin vertex influence");
+                sum += influence.weights[j];
+            }
+            if (std::abs(sum - 1.0F) > 1e-4F)
+                fail("skin vertex weights must sum to one");
+        }
+    }
 }
 
 std::size_t Model::mesh_count() const
@@ -118,10 +147,17 @@ std::span<std::uint32_t const> Model::indices(std::size_t mesh_index) const
     return meshes_[mesh_index].indices_;
 }
 
+std::span<SkinnedMesh const> Model::skins() const
+{
+    return skins_;
+}
+
 void Model::generate_tangents()
 {
     for (auto &mesh : meshes_)
         lc1::generate_tangents(mesh.vertices_, mesh.indices_);
+    for (auto &skin : skins_)
+        skin.vertices = meshes_[*definition_.nodes()[skin.node].mesh_index].vertices_;
 }
 
 } // namespace lc1::scene

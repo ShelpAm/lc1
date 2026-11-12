@@ -133,15 +133,31 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                     fail("character model is missing eyes mount {}", config.eyes.value());
             }
         }
-        else if (auto const idle =
-                     resources.model.definition().find_animatinon(*config.idle_animation)) {
-            model->pose.play_animation(*idle);
-            auto const &clip = resources.model.definition().animations()[*idle];
+        auto const animation = [&](std::string const &name) -> std::optional<std::size_t> {
+            if (name.empty())
+                return std::nullopt;
+            auto const clip = resources.model.definition().find_animatinon(name);
+            if (!clip)
+                fail("character model is missing animation {}", name);
+            return clip;
+        };
+        auto const idle_animation = animation(*config.idle_animation);
+        auto const move_animation = animation(*config.move_animation);
+        auto const body_attack_animation = animation(*config.attack_animation);
+        auto const death_animation = animation(*config.death_animation);
+        if (idle_animation) {
+            model->pose.play_animation(*idle_animation);
+            auto const &clip = resources.model.definition().animations()[*idle_animation];
             model->pose.update_animation(static_cast<float>(i % 11) * clip.duration() / 11.0F);
         }
-
-        if (character.dead)
-            model->pose.reset_pose();
+        if (character.dead) {
+            if (death_animation) {
+                model->pose.play_animation(*death_animation, false);
+                model->pose.update_animation(character.reaction_time);
+            }
+            else
+                model->pose.reset_pose();
+        }
         auto const mount = resources.model.definition().find_node(config.weapon_mount.value());
         std::map<std::uint32_t, WeaponModel> weapons;
         scene::SceneModel *weapon_model = nullptr;
@@ -187,8 +203,7 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .mount = mount,
                                      .attack_animation = attack_animation,
                                      .attack_sequence = character.attack_sequence,
-                                     .nod_animation = resources.model.definition().find_animatinon(
-                                         *config.action_animation),
+                                     .nod_animation = animation(*config.action_animation),
                                      .nod_sequence = character.nod_sequence,
                                      .hit_sequence = character.hit_sequence,
                                      .dead = character.dead,
@@ -196,7 +211,12 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .flashlight = flashlight,
                                      .uses_flashlight = uses_flashlight,
                                      .helmet = helmet,
-                                     .head_mount = resources.model.definition().find_node("Head")});
+                                     .head_mount = resources.model.definition().find_node("Head"),
+                                     .idle_animation = idle_animation,
+                                     .move_animation = move_animation,
+                                     .body_attack_animation = body_attack_animation,
+                                     .death_animation = death_animation,
+                                     .previous_position = character.pose.position()});
     }
 
     scene::DirectionalLight const sun{
@@ -257,7 +277,9 @@ void WorldPresentation::update_instances()
         auto &models = character_models_[i];
         models.character->world_transform =
             state.pose.transform().model_matrix() *
-            character_reaction_transform(state.dead, state.reaction_time, state.pose.body);
+            (state.dead && models.death_animation
+                 ? glm::mat4{1}
+                 : character_reaction_transform(state.dead, state.reaction_time, state.pose.body));
         auto const head = state.equipment.find(EquipmentType::Head);
         models.helmet->visible =
             head != state.equipment.end() && head->second.keyid() == game::iron_helmet.keyid;
@@ -426,9 +448,16 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
             }
             models.attack_sequence = state.attack_sequence;
         }
+        auto const displacement = state.pose.position() - models.previous_position;
+        bool const moving = glm::length(glm::vec2{displacement.x, displacement.z}) > 0.0001F;
+        models.previous_position = state.pose.position();
         if (state.dead || state.hit_sequence != models.hit_sequence) {
-            if (state.dead && !models.dead)
-                models.character->pose.reset_pose();
+            if (state.dead && !models.dead) {
+                if (models.death_animation)
+                    models.character->pose.play_animation(*models.death_animation, false);
+                else
+                    models.character->pose.reset_pose();
+            }
             if (models.weapon && (state.hit_sequence != models.hit_sequence || !models.dead))
                 models.weapon->pose.reset_pose();
             models.dead = state.dead;
@@ -447,8 +476,20 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         if (sequence != models.attack_sequence) {
             if (models.attack_animation)
                 models.weapon->pose.play_animation(*models.attack_animation, false);
+            if (models.body_attack_animation)
+                models.character->pose.play_animation(*models.body_attack_animation, false);
             models.attack_sequence = sequence;
         }
+        auto &pose = models.character->pose;
+        auto const playback = pose.playback();
+        bool const action_playing =
+            playback && !playback->looping &&
+            playback->time < pose.model().animations()[playback->animation].duration();
+        auto const locomotion =
+            moving && models.move_animation ? models.move_animation : models.idle_animation;
+        if (!action_playing && locomotion &&
+            (!playback || !playback->looping || playback->animation != *locomotion))
+            pose.play_animation(*locomotion);
     }
     scene_.update_animations(delta_seconds);
     update_instances();

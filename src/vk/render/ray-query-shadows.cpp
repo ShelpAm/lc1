@@ -52,7 +52,7 @@ RayQueryShadows::RayQueryShadows(Device const &device, vk::Format depth_format)
 void RayQueryShadows::add_passes(RenderGraph &graph, FrameResources &resources, vk::Extent2D extent,
                                  std::shared_ptr<FrameScene const> scene)
 {
-    graph.add_pass("Shadow scene preparation", {"frame.inputs"},
+    graph.add_pass("Shadow scene preparation", {"frame.inputs", "geometry.ready"},
                    {"shadow.scene", "shadow.frame", "shadow.history"},
                    [this, &resources, extent, scene](CommandBuffer &cmd) {
                        prepare_frame(cmd, resources, extent, scene->camera, scene->lights,
@@ -224,8 +224,11 @@ void RayQueryShadows::update_acceleration_structure(vk::raii::CommandBuffer cons
         instance.accelerationStructureReference = draw.mesh->acceleration_structure_address();
         instances.push_back(instance);
     }
-    bool const rebuild_scene =
-        !resources.ray_query.scene || instances != resources.ray_query.built_instances;
+    bool const rebuild_scene = !resources.ray_query.scene ||
+                               instances != resources.ray_query.built_instances ||
+                               std::ranges::any_of(draws, [](auto const &draw) {
+                                   return draw.casts_shadow && draw.skinned_vertices;
+                               });
     if (rebuild_scene) {
         if (!resources.ray_query.instances)
             resources.ray_query.instances.emplace(
@@ -290,8 +293,9 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
             .model = draws[i].model_matrix,
             .normal_transform = glm::transpose(glm::inverse(draws[i].model_matrix)),
             .shadow_identity = {static_cast<std::uint32_t>(i + 1),
-                                i >= previous_draws_.size() ||
-                                        previous_draws_[i].mesh != draws[i].mesh ||
+                                draws[i].skinned_vertices || i >= previous_draws_.size() ||
+                                        previous_draws_[i].geometry_identity() !=
+                                            draws[i].geometry_identity() ||
                                         previous_draws_[i].model_matrix != draws[i].model_matrix
                                     ? 1U
                                     : 0U,
@@ -331,7 +335,8 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
         draws.size() == previous_draws_.size() &&
         std::equal(draws.begin(), draws.end(), previous_draws_.begin(),
                    [](auto const &a, auto const &b) {
-                       return a.mesh == b.mesh && a.casts_shadow == b.casts_shadow;
+                       return a.geometry_identity() == b.geometry_identity() &&
+                              a.casts_shadow == b.casts_shadow;
                    });
     TemporalShadowData const temporal{
         .previous_view_projection = previous_view_projection_,

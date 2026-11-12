@@ -256,6 +256,94 @@ void attribute_encodings(Fixture &fixture)
     }
 }
 
+void skinning(Fixture &fixture)
+{
+    auto source = triangle();
+    auto add_attribute = [&](int component, int type, std::size_t count,
+                             std::vector<unsigned char> bytes) {
+        auto &data = source.buffers[0].data;
+        while (data.size() % 4)
+            data.push_back(0);
+        tinygltf::BufferView view;
+        view.buffer = 0;
+        view.byteOffset = data.size();
+        view.byteLength = bytes.size();
+        source.bufferViews.push_back(view);
+        data.insert(data.end(), bytes.begin(), bytes.end());
+        tinygltf::Accessor accessor;
+        accessor.bufferView = static_cast<int>(source.bufferViews.size() - 1);
+        accessor.componentType = component;
+        accessor.type = type;
+        accessor.count = count;
+        source.accessors.push_back(accessor);
+        return static_cast<int>(source.accessors.size() - 1);
+    };
+    auto &attributes = source.meshes[0].primitives[0].attributes;
+    attributes["JOINTS_0"] =
+        add_attribute(TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE, TINYGLTF_TYPE_VEC4, 3,
+                      {0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0});
+    // Normalized integer weights exercise the import path used by compact assets.
+    auto const weights = add_attribute(TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE, TINYGLTF_TYPE_VEC4, 3,
+                                       {128, 127, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0});
+    source.accessors[weights].normalized = true;
+    attributes["WEIGHTS_0"] = weights;
+    tinygltf::Node joint;
+    joint.name = "joint";
+    joint.translation = {0, 5, 0};
+    source.nodes.push_back(joint);
+    source.nodes[1].children.push_back(2);
+    source.nodes[0].skin = 0;
+    tinygltf::Skin skin;
+    skin.joints = {1, 2};
+    std::vector<unsigned char> matrices;
+    for (auto const &matrix : {glm::translate(glm::mat4{1}, glm::vec3{0, -3, 0}),
+                               glm::translate(glm::mat4{1}, glm::vec3{0, -8, 0})})
+        for (int c = 0; c < 4; ++c)
+            for (int r = 0; r < 4; ++r)
+                append_float(matrices, matrix[c][r]);
+    skin.inverseBindMatrices =
+        add_attribute(TINYGLTF_COMPONENT_TYPE_FLOAT, TINYGLTF_TYPE_MAT4, 2, matrices);
+    source.skins.push_back(skin);
+    auto model = lc1::scene::Model::load_from_file(fixture.write(source, true));
+    check(model.skins().size() == 1, "import skin binding");
+    lc1::scene::ModelInstance pose{model.definition()};
+    auto const &binding = model.skins().front();
+    auto const rest = pose.skin_vertices(binding);
+    auto const joint_node = *model.definition().find_node("joint");
+    auto transform = pose.local_transforms()[joint_node];
+    transform.translation.x += 2;
+    pose.set_local_transform(joint_node, transform);
+    auto const deformed = pose.skin_vertices(binding);
+    check(std::abs(deformed[0].position.x - rest[0].position.x - 254.0F / 255.0F) < 1e-5F,
+          "blended joints apply inverse bind matrices");
+    check(deformed[1].position == rest[1].position, "zero influence leaves vertex unchanged");
+    check(std::abs(deformed[2].position.x - rest[2].position.x - 2) < 1e-5F,
+          "full influence moves vertex");
+    lc1::scene::ModelInstance other{model.definition()};
+    check(other.skin_vertices(binding)[0].position == rest[0].position,
+          "skin instances are independent");
+    // Mesh placement is inverted out of the palette, including animation on that node.
+    auto const mesh_node = binding.node;
+    transform = pose.local_transforms()[mesh_node];
+    transform.translation.z = 4;
+    pose.set_local_transform(mesh_node, transform);
+    auto const local = pose.skin_vertices(binding);
+    auto const world =
+        pose.node_world_matrix(mesh_node, glm::mat4{1}) * glm::vec4{local[2].position, 1};
+    check(std::abs(world.z - deformed[2].position.z) < 1e-5F,
+          "mesh placement is not applied twice");
+    auto invalid = source;
+    invalid.skins[0].joints = {99, 2};
+    rejects([&] { lc1::scene::Model::load_from_file(fixture.write(invalid)); });
+    invalid = source;
+    invalid.skins[0].joints = {1};
+    invalid.skins[0].inverseBindMatrices = -1;
+    rejects([&] { lc1::scene::Model::load_from_file(fixture.write(invalid)); });
+    invalid = source;
+    invalid.accessors[weights].count = 2;
+    rejects([&] { lc1::scene::Model::load_from_file(fixture.write(invalid)); });
+}
+
 void invalid_files(Fixture &fixture)
 {
     auto invalid = [&](auto change) {
@@ -281,7 +369,7 @@ void invalid_files(Fixture &fixture)
 }
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
     try {
         Fixture fixture;
@@ -289,6 +377,26 @@ int main()
         geometry_variants(fixture);
         attribute_encodings(fixture);
         invalid_files(fixture);
+        skinning(fixture);
+        if (argc == 2) {
+            auto const model = lc1::scene::Model::load_from_file(argv[1]);
+            check(!model.skins().empty(), "asset has a skin");
+            lc1::scene::ModelInstance pose{model.definition()};
+            for (std::size_t clip = 0; clip < model.definition().animations().size(); ++clip) {
+                pose.play_animation(clip, false);
+                for (int step = 0; step < 31; ++step) {
+                    for (auto const &skin : model.skins()) {
+                        auto const vertices = pose.skin_vertices(skin);
+                        for (auto const &vertex : vertices)
+                            check(std::isfinite(glm::length(vertex.position)) &&
+                                      std::isfinite(glm::length(vertex.normal)),
+                                  "asset skinning stays finite");
+                    }
+                    pose.update_animation(model.definition().animations()[clip].duration() / 30.0F);
+                }
+            }
+            std::cout << "External skinned asset and all selected clips passed\n";
+        }
         std::cout << "Model loading tests passed\n";
     }
     catch (std::exception const &error) {

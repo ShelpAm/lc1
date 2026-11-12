@@ -16,7 +16,8 @@ std::vector<GpuMesh> upload_meshes(Device const &device, Model const &model)
 } // namespace
 
 GpuModel::GpuModel(Device const &device, Model model)
-    : meshes_(upload_meshes(device, model)), definition_(std::move(model).definition())
+    : meshes_(upload_meshes(device, model)), definition_(std::move(model).definition()),
+      skins_(model.skins().begin(), model.skins().end())
 {
 }
 

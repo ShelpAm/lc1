@@ -80,6 +80,9 @@ struct ModelConfig {
     rfl::DefaultVal<std::string> weapon_mount{"RightHandGrip"};
     rfl::DefaultVal<std::string> idle_animation;
     rfl::DefaultVal<std::string> action_animation;
+    rfl::DefaultVal<std::string> move_animation;
+    rfl::DefaultVal<std::string> attack_animation;
+    rfl::DefaultVal<std::string> death_animation;
 
     bool operator==(ModelConfig const &other) const;
 };

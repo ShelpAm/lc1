@@ -5,7 +5,7 @@
 
 namespace lc1::scene {
 
-// Shared runtime asset. Uploads every mesh and releases the supplied CPU geometry.
+// Shared runtime asset. Uploads meshes; retains bind geometry/weights only for skinning.
 // Device must outlive this owner; wait for GPU uses before destruction. Instances
 // borrow the definition and meshes, so this owner stays at a stable address.
 class GpuModel {
@@ -23,6 +23,9 @@ class GpuModel {
 
     ModelDefinition const &definition() const &;
     ModelDefinition const &definition() const && = delete;
+
+    std::span<SkinnedMesh const> skins() const { return skins_; }
+
     std::span<GpuMesh const> meshes() const &;
     std::span<GpuMesh const> meshes() const && = delete;
 
@@ -30,6 +33,7 @@ class GpuModel {
     // Upload before extracting the definition from the CPU model.
     std::vector<GpuMesh> meshes_;
     ModelDefinition definition_;
+    std::vector<SkinnedMesh> skins_;
 };
 
 } // namespace lc1::scene

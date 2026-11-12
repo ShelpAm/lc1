@@ -121,7 +121,10 @@ bool ModelConfig::operator==(ModelConfig const &other) const
            animations.value() == other.animations.value() && eyes.value() == other.eyes.value() &&
            weapon_mount.value() == other.weapon_mount.value() &&
            idle_animation.value() == other.idle_animation.value() &&
-           action_animation.value() == other.action_animation.value();
+           action_animation.value() == other.action_animation.value() &&
+           move_animation.value() == other.move_animation.value() &&
+           attack_animation.value() == other.attack_animation.value() &&
+           death_animation.value() == other.death_animation.value();
 }
 
 void validate_model_config(ModelConfig const &config)
@@ -182,7 +185,16 @@ scene::Model load_configured_model(ModelConfig const &config,
     for (auto &clip : animations)
         for (auto &channel : clip.channels)
             ++channel.node;
-    scene::Model model{std::move(meshes), std::move(nodes), std::move(animations)};
+    std::vector<scene::SkinnedMesh> skins{imported.skins().begin(), imported.skins().end()};
+    if (!skins.empty() && !config.nodes.value().empty())
+        fail("configured nodes cannot replace a skinned hierarchy");
+    for (auto &skin : skins) {
+        ++skin.node;
+        for (auto &joint : skin.skin.joints)
+            ++joint;
+    }
+    scene::Model model{std::move(meshes), std::move(nodes), std::move(animations),
+                       std::move(skins)};
     if (!config.material.value().normal_texture.value().empty())
         model.generate_tangents();
     return model;

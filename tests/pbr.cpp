@@ -1,4 +1,5 @@
 #include "character-input.hpp"
+#include "lc1/image.hpp"
 #include "render-device.hpp"
 
 #include "lc1/game/character/ai-character-controller.hpp"
@@ -878,7 +879,13 @@ void player_models_test(lc1::Device const &device)
         device, lc1::load_configured_model(character, "runtime/assets", lc1::CharacterBody{})};
     lc1::scene::GpuModel sword{
         device, lc1::load_configured_model(weapon_config, "runtime/assets", lc1::CharacterBody{})};
-    auto const wood = character.material.value().material();
+    auto wood = character.material.value().material();
+    lc1::GpuTexture body_texture{
+        device,
+        lc1::Image::load_from_file(std::filesystem::path{"runtime/assets"} /
+                                   character.material.value().base_color_texture.value()),
+        lc1::TextureColorSpace::Srgb};
+    wood.base_color.texture = &body_texture;
     auto const metal = weapon_config.material.value().material();
     lc1::scene::Scene scene;
     auto *player = scene.add_model({.model = &barrel, .material = &wood});
@@ -896,7 +903,18 @@ void player_models_test(lc1::Device const &device)
     auto render = [&] {
         return capture(device, renderer, frame, camera, scene, {.width = 800, .height = 600});
     };
+    player->pose.play_animation(*barrel.definition().find_animatinon(*character.idle_animation));
     auto const rest = render();
+    player->pose.play_animation(*barrel.definition().find_animatinon(*character.move_animation));
+    player->pose.update_animation(0.35F);
+    auto const running = render();
+    check(rest.output != running.output, "skinned run visibly changes the imported body");
+    auto second_frame =
+        renderer.make_frame_resources(static_cast<std::uint32_t>(scene.draw_count()));
+    auto const other_slot =
+        capture(device, renderer, second_frame, camera, scene, {.width = 800, .height = 600});
+    check(running.output == other_slot.output, "frame slots render the same skinned pose");
+    player->pose.play_animation(*barrel.definition().find_animatinon(*character.idle_animation));
     weapon->pose.play_animation(0, false);
     scene.update_animations(0.28F);
     auto const swing = render();
@@ -916,6 +934,7 @@ void player_models_test(lc1::Device const &device)
         check(image.good(), "failed to save player model capture");
     };
     save(rest, "artifacts/player-weapon-rest.ppm");
+    save(running, "artifacts/player-rumble-run.ppm");
     save(swing, "artifacts/player-weapon-swing.ppm");
 
     // Exercise production YAML -> world snapshot -> presentation-owned models.
@@ -932,6 +951,32 @@ void player_models_test(lc1::Device const &device)
     {
         lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
                                             {},     lc1::PlayerId{73}};
+        auto &rumble_state = state.characters.front();
+        auto const &rumble_pose = presentation.character_model(rumble_state.keyid).pose;
+        auto const clip_name = [&]() -> std::string_view {
+            check(rumble_pose.playback().has_value(), "Rumble has active animation playback");
+            return rumble_pose.model().animations()[rumble_pose.playback()->animation].name;
+        };
+        rumble_state.pose.world_transform.position.x += 0.2F;
+        presentation.update(0.1F, {});
+        check(clip_name() == "Run_Base", "movement selects Rumble run clip");
+        presentation.update(0.1F, {});
+        check(clip_name() == "Idle1_Base", "stopping returns Rumble to idle");
+        ++rumble_state.attack_sequence;
+        presentation.update(0.1F, {});
+        check(clip_name() == "Rumble_Skin03_Attack1.anm",
+              "accepted attack animates the Rumble body");
+        presentation.update(2.0F, {});
+        presentation.update(0, {});
+        check(clip_name() == "Idle1_Base", "finished body action returns to idle");
+        rumble_state.dead = true;
+        rumble_state.reaction_time = 0;
+        presentation.update(0.1F, {});
+        check(clip_name() == "Death", "death selects authored Rumble animation");
+        presentation.update(0.1F, {});
+        check(rumble_pose.playback()->time > 0.19, "death playback is not restarted each frame");
+        state = lc1::capture_world(world);
+        presentation.update(0, {});
         auto const grass_capacity = presentation.object_capacity();
         auto const default_draws = presentation.scene().draws().size();
         presentation.set_grass_density(0);

@@ -121,12 +121,15 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 |---|---|
 | `path` | 相对 asset root 的 OBJ/glTF/GLB 路径；`builtin:flashlight` 为程序生成手电筒；空路径为角色占位几何，武器空路径不装配显示实例 |
 | `transform` | 整个模型的局部变换，默认单位变换 |
-| `nodes` | 可选节点数组；非空时替换文件节点层级，复用文件中的网格 |
+| `nodes` | 可选节点数组；非空时替换文件节点层级，复用文件中的网格；带蒙皮的文件禁止替换绑定层级 |
 | `animations` | 与显式节点配套的动画片段数组；未提供节点时保留文件自带节点和动画 |
 | `material` | 覆盖整个模型的 PBR 材质，不自动读取 OBJ MTL 或 glTF 材质 |
 | `eyes` | 相机挂点名称，默认 `Eyes`；空字符串使用角色配置眼高 |
 | `weapon_mount` | 角色模型的主手挂点名称，默认 `RightHandGrip` |
-| `idle_animation` | NPC 循环动画名称，默认不播放 |
+| `idle_animation` | 角色待机循环动画名称，默认不播放 |
+| `move_animation` | 位置移动时的循环动画名称，默认沿用待机 |
+| `attack_animation` | 角色自身的攻击片段名称，默认不播放，与武器动画独立 |
+| `death_animation` | 死亡时单次播放并停留末帧；未配置时保留程序倒地表现 |
 | `action_animation` | 玩家 F2 / 武器左键单次动画名称，默认不播放 |
 
 `transform` 包含 `translation`、`rotation_degrees`、`scale`，均为三元素数组，默认分别为

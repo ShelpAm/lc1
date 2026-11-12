@@ -180,6 +180,20 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
     auto lights = input.lights();
     auto draws = input.draws();
     validate_draws(resources, target.extent, draws);
+    resources.skinned_geometry.resize(draws.size());
+    for (std::size_t i = 0; i < draws.size(); ++i) {
+        auto &draw = draws[i];
+        if (!draw.skinned_vertices)
+            continue;
+        auto &geometry = resources.skinned_geometry[i];
+        if (geometry.source != draw.mesh) {
+            geometry.mesh = std::make_unique<GpuMesh>(*device_, draw.skinned_vertices->size(),
+                                                      draw.skin_indices);
+            geometry.source = draw.mesh;
+        }
+        draw.source_mesh = draw.mesh;
+        draw.mesh = geometry.mesh.get();
+    }
     if (lights.size() > max_num_lights)
         fail("light count exceeds supported capacity {}", max_num_lights);
 
@@ -197,6 +211,13 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .draws = std::move(draws),
         .diffuse_gi = input.diffuse_gi(),
     });
+    graph.add_pass("Skinned geometry", {"frame.inputs"}, {"geometry.ready"},
+                   [this, &resources, scene](CommandBuffer &cmd) {
+                       for (std::size_t i = 0; i < scene->draws.size(); ++i)
+                           if (auto const &vertices = scene->draws[i].skinned_vertices)
+                               resources.skinned_geometry[i].mesh->update_vertices(
+                                   *device_, cmd.raii(), *vertices);
+                   });
     ray_query_shadows_.add_passes(graph, resources, target.extent, scene);
     graph.add_pass(
         "Material preparation", {"frame.inputs"}, {"material.frame"},

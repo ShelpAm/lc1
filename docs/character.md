@@ -1,6 +1,6 @@
 # Character：角色状态、模型与控制
 
-当前角色支持站立和沿地面移动，表现层的身体/头部节点已有待机动画。主角、士兵和 NPC 都可以使用
+当前角色支持站立和沿地面移动，表现层支持节点动画与四权重骨骼蒙皮；实现约束见[资源管理](resources.md#骨骼蒙皮)。主角、士兵和 NPC 都可以使用
 `lc1::Character`；由玩家还是 AI 控制，不改变角色自身的类型。
 
 角色属于游戏层，声明在 `include/lc1/game/character/character.hpp`，状态与动作请求处理在 `src/game/character/character.cpp`，
@@ -18,7 +18,7 @@
 | 行走和奔跑速度 | `CharacterConfig::walk_speed()` / `run_speed()`，由敏捷计算 |
 | 模型原点、单位、坐标轴的校正 | `ModelDefinition` 的根节点变换，随实例姿态参与绘制 |
 | CPU 顶点和索引 | `Model` |
-| GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有的 `GpuModel`；NPC 共用占位资源，玩家和武器各自加载 |
+| GPU 顶点、索引和 BLAS | `WorldPresentation` 拥有共享 `GpuModel`；蒙皮变形缓冲与 BLAS 由每个帧槽独立拥有 |
 | 绘制资源引用 | `WorldPresentation` 生成的 `DrawItem`，借用资源 |
 | 玩家输入和控制决策 | `PlayerCharacterController` 解释输入并产生 `CharacterIntent`；角色不包含 `GameInputRouter`、`Window` 或相机 |
 | 动作请求、期望速度与朝向 | `Character::update(delta, continent)` 及其 gameplay 规则 |
@@ -178,14 +178,19 @@ AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、�
 会话按菜单状态、Gameplay/UI context、窗口焦点和 ImGui capture 决定是否提供控制输入。
 鼠标捕获由 Application 执行，菜单打开时释放，不用于反推是否启用鼠标观察。
 
-## 动画与后续蒙皮边界
+## 动画与蒙皮边界
 
 Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段；
 `Character` 不借用 Scene；接受挥砍请求后增加 `attack_sequence`，由表现层读取快照触发武器动画。
 `WorldPresentation` 装配模型、设置初始待机动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
-NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2 经角色 intent 增加 `nod_sequence`，所有观察者播放一次 `Nod`（再次按下从头播放）：
-前 1.2 秒向下点头两次（25°），随后保持直立，片段总长 3 秒且不循环。均为刚性节点动画；角色世界姿态仍只属于 `Character`。
-受击和死亡使用表现层的整模型刚性动画，见下文；尚未实现骨骼蒙皮、行走动画选择、动画混合、root motion 或布娃娃。
+配置了 `idle_animation` 的角色循环待机；配置了 `move_animation` 的角色在水平位置变化时切换移动片段。
+按 F2 经角色 intent 增加 `nod_sequence`，所有观察者播放一次 `action_animation`（再次按下从头播放）。
+占位角色仍使用头部左右转动的 `Idle` 和前 1.2 秒双次点头、总长 3 秒的 `Nod`。
+兰博使用资源中的待机、跑步、身体攻击、死亡和玩笑片段；单次动作播放完后恢复待机或移动。
+角色世界姿态仍只属于 `Character`，动画不改写玩法坐标。
+受击保留整模型刚性表现；配置死亡片段的模型播放原动画，不再叠加程序倒地旋转。
+骨骼绑定和 CPU 蒙皮的导入、变形与帧槽资源约束见[资源管理](resources.md#骨骼蒙皮)。
+尚未实现动画混合、root motion 或布娃娃。
 占位模型的 `Eyes` 是 `Head` 下的无网格挂点，默认世界位置等于脚底加身体配置的眼睛高度。
 第一人称相机读取本帧动画后的挂点世界变换；位置和观察方向都跟随挂点，鼠标观察角在身体局部空间叠加到挂点旋转。
 斜视角忽略眼睛挂点。`Character::eye_position()` 仍是玩法层的配置高度查询，未被动画改写；
@@ -218,7 +223,7 @@ NPC 循环播放头部左右转动的 `Idle`，玩家默认保持静止，按 F2
 快照复制血量、最大血量、受击序号、死亡状态与反应时间，人物属性面板读取真实血量。
 `WorldPresentation` 将 `character_reaction_transform()` 叠加到角色的绘制世界矩阵：
 受击用 0.3 秒后仰并回正，死亡用 0.6 秒向前倒地、抬升半宽以贴近平地，结束后保持最后姿势。
-这些是适配当前木桶／方块模型的程序化刚性动画，不需要外部骨骼片段。
+未配置死亡片段时使用这些程序化刚性动画；配置了 `death_animation` 的模型改为播放自身片段。
 死亡时停止原有待机和点头，受击与死亡均停止武器动作；武器和眼睛继续跟随最终挂点。
 动画不会改写玩法坐标，尸体仍沿用直立地形碰撞体；斜坡贴合和布娃娃尚未实现。
 血量随 checkpoint 保存，旧进度缺少血量字段时默认为满血；已死亡角色读档后直接显示最终倒地姿势。

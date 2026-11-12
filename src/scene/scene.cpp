@@ -100,12 +100,25 @@ std::vector<DrawItem> Scene::draws() const
             if (!model->material || !model->model ||
                 &model->pose.model() != &model->model->definition())
                 fail("scene model has invalid resource bindings");
-            for (auto const &mesh : model->pose.mesh_instances(model->world_transform)) {
+            auto const instances = model->pose.mesh_instances(model->world_transform);
+            std::size_t draw_index = 0;
+            for (std::size_t node = 0; node < model->pose.model().nodes().size(); ++node) {
+                if (!model->pose.model().nodes()[node].mesh_index)
+                    continue;
+                auto const &mesh = instances[draw_index++];
                 result.push_back({.mesh = &model->model->meshes()[mesh.mesh],
                                   .material = model->material,
                                   .model_matrix = mesh.model_matrix,
                                   .casts_shadow = model->casts_shadow,
                                   .depth_bias = model->depth_bias});
+                for (auto const &skin : model->model->skins())
+                    if (skin.node == node) {
+                        result.back().skinned_vertices =
+                            std::make_shared<std::vector<Vertex> const>(
+                                model->pose.skin_vertices(skin));
+                        result.back().skin_indices = skin.indices;
+                        break;
+                    }
             }
         }
     return result;

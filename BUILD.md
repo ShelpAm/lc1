@@ -51,6 +51,10 @@ conan profile detect
 External resources under `runtime/assets/` are not included in the repository.
 Place the required assets there. For compilation or CPU tests, an empty directory
 satisfies the asset copy step; it does not supply the assets needed to run the game.
+The seed lc character uses the supplied Rumble model. After placing
+`银河魔装机神_兰博.glb` under `runtime/assets/lc-res/`, run
+`python scripts/prepare-rumble.py` once to generate its runtime variant and body atlas.
+The original file is preserved; generated assets remain under the ignored asset directory.
 
 ```sh
 mkdir -p runtime/assets

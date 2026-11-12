@@ -170,3 +170,7 @@ cd build/linux-x86_64/Debug
 ```
 
 迁移与地址读取修复的实机结果见[历史验证记录](history/ray-query-validation.md)。
+
+蒙皮模型先在 `Skinned geometry` pass 上传本帧 CPU 变形并重建帧槽独立 BLAS，
+随后即使实例矩阵与 BLAS 地址未变，也重建 TLAS 以更新边界。
+光栅可见性和 ray query 使用同一网格；变形接收面不复用历史。蒙皮数据与资源归属见[资源管理](resources.md#骨骼蒙皮)。

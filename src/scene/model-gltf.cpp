@@ -164,7 +164,8 @@ NodeTransform node_transform(tinygltf::Node const &node)
     return result;
 }
 
-Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &primitive)
+Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &primitive,
+                      std::vector<VertexInfluences> &influences)
 {
     if ((primitive.mode != -1 && primitive.mode != TINYGLTF_MODE_TRIANGLES) ||
         !primitive.targets.empty() || !primitive.extensions.empty())
@@ -181,9 +182,44 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
         vertices[i].position = positions.vec3(i);
         vertices[i].uv = {0, 0};
     }
+    auto const joints = primitive.attributes.find("JOINTS_0");
+    auto const weights = primitive.attributes.find("WEIGHTS_0");
+    if ((joints == primitive.attributes.end()) != (weights == primitive.attributes.end()))
+        fail("glTF joints and weights must be supplied together");
+    if (joints != primitive.attributes.end()) {
+        AccessorReader joint_values{model, joints->second, TINYGLTF_TYPE_VEC4};
+        AccessorReader weight_values{model, weights->second, TINYGLTF_TYPE_VEC4};
+        if (joint_values.count() != vertices.size() || weight_values.count() != vertices.size() ||
+            joint_values.normalized() ||
+            (joint_values.component_type() != TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE &&
+             joint_values.component_type() != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT))
+            fail("invalid glTF skin attribute encoding or count");
+        if (weight_values.component_type() != TINYGLTF_COMPONENT_TYPE_FLOAT &&
+            !((weight_values.component_type() == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE ||
+               weight_values.component_type() == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) &&
+              weight_values.normalized()))
+            fail("invalid glTF skin weight encoding");
+        if (weight_values.component_type() == TINYGLTF_COMPONENT_TYPE_FLOAT)
+            weight_values.require_float();
+        influences.resize(vertices.size());
+        for (std::size_t i = 0; i < vertices.size(); ++i) {
+            float sum = 0;
+            for (int j = 0; j < 4; ++j) {
+                influences[i].joints[j] = static_cast<unsigned>(joint_values.read(i, j));
+                auto const weight = static_cast<float>(weight_values.read(i, j));
+                if (weight < 0)
+                    fail("glTF skin weight must be nonnegative");
+                influences[i].weights[j] = weight;
+                sum += weight;
+            }
+            if (!std::isfinite(sum) || sum <= 0)
+                fail("glTF skin weights require a positive finite sum");
+            influences[i].weights /= sum;
+        }
+    }
     bool has_normals = false;
     for (auto const &[name, index] : primitive.attributes) {
-        if (name == "POSITION")
+        if (name == "POSITION" || name == "JOINTS_0" || name == "WEIGHTS_0")
             continue;
         int type{};
         if (name == "NORMAL")
@@ -251,6 +287,7 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
         fail("glTF primitive requires complete triangles");
     if (!has_normals) {
         std::vector<Vertex> flat;
+        std::vector<VertexInfluences> flat_influences;
         flat.reserve(indices.size());
         for (std::size_t i = 0; i < indices.size(); i += 3) {
             auto const normal =
@@ -262,9 +299,12 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
                 auto vertex = vertices[indices[i + corner]];
                 vertex.normal = glm::normalize(normal);
                 flat.push_back(vertex);
+                if (!influences.empty())
+                    flat_influences.push_back(influences[indices[i + corner]]);
             }
         }
         vertices = std::move(flat);
+        influences = std::move(flat_influences);
         std::iota(indices.begin(), indices.end(), 0U);
     }
     return {std::move(vertices), std::move(indices)};
@@ -294,10 +334,9 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
         spdlog::warn(
             "[gltf] Material bindings are not imported; callers must provide draw materials: {}",
             filename);
-    if (!source.skins.empty())
-        fail("glTF skinning is not implemented");
 
     std::vector<Mesh> meshes;
+    std::vector<std::vector<VertexInfluences>> influences;
     std::vector<std::vector<std::size_t>> mesh_indices(source.meshes.size());
     for (std::size_t i = 0; i < source.meshes.size(); ++i) {
         auto const &mesh = source.meshes[i];
@@ -305,7 +344,8 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
             fail("glTF morph weights are unsupported");
         for (auto const &primitive : mesh.primitives) {
             mesh_indices[i].push_back(meshes.size());
-            meshes.push_back(import_primitive(source, primitive));
+            influences.emplace_back();
+            meshes.push_back(import_primitive(source, primitive, influences.back()));
         }
     }
     // Keep a common identity root outside authored hierarchy and animation targets.
@@ -336,8 +376,8 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
         auto const &node = element(source.nodes, index);
         if (mapping[static_cast<std::size_t>(index)])
             fail("glTF nodes contain a cycle or multiple parents");
-        if (node.skin >= 0 || !node.weights.empty())
-            fail("glTF skinning/morph weights are unsupported");
+        if (!node.weights.empty())
+            fail("glTF morph weights are unsupported");
         auto const imported = nodes.size();
         mapping[static_cast<std::size_t>(index)] = imported;
         nodes.push_back(
@@ -407,6 +447,59 @@ Model Model::load_from_gltf(std::filesystem::path const &path)
         if (!clip.channels.empty())
             animations.push_back(std::move(clip));
     }
-    return Model{std::move(meshes), std::move(nodes), std::move(animations)};
+    // Validate even unused skin records at the file boundary.
+    std::vector<Skin> skins;
+    for (auto const &skin : source.skins) {
+        if (skin.joints.empty())
+            fail("glTF skin requires joints");
+        Skin imported;
+        for (auto const joint : skin.joints) {
+            element(source.nodes, joint);
+            auto const mapped = mapping[static_cast<std::size_t>(joint)];
+            if (!mapped)
+                fail("glTF skin joint is outside the selected scene");
+            imported.joints.push_back(*mapped);
+        }
+        imported.inverse_bind_matrices.resize(skin.joints.size(), glm::mat4{1});
+        if (skin.inverseBindMatrices >= 0) {
+            AccessorReader values{source, skin.inverseBindMatrices, TINYGLTF_TYPE_MAT4};
+            values.require_float();
+            if (values.count() != skin.joints.size())
+                fail("glTF inverse bind matrix count mismatch");
+            for (std::size_t i = 0; i < values.count(); ++i)
+                for (int c = 0; c < 4; ++c)
+                    for (int r = 0; r < 4; ++r)
+                        imported.inverse_bind_matrices[i][c][r] =
+                            static_cast<float>(values.read(i, c * 4 + r));
+        }
+        skins.push_back(std::move(imported));
+    }
+    // The Model constructor owns the final validation of palette indices and transforms.
+    Model geometry{std::move(meshes), nodes, animations};
+    std::vector<SkinnedMesh> bindings;
+    for (std::size_t i = 0; i < source.nodes.size(); ++i) {
+        auto const &node = source.nodes[i];
+        if (!mapping[i] || node.skin < 0)
+            continue;
+        auto const &skin = element(skins, node.skin);
+        if (node.mesh < 0)
+            fail("glTF skin requires a mesh");
+        auto const &primitives = element(mesh_indices, node.mesh);
+        for (std::size_t p = 0; p < primitives.size(); ++p) {
+            auto const mesh = primitives[p];
+            if (influences[mesh].empty())
+                fail("glTF skinned mesh requires vertex influences");
+            auto const target = primitives.size() == 1 ? *mapping[i] : *mapping[i] + 1 + p;
+            auto const vertices = geometry.vertices(mesh);
+            auto const indices = geometry.indices(mesh);
+            bindings.push_back({.node = target,
+                                .skin = skin,
+                                .vertices = {vertices.begin(), vertices.end()},
+                                .indices = {indices.begin(), indices.end()},
+                                .influences = influences[mesh]});
+        }
+    }
+    return Model{std::move(geometry.meshes_), std::move(nodes), std::move(animations),
+                 std::move(bindings)};
 }
 } // namespace lc1::scene

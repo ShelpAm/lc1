@@ -36,9 +36,15 @@ class GpuMesh {
     {
     }
 
+    // Allocate per-slot deformable geometry without submitting or waiting on the queue.
+    GpuMesh(Device const &device, std::size_t vertex_count, std::span<std::uint32_t const> indices);
+
     // Binds the vertex buffer and draws. The pipeline must already be bound.
     void draw(vk::raii::CommandBuffer const &command_buffer) const;
 
+    // Current frame slot must be idle. Staging and geometry survive GPU execution.
+    void update_vertices(Device const &device, vk::raii::CommandBuffer const &commands,
+                         std::span<Vertex const> vertices);
     bool has_tangents() const;
 
     std::uint32_t triangle_count() const { return index_count_ / 3; }
@@ -49,9 +55,12 @@ class GpuMesh {
     std::uint32_t index_stride() const;
 
   private:
+    vk::AccelerationStructureGeometryKHR acceleration_geometry() const;
     void build_acceleration_structure(Device const &device);
 
     GpuBuffer vertices_;
+    std::optional<GpuBuffer> vertex_staging_;
+    std::optional<GpuBuffer> index_staging_;
     std::uint32_t vertex_count_;
     GpuBuffer indices_;
     std::uint32_t index_count_;

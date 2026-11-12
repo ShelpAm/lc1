@@ -1,6 +1,10 @@
 #pragma once
 
+#include "lc1/vertex.hpp"
 #include <glm/mat4x4.hpp>
+#include <memory>
+#include <span>
+#include <vector>
 
 namespace lc1 {
 
@@ -20,6 +24,12 @@ struct DrawItem {
     // Pulls coplanar decals toward the camera in depth without moving their geometry.
     // Road overlays use this instead of relying on a large visual lift.
     bool depth_bias = false;
+    // Owned deformation snapshot; bind indices borrow the model asset, like mesh.
+    std::shared_ptr<std::vector<Vertex> const> skinned_vertices{};
+    std::span<std::uint32_t const> skin_indices{};
+    GpuMesh const *source_mesh = nullptr;
+
+    GpuMesh const *geometry_identity() const { return source_mesh ? source_mesh : mesh; }
 };
 
 } // namespace lc1

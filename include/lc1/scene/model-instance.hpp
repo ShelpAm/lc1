@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lc1/scene/model-definition.hpp"
+#include "lc1/scene/skin.hpp"
 
 #include <optional>
 
@@ -37,6 +38,8 @@ class ModelInstance {
     void play_animation(std::size_t animation, bool looping = true);
     void update_animation(float delta_seconds);
     std::optional<AnimationPlayback> playback() const;
+    // Binding must belong to this instance's shared model, which has validated its indices.
+    std::vector<Vertex> skin_vertices(SkinnedMesh const &mesh) const;
 
     // Computed on demand: no stale matrix cache and no copy of the gameplay world transform.
     std::vector<glm::mat4> model_matrices() const;

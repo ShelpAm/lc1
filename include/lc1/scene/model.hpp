@@ -3,6 +3,7 @@
 #include "lc1/scene/mesh.hpp"
 #include "lc1/scene/model-definition.hpp"
 #include "lc1/scene/model-node.hpp"
+#include "lc1/scene/skin.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -23,7 +24,7 @@ class Model {
 
     // Hierarchical models keep authored node transforms.
     Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
-          std::vector<AnimationClip> animations = {});
+          std::vector<AnimationClip> animations = {}, std::vector<SkinnedMesh> skins = {});
 
     std::size_t mesh_count() const;
     ModelDefinition const &definition() const &;
@@ -34,12 +35,15 @@ class Model {
 
     std::span<std::uint32_t const> indices(std::size_t mesh_index = 0) const;
 
+    std::span<SkinnedMesh const> skins() const;
+
     // Preprocess before uploading or borrowing the model from any instance.
     void generate_tangents();
 
   private:
     std::vector<Mesh> meshes_;
     ModelDefinition definition_;
+    std::vector<SkinnedMesh> skins_;
 };
 
 } // namespace lc1::scene

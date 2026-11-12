@@ -6,6 +6,7 @@
 #include "lc1/vk/resources/descriptor-heap-cache.hpp"
 #include "lc1/vk/resources/descriptor-heap.hpp"
 #include "lc1/vk/resources/gpu-image.hpp"
+#include "lc1/vk/resources/gpu-mesh.hpp"
 #include <memory>
 
 #include <optional>
@@ -42,6 +43,13 @@ struct FrameResources {
     // Preserve heap/cache identity and the lifetime of resources referenced by descriptors.
     FrameResources &operator=(FrameResources &&) = delete;
 
+    // Independent dynamic geometry/BLAS per frame slot, reused after its fence.
+    struct SkinnedGeometry {
+        GpuMesh const *source = nullptr;
+        std::unique_ptr<GpuMesh> mesh;
+    };
+
+    std::vector<SkinnedGeometry> skinned_geometry;
     RayQueryShadowFrameResources ray_query;
     bool ddgi_active = false;
     std::optional<GpuBuffer> ddgi_uniform;

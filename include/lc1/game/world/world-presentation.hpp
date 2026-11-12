@@ -106,6 +106,11 @@ class WorldPresentation {
         bool uses_flashlight = false;
         scene::SceneModel *helmet = nullptr;
         std::optional<std::size_t> head_mount;
+        std::optional<std::size_t> idle_animation;
+        std::optional<std::size_t> move_animation;
+        std::optional<std::size_t> body_attack_animation;
+        std::optional<std::size_t> death_animation;
+        glm::vec3 previous_position{};
     };
 
     std::vector<CharacterModels> character_models_;

@@ -106,6 +106,37 @@ void ModelInstance::update_animation(float delta_seconds)
     playback_->time = time;
 }
 
+std::vector<Vertex> ModelInstance::skin_vertices(SkinnedMesh const &mesh) const
+{
+    auto const matrices = model_matrices();
+    auto const inverse_mesh = glm::inverse(matrices[mesh.node]);
+    std::vector<glm::mat4> palette;
+    for (std::size_t i = 0; i < mesh.skin.joints.size(); ++i)
+        palette.push_back(inverse_mesh * matrices[mesh.skin.joints[i]] *
+                          mesh.skin.inverse_bind_matrices[i]);
+    auto vertices = mesh.vertices;
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        auto const &influence = mesh.influences[i];
+        glm::mat4 transform{0};
+        for (int j = 0; j < 4; ++j)
+            transform += palette[influence.joints[j]] * influence.weights[j];
+        auto &vertex = vertices[i];
+        vertex.position = glm::vec3{transform * glm::vec4{vertex.position, 1}};
+        // Inverse transpose of the blended linear map also handles scaled joints.
+        auto const linear = glm::mat3{transform};
+        float const determinant = glm::determinant(linear);
+        if (!std::isfinite(determinant) || determinant == 0)
+            fail("skin pose produces a singular vertex transform");
+        vertex.normal = glm::normalize(glm::transpose(glm::inverse(linear)) * vertex.normal);
+        if (vertex.tangent.w != 0) {
+            auto tangent = linear * glm::vec3{vertex.tangent};
+            tangent = glm::normalize(tangent - vertex.normal * glm::dot(vertex.normal, tangent));
+            vertex.tangent = {tangent, vertex.tangent.w * (determinant < 0 ? -1.0F : 1.0F)};
+        }
+    }
+    return vertices;
+}
+
 std::optional<AnimationPlayback> ModelInstance::playback() const
 {
     return playback_;
