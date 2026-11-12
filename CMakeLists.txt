@@ -17,6 +17,11 @@ include(CheckCXXCompilerFlag)
 include(CheckLinkerFlag)
 include(CheckCXXSourceCompiles)
 
+# Sources and UI string literals use UTF-8 regardless of the Windows code page.
+if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8>)
+endif()
+
 # clang-cl reports compiler ID Clang but accepts the MSVC command-line dialect.
 # Probe the chosen flags rather than assuming every compiler in a family supports them.
 if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")

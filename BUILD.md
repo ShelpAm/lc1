@@ -306,6 +306,8 @@ do not include launching the game or validating GPU rendering.
   `<print>`, executable `-static`, and KTX 4.4.2's missing `astcenc-avx2-static`
   companion archive from the same package. Link flags belong in CMake; profile
   `*_FLAGS_INIT` changes do not update an existing cache. TinyGLTF filenames use UTF-8.
+- MSVC and clang-cl C++ targets use `/utf-8` for both source and execution
+  character sets. UTF-8 UI literals must not depend on the Windows code page.
 - Windows project C++ targets use large COFF objects: `/bigobj` for MSVC and
   clang-cl, `-Wa,-mbig-obj` for MinGW. CMake probes and applies the appropriate
   option before declaring targets, including libraries, the application, and tests.
