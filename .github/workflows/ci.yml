@@ -50,12 +50,15 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          dnf install -y clang gcc-c++ cmake ninja-build python3 python3-pip git curl-minimal tar gzip zstd pkgconf-pkg-config autoconf automake libtool make perl patch diffutils libglvnd-devel
+          dnf install -y clang gcc-c++ cmake ninja-build python3 python3-pip git git-lfs curl-minimal tar gzip zstd pkgconf-pkg-config autoconf automake libtool make perl patch diffutils libglvnd-devel
           python3 -m venv /opt/ci
           echo /opt/ci/bin >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
         with:
           lfs: false
+      - name: Fetch test fonts
+        if: matrix.testing == 'ON'
+        run: git lfs pull --include="runtime/assets/fonts/LiberationSans-Regular.ttf,runtime/assets/fonts/SourceHanSansCN-Regular.otf" --exclude=""
       - name: Install MinGW toolchain
         if: matrix.profile == 'mingw64'
         run: dnf install -y mingw64-gcc-c++
@@ -114,6 +117,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: false
+      - name: Fetch test fonts
+        run: git lfs pull --include="runtime/assets/fonts/LiberationSans-Regular.ttf,runtime/assets/fonts/SourceHanSansCN-Regular.otf" --exclude=""
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
