@@ -4,6 +4,7 @@
 #include "lc1/game/world/world-snapshot.hpp"
 #include "lc1/platform/window.hpp"
 #include "lc1/vk/render/text-pass.hpp"
+#include "lc1/vk/render/volumetric-clouds.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
 #include <array>
 #include <optional>
@@ -27,6 +28,8 @@ struct GameUiInfo {
     int grass_density;
     bool showcase_animated;
     std::string_view interaction_target;
+    // Live renderer configuration; null when the caller does not render clouds.
+    CloudSettings *clouds = nullptr;
 };
 
 struct GameUiActions {

@@ -75,7 +75,7 @@ Renderer::Renderer(Device const &device, std::vector<vk::Format> const &color_at
       particle_state_{
           .samples = main_state_.samples, .depth_test = true, .depth_write = false, .blend = true},
       bloom_shaders_{device, "shaders/bloom.spv"}, text_pass_{device, main_state_.samples},
-      ray_query_shadows_{device, depth_format_}, ddgi_{device},
+      ray_query_shadows_{device, depth_format_}, ddgi_{device}, cloud_renderer_{device},
       default_sampler_info_{Sampler::default_create_info(device)},
       white_srgb_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Srgb),
       white_linear_(device, {.width = 1, .height = 1}, white_pixel, TextureColorSpace::Linear),
@@ -95,18 +95,24 @@ FrameResources Renderer::make_frame_resources(std::uint32_t object_capacity) con
                          vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
     };
     // Samplers: five material slots per draw plus the texture cache's default and
-    // the text pass's clamped font sampler, DDGI and Bloom filters. Images also
-    // include HDR/shadow histories, font atlas, DDGI and two Bloom images.
-    // Buffers: three per draw, the shared frame uniforms, TLAS address and DDGI UBO.
+    // the text pass's clamped font sampler, DDGI and Bloom filters, and the cloud
+    // layer's wrap-addressed shape sampler. Images also include HDR/shadow histories,
+    // font atlas, DDGI, two Bloom images and the cloud pass's four slots.
+    // Buffers: three per draw, the shared frame uniforms, TLAS address, the DDGI UBO
+    // and the cloud parameters.
     auto heap = std::make_unique<DescriptorHeap>(
-        *device_, 5ULL * object_capacity + 4,
-        5ULL * object_capacity + 10 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
-        3ULL * object_capacity + 7);
-    FrameResources result{std::move(heap), make_buffer(sizeof(CameraData)),
-                          make_buffer(sizeof(LightsData)), make_buffer(sizeof(TemporalShadowData)),
-                          make_buffer(sizeof(ToneMapData))};
+        *device_, 5ULL * object_capacity + 5,
+        5ULL * object_capacity + 14 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
+        3ULL * object_capacity + 8);
+    FrameResources result{std::move(heap),
+                          make_buffer(sizeof(CameraData)),
+                          make_buffer(sizeof(LightsData)),
+                          make_buffer(sizeof(TemporalShadowData)),
+                          make_buffer(sizeof(ToneMapData)),
+                          make_buffer(sizeof(CloudData))};
     result.camera_index = result.descriptor_cache->buffer(result.camera_buffer);
     result.lights_index = result.descriptor_cache->buffer(result.lights_buffer);
+    result.cloud_index = result.descriptor_cache->buffer(result.cloud_buffer);
     result.pass_data.camera = result.camera_index;
     result.pass_data.lights = result.lights_index;
     result.pass_data.temporal = result.descriptor_cache->buffer(result.temporal_buffer);
@@ -142,8 +148,11 @@ void Renderer::ensure_attachments(FrameResources &resources, vk::Extent2D extent
             // of a combined format even though only depth is attached.
             depth_aspects |= vk::ImageAspectFlagBits::eStencil;
         }
+        // Sampled as well: the cloud pass reads scene depth to stop its march, which
+        // is the one consumer that needs the buffer after the attachment pass.
         resources.depth_image.emplace(*device_, depth_format_, extent, 1, main_state_.samples,
-                                      vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                                      vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                                          vk::ImageUsageFlagBits::eSampled,
                                       depth_aspects);
     }
     if (main_state_.samples != vk::SampleCountFlagBits::e1 &&
@@ -160,9 +169,12 @@ void Renderer::ensure_attachments(FrameResources &resources, vk::Extent2D extent
                                         vk::ImageUsageFlagBits::eSampled |
                                         vk::ImageUsageFlagBits::eTransferSrc,
                                     vk::ImageAspectFlagBits::eColor);
-        resources.pass_data.hdr_image =
-            resources.image_index(resources.hdr_index, *resources.hdr_image);
     }
+    // Published every frame, not only when the image is replaced: the cloud composite
+    // repoints it at the composited image for Bloom and tone mapping, so a reused slot
+    // would otherwise start the frame reading the previous frame's composite.
+    resources.pass_data.hdr_image =
+        resources.image_index(resources.hdr_index, *resources.hdr_image);
 }
 
 void Renderer::record(CommandBuffer &cmd, FrameResources &resources, RenderTarget const &target,
@@ -239,13 +251,19 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
             record_hdr(commands, resources, extent, scene->draws, scene->camera, text,
                        scene->particles);
         });
+    // Clouds stand between the lit scene and the output chain: Bloom and tone mapping
+    // both read the composited HDR image, so the layer's radiance is bloomed and tone
+    // mapped with everything else instead of being pasted on afterwards.
+    if (cloud_settings_.enabled)
+        cloud_renderer_.add_passes(graph, resources, target.extent, cloud_settings_, scene);
+    auto const lit = cloud_settings_.enabled ? "hdr.cloud" : "hdr.color";
     if (output.bloom_strength > 0)
-        graph.add_pass("Bloom", {"hdr.color"}, {"bloom.color"},
+        graph.add_pass("Bloom", {lit}, {"bloom.color"},
                        [this, &resources, extent = target.extent](CommandBuffer &commands) {
                            record_bloom(commands, resources, extent);
                        });
     graph.add_pass("Tone mapping",
-                   {output.bloom_strength > 0 ? "bloom.color" : "hdr.color", "output.target"},
+                   {output.bloom_strength > 0 ? "bloom.color" : lit, "output.target"},
                    {"output.color"}, [this, &resources, target, output](CommandBuffer &commands) {
                        tone_map(commands, resources, target, output);
                    });
@@ -383,7 +401,10 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         .imageView = *depth_image.view(),
         .imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
         .loadOp = vk::AttachmentLoadOp::eClear,
-        .storeOp = vk::AttachmentStoreOp::eDontCare,
+        // Only the cloud pass reads depth after this rendering; every other frame
+        // discards it, which is the cheaper store.
+        .storeOp = cloud_settings_.enabled ? vk::AttachmentStoreOp::eStore
+                                           : vk::AttachmentStoreOp::eDontCare,
         .clearValue = vk::ClearValue{}.setDepthStencil({.depth = 1.0F, .stencil = 0}),
     };
     rendering.setPDepthAttachment(&depth_attachment);
@@ -501,6 +522,16 @@ namespace lc1 {
 vk::SampleCountFlagBits Renderer::sample_count() const
 {
     return main_state_.samples;
+}
+
+CloudSettings &Renderer::cloud_settings()
+{
+    return cloud_settings_;
+}
+
+CloudSettings const &Renderer::cloud_settings() const
+{
+    return cloud_settings_;
 }
 
 } // namespace lc1

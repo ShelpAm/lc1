@@ -132,6 +132,7 @@ add_library(lc1_engine STATIC
     src/vertex.cpp
     src/tangent-space.cpp
     src/resource-manager.cpp
+    src/cloud-noise.cpp
 
     # Scene data, model loading and per-instance poses.
     src/scene/animation.cpp
@@ -201,6 +202,7 @@ add_library(lc1_engine STATIC
     src/vk/render/temporal-shadows.cpp
     src/vk/render/text-pass.cpp
     src/vk/render/tone-mapping.cpp
+    src/vk/render/volumetric-clouds.cpp
 
     src/stb-image.cpp
     src/tiny-gltf.cpp
@@ -490,6 +492,9 @@ if(BUILD_TESTING)
     add_executable(lc1_render_graph_tests tests/render-graph.cpp)
     target_link_libraries(lc1_render_graph_tests PRIVATE lc1_engine)
     lc1_enable_warnings(lc1_render_graph_tests)
+    add_executable(lc1_cloud_noise_tests tests/cloud-noise.cpp)
+    target_link_libraries(lc1_cloud_noise_tests PRIVATE lc1_engine)
+    lc1_enable_warnings(lc1_cloud_noise_tests)
     # The font test reads runtime/assets/fonts like the game does, and skips a face that is
     # absent from a custom runtime asset tree.
     add_executable(lc1_font_tests tests/font.cpp)
@@ -511,6 +516,7 @@ if(BUILD_TESTING)
         target_link_options(lc1_player_view_tests PRIVATE -static)
         target_link_options(lc1_game_ui_tests PRIVATE -static)
         target_link_options(lc1_render_graph_tests PRIVATE -static)
+        target_link_options(lc1_cloud_noise_tests PRIVATE -static)
         target_link_options(lc1_font_tests PRIVATE -static)
     endif()
     if(NOT CMAKE_CROSSCOMPILING)
@@ -536,6 +542,10 @@ if(BUILD_TESTING)
         target_link_libraries(lc1_pbr_tests PRIVATE lc1_game)
         lc1_enable_warnings(lc1_pbr_tests)
         add_dependencies(lc1_pbr_tests shaders copy_assets)
+        add_executable(lc1_cloud_tests EXCLUDE_FROM_ALL tests/clouds.cpp)
+        target_link_libraries(lc1_cloud_tests PRIVATE lc1_engine)
+        lc1_enable_warnings(lc1_cloud_tests)
+        add_dependencies(lc1_cloud_tests shaders copy_assets)
         add_test(NAME world_map COMMAND lc1_world_map_tests)
         add_test(NAME continent COMMAND lc1_continent_tests)
         add_test(NAME character COMMAND lc1_character_tests)
@@ -546,6 +556,7 @@ if(BUILD_TESTING)
         add_test(NAME tangent_space COMMAND lc1_tangent_tests)
         add_test(NAME player_view COMMAND lc1_player_view_tests)
         add_test(NAME render_graph COMMAND lc1_render_graph_tests)
+        add_test(NAME cloud_noise COMMAND lc1_cloud_noise_tests)
     endif()
 endif()
 

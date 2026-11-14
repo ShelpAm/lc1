@@ -8,8 +8,10 @@
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/text/text-layout.hpp"
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <imgui.h>
 #include <ranges>
@@ -462,6 +464,61 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
     ImGui::EndChild();
 }
 
+// Layer-based volumetric cloud controls. Values are clamped to what the renderer
+// validates at registration: an out-of-range edit must not turn into a fatal error on
+// the next frame.
+void clouds(lc1::CloudSettings *settings)
+{
+    if (settings == nullptr)
+        return;
+    auto &clouds = *settings;
+    if (!ImGui::CollapsingHeader("Volumetric clouds"))
+        return;
+    ImGui::Checkbox("Enabled", &clouds.enabled);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Coverage", &clouds.coverage, 0.02F, 1.0F, "%.2f",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Density", &clouds.density, 0.0F, 3.0F, "%.2f",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Cloud bottom", &clouds.bottom, 200.0F, 7900.0F, "%.0f m",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Cloud top", &clouds.top, 300.0F, 8000.0F, "%.0f m",
+                       ImGuiSliderFlags_AlwaysClamp);
+    // The renderer requires a layer with thickness; keep the two fields ordered here
+    // instead of letting the next registration fail.
+    clouds.top = std::max(clouds.top, clouds.bottom + 100.0F);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Shape scale", &clouds.noise_scale, 200.0F, 6000.0F, "%.0f m",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Extinction", &clouds.extinction, 0.002F, 0.08F, "%.3f /m",
+                       ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Anisotropy", &clouds.anisotropy, -0.9F, 0.9F, "%.2f",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat3("Wind (m/s)", &clouds.wind_velocity.x, -40.0F, 40.0F, "%.1f",
+                        ImGuiSliderFlags_AlwaysClamp);
+    int view_steps = static_cast<int>(clouds.view_steps);
+    ImGui::SetNextItemWidth(180.0F);
+    if (ImGui::SliderInt("View steps", &view_steps, 8, 256, "%d", ImGuiSliderFlags_AlwaysClamp))
+        clouds.view_steps = static_cast<std::uint32_t>(std::clamp(view_steps, 8, 256));
+    int light_steps = static_cast<int>(clouds.light_steps);
+    ImGui::SetNextItemWidth(180.0F);
+    if (ImGui::SliderInt("Light steps", &light_steps, 1, 16, "%d", ImGuiSliderFlags_AlwaysClamp))
+        clouds.light_steps = static_cast<std::uint32_t>(std::clamp(light_steps, 1, 16));
+    constexpr std::array<char const *, 5> const debug_names{"Off", "Density", "Sun transmittance",
+                                                            "View transmittance", "Step count"};
+    int debug = static_cast<int>(clouds.debug);
+    ImGui::SetNextItemWidth(180.0F);
+    if (ImGui::Combo("Debug view", &debug, debug_names.data(),
+                     static_cast<int>(debug_names.size())))
+        clouds.debug = static_cast<lc1::CloudSettings::Debug>(debug);
+}
+
 } // namespace
 
 void GameUi::open_save(std::string_view name)
@@ -499,6 +556,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
     if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
                          ImGuiSliderFlags_AlwaysClamp))
         actions.grass_density = std::clamp(density, 0, 8);
+    clouds(info.clouds);
     if (ImGui::Button("Save game (F6)"))
         open_save(info.current_save);
     if (ImGui::Button("Load game")) {

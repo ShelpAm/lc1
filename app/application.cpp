@@ -202,9 +202,10 @@ Application::Application(ApplicationConfig config)
                 std::min(device_.max_sample_count(), vk::SampleCountFlagBits::e4)},
       simulation_(std::make_unique<GameSimulation>(
           Save{config_.save_root}, config_.dialog_root / "catalog.yaml", config_.asset_root)),
-      game_(std::make_unique<GameSession>(
-          device_, config_.asset_root, *simulation_, config_.save_root,
-          output_settings(surface_format_.format), &window_, config_.local_player)),
+      game_(std::make_unique<GameSession>(device_, config_.asset_root, *simulation_,
+                                          config_.save_root,
+                                          output_settings(surface_format_.format), &window_,
+                                          config_.local_player, renderer_.cloud_settings())),
       frame_loop_(std::make_unique<FrameLoop<FrameResources>>(device_, [this] {
           return renderer_.make_frame_resources(game_->world_presentation().object_capacity());
       }))
@@ -355,9 +356,10 @@ void Application::load_game(std::filesystem::path const &directory)
     try {
         auto simulation = std::make_unique<GameSimulation>(
             Save{directory}, config_.dialog_root / "catalog.yaml", config_.asset_root);
-        auto next = std::make_unique<GameSession>(device_, config_.asset_root, *simulation,
-                                                  directory, game_->world_presentation().output(),
-                                                  &window_, config_.local_player);
+        auto next =
+            std::make_unique<GameSession>(device_, config_.asset_root, *simulation, directory,
+                                          game_->world_presentation().output(), &window_,
+                                          config_.local_player, renderer_.cloud_settings());
         auto frames = std::make_unique<FrameLoop<FrameResources>>(device_, [&] {
             return renderer_.make_frame_resources(next->world_presentation().object_capacity());
         });

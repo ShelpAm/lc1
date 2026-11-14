@@ -20,6 +20,7 @@ lc1 是 C++23 / Vulkan 1.4 的本地 RPG / 策略沙盒原型。已有可行走�
 | 修改存档或内容数据 | [存档格式与装配](save-data.md) | [对话目录](dialog.md) |
 | 理解渲染调用链 | [项目 Vulkan 入门](vulkan-minimal.md) | [Vulkan 分层](vulkan-layers.md)、[RenderGraph](render-graph.md) |
 | 修改材质、光照或阴影 | [光照](lighting.md) | [ray-query 阴影](ray-query-shadows.md) |
+| 修改云层形态、云参数或体积渲染 | [体积云](volumetric-clouds.md) | [光照](lighting.md)、[RenderGraph](render-graph.md) |
 | 修改 GPU 接口或绑定 | [shader object](shader-objects.md) | [heap 结构生成器](heap-struct-generator.md)、[heap 测试](descriptor-heap-test.md) |
 | 修改字体和文字绘制 | [文字渲染](text-rendering.md) | [RenderGraph](render-graph.md) |
 | 排查工具链或驱动异常 | [外部缺陷记录](external-defects.md) | [开发环境排障](development-environment.md) |

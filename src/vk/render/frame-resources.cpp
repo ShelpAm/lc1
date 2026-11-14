@@ -3,11 +3,13 @@
 namespace lc1 {
 
 FrameResources::FrameResources(std::unique_ptr<DescriptorHeap> heap, GpuBuffer camera,
-                               GpuBuffer lights, GpuBuffer temporal, GpuBuffer tone_map)
+                               GpuBuffer lights, GpuBuffer temporal, GpuBuffer tone_map,
+                               GpuBuffer cloud)
     : descriptor_heap(std::move(heap)),
       descriptor_cache(std::make_unique<DescriptorHeapCache>(*descriptor_heap)),
       camera_buffer(std::move(camera)), lights_buffer(std::move(lights)),
-      temporal_buffer(std::move(temporal)), tone_map_buffer(std::move(tone_map))
+      temporal_buffer(std::move(temporal)), tone_map_buffer(std::move(tone_map)),
+      cloud_buffer(std::move(cloud))
 {
 }
 

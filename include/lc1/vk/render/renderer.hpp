@@ -13,6 +13,7 @@
 #include "lc1/vk/render/ray-query-shadows.hpp"
 #include "lc1/vk/render/render-data.hpp"
 #include "lc1/vk/render/text-pass.hpp"
+#include "lc1/vk/render/volumetric-clouds.hpp"
 #include "lc1/vk/resources/descriptor-heap.hpp"
 #include "lc1/vk/resources/gpu-mesh.hpp"
 #include "lc1/vk/resources/gpu-texture.hpp"
@@ -58,6 +59,12 @@ class Renderer {
     Renderer &operator=(Renderer &&) = delete;
 
     vk::SampleCountFlagBits sample_count() const;
+
+    // Layer-based volumetric clouds are configured and enabled here. Disabled by
+    // default: the pass, the 3D shape volume and both intermediate images exist only
+    // while a scene asks for them, and the HDR chain keeps its single image.
+    CloudSettings &cloud_settings();
+    CloudSettings const &cloud_settings() const;
 
     // Creates one frame slot with its own descriptor heap and buffer cache. The
     // caller decides how many sets to keep and when each is safe to reuse.
@@ -118,6 +125,8 @@ class Renderer {
     TextPass text_pass_;
     RayQueryShadows ray_query_shadows_;
     Ddgi ddgi_;
+    VolumetricCloudRenderer cloud_renderer_;
+    CloudSettings cloud_settings_;
     vk::SamplerCreateInfo default_sampler_info_;
     // Fallback textures for omitted material slots.
     GpuTexture white_srgb_;

@@ -23,11 +23,19 @@ class GpuImage {
              vk::SampleCountFlagBits samples, vk::ImageUsageFlags usage,
              vk::ImageAspectFlags aspect);
 
+    // Volume image; the owner writes level 0 through a staging buffer. The 2D
+    // mipmap path rejects a multi-level volume instead of treating depth as height.
+    GpuImage(Device const &device, vk::Format format, vk::Extent3D extent, std::uint32_t mip_levels,
+             vk::SampleCountFlagBits samples, vk::ImageUsageFlags usage,
+             vk::ImageAspectFlags aspect);
+
     vk::raii::Image const &raii() const;
 
     vk::raii::ImageView const &view() const;
 
     vk::Extent2D extent() const;
+
+    vk::Extent3D extent_3d() const;
 
     vk::Format format() const;
 
@@ -44,6 +52,10 @@ class GpuImage {
     void generate_mipmaps(vk::raii::CommandBuffer const &command_buffer) const;
 
   private:
+    GpuImage(Device const &device, vk::Format format, vk::Extent3D extent, vk::ImageType image_type,
+             std::uint32_t mip_levels, vk::SampleCountFlagBits samples, vk::ImageUsageFlags usage,
+             vk::ImageAspectFlags aspect);
+
     // Owns both the VkImage and the VmaAllocation, and frees them together.
     // Must stay a vma::raii::Image: moving it into a vk::raii::Image keeps the
     // image but frees the memory at the end of that statement.
@@ -52,7 +64,8 @@ class GpuImage {
     vk::raii::ImageView view_{nullptr};
     vk::Format format_;
     vk::FormatFeatureFlags optimal_tiling_features_;
-    vk::Extent2D extent_;
+    vk::Extent3D extent_;
+    vk::ImageType image_type_;
     std::uint32_t mip_levels_;
     vk::ImageAspectFlags aspect_;
 };
