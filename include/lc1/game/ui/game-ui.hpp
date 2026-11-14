@@ -61,6 +61,11 @@ class GameUi {
 
     void toggle_player_info();
 
+    // Esc: opens the debug panel and menu over the running game, and closes them again.
+    // While they are open gameplay input stops and the cursor is released in every view
+    // mode, because gameplay_enabled() is false.
+    void toggle_menu();
+
     void set_save_status(std::string status);
 
     std::vector<ScreenTextItem> screen_labels(WorldSnapshot const &world, PlayerId observer,

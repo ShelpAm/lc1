@@ -64,8 +64,14 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         input_router_.active_context() == GameInputContext::Gameplay &&
         input_router_.pressed(GameAction::TogglePlayerInfo))
         ui_.toggle_player_info();
-    if (window_->focused() && !imgui_io.WantCaptureKeyboard)
-        quit_requested_ = input_router_.pressed(GameAction::QuitGame);
+    // Esc opens the debug panel and menu over the game and closes them again. It works
+    // while ImGui owns the keyboard, except inside a text field, so the key that opened
+    // the overlay always closes it. Quitting is the menu's own button; nothing here
+    // ends the session.
+    if (window_->focused() && !imgui_io.WantTextInput &&
+        input_router_.active_context() == GameInputContext::Gameplay &&
+        input_router_.pressed(GameAction::ToggleMenu))
+        ui_.toggle_menu();
 
     bool const controls_enabled = ui_.gameplay_enabled() && window_->focused() &&
                                   input_router_.active_context() == GameInputContext::Gameplay;

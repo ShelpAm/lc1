@@ -532,58 +532,73 @@ void GameUi::open_save(std::string_view name)
     load_open_ = false;
 }
 
+void GameUi::toggle_menu()
+{
+    // One key both opens and closes the overlay; opening it never quits.
+    if (state_ == State::InGame) {
+        save_open_ = false;
+        load_open_ = false;
+        player_info_opened_ = false;
+        state_ = State::MainMenu;
+    }
+    else {
+        state_ = State::InGame;
+    }
+}
+
 GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
 {
     GameUiActions actions;
-    ImGui::Begin("lc1 debug info");
-    auto [w, h] = info.extent;
-    ImGui::TextUnformatted(std::format("Window size: {}x{}", w, h).c_str());
-    ImGui::TextUnformatted(std::format("FPS: {}", ImGui::GetIO().Framerate).c_str());
-    ImGui::TextUnformatted(std::format("Lighting: {}", info.lighting_name).c_str());
-    ImGui::Text("Exposure: %.2f", info.exposure);
-    auto const minutes = static_cast<int>(info.time_of_day * 60.0);
-    ImGui::Text("Time: %02d:%02d", minutes / 60, minutes % 60);
-    ImGui::TextUnformatted("Time rate");
-    ImGui::SameLine();
-    float rate = info.time_rate;
-    ImGui::SetNextItemWidth(90.0F);
-    bool changed = ImGui::InputFloat("##time-rate-input", &rate, 0, 0, "%.2f");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(180.0F);
-    changed |= ImGui::SliderFloat("##time-rate-slider", &rate, 0.01F, 100.0F, "%.2fx",
-                                  ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-    if (changed && std::isfinite(rate))
-        actions.time_rate = std::clamp(rate, 0.01F, 100.0F);
-    int density = info.grass_density;
-    auto const density_label = std::format("{}%%", density * 25);
-    if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
-                         ImGuiSliderFlags_AlwaysClamp))
-        actions.grass_density = std::clamp(density, 0, 8);
-    clouds(info.clouds);
-    if (ImGui::Button("Save game (F6)"))
-        open_save(info.current_save);
-    if (ImGui::Button("Load game")) {
-        load_open_ = true;
-        save_open_ = false;
-        actions.refresh_saves = true;
+    // The debug page belongs to the overlay: during play the screen shows the game, and
+    // Esc brings both the page and the menu back together.
+    if (state_ != State::InGame) {
+        ImGui::Begin("lc1 debug info");
+        auto [w, h] = info.extent;
+        ImGui::TextUnformatted(std::format("Window size: {}x{}", w, h).c_str());
+        ImGui::TextUnformatted(std::format("FPS: {}", ImGui::GetIO().Framerate).c_str());
+        ImGui::TextUnformatted(std::format("Lighting: {}", info.lighting_name).c_str());
+        ImGui::Text("Exposure: %.2f", info.exposure);
+        auto const minutes = static_cast<int>(info.time_of_day * 60.0);
+        ImGui::Text("Time: %02d:%02d", minutes / 60, minutes % 60);
+        ImGui::TextUnformatted("Time rate");
+        ImGui::SameLine();
+        float rate = info.time_rate;
+        ImGui::SetNextItemWidth(90.0F);
+        bool changed = ImGui::InputFloat("##time-rate-input", &rate, 0, 0, "%.2f");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(180.0F);
+        changed |= ImGui::SliderFloat("##time-rate-slider", &rate, 0.01F, 100.0F, "%.2fx",
+                                      ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+        if (changed && std::isfinite(rate))
+            actions.time_rate = std::clamp(rate, 0.01F, 100.0F);
+        int density = info.grass_density;
+        auto const density_label = std::format("{}%%", density * 25);
+        if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
+                             ImGuiSliderFlags_AlwaysClamp))
+            actions.grass_density = std::clamp(density, 0, 8);
+        clouds(info.clouds);
+        if (ImGui::Button("Save game (F6)"))
+            open_save(info.current_save);
+        if (ImGui::Button("Load game")) {
+            load_open_ = true;
+            save_open_ = false;
+            actions.refresh_saves = true;
+        }
+        ImGui::TextUnformatted(save_status_.c_str());
+        ImGui::TextUnformatted(
+            std::format("Showcase motion: {}", info.showcase_animated ? "on" : "off").c_str());
+        ImGui::TextUnformatted(std::format("interaction_target: {}", info.interaction_target.empty()
+                                                                         ? "not found"
+                                                                         : info.interaction_target)
+                                   .c_str());
+
+        if (ImGui::Button("Close (Esc)"))
+            state_ = State::InGame;
+
+        music.controls();
+
+        ImGui::End();
     }
-    ImGui::TextUnformatted(save_status_.c_str());
-    ImGui::TextUnformatted(
-        std::format("Showcase motion: {}", info.showcase_animated ? "on" : "off").c_str());
-    ImGui::TextUnformatted(std::format("interaction_target: {}", info.interaction_target.empty()
-                                                                     ? "not found"
-                                                                     : info.interaction_target)
-                               .c_str());
-
-    if (state_ == State::InGame && ImGui::Button("Main menu"))
-        state_ = State::MainMenu;
-
-    if (state_ == State::InGame && ImGui::Button("Character & inventory (B)"))
-        toggle_player_info();
-
-    music.controls();
-
-    ImGui::End();
     music.update();
 
     switch (state_) {
@@ -651,7 +666,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         ImGui::End();
     }
 
-    if (state_ == State::InGame && player_info_opened_)
+    if (player_info_opened_ && !save_open_ && !load_open_)
         player_info(info, actions);
 
     return actions;
@@ -724,6 +739,7 @@ std::vector<ScreenTextItem> GameUi::screen_labels(WorldSnapshot const &world, Pl
 
 void GameUi::toggle_player_info()
 {
+    // A gameplay panel: the pause overlay closes it, and B opens it again in game.
     if (state_ == State::InGame && !save_open_ && !load_open_)
         player_info_opened_ = !player_info_opened_;
 }

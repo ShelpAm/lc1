@@ -30,6 +30,25 @@ void panel_input_gate()
     check(!ui.gameplay_enabled(), "load dialog still blocks gameplay input");
 }
 
+void menu_overlay()
+{
+    lc1::GameUi ui;
+    // The game starts on the menu; Esc there closes the overlay instead of quitting.
+    check(!ui.gameplay_enabled(), "the main menu suspends gameplay input");
+    ui.toggle_menu();
+    check(ui.gameplay_enabled(), "Esc over the main menu resumes the game");
+    ui.toggle_menu();
+    check(!ui.gameplay_enabled(), "Esc during play opens the overlay and releases the mouse");
+    ui.toggle_menu();
+    check(ui.gameplay_enabled(), "Esc closes the overlay again");
+    // A panel opened during play does not survive into the overlay.
+    ui.toggle_player_info();
+    ui.toggle_menu();
+    check(!ui.gameplay_enabled(), "the overlay keeps gameplay suspended");
+    ui.toggle_menu();
+    check(ui.gameplay_enabled(), "the overlay closes without leaving stale panels behind");
+}
+
 void panel_binding()
 {
     lc1::GameInputRouter router{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
@@ -53,6 +72,7 @@ int main()
 {
     try {
         panel_input_gate();
+        menu_overlay();
         panel_binding();
     }
     catch (std::exception const &error) {
