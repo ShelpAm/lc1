@@ -18,7 +18,8 @@ struct CloudData {
     float4 sun_radiance_albedo;      // rgb linear sun radiance; w scattering albedo
     float4 ambient_extinction;       // rgb linear ambient radiance; w extinction per metre
     float4 layer;                    // bottom, top, coverage, density scale
-    float4 wind_frequency;           // xyz wind velocity in m/s; w shape frequency, 1/m
+    float4 wind_frequency;           // xyz wind velocity in m/s; w mass frequency, 1/m
+    float4 detail;                   // x detail frequency multiplier, y erosion strength
     float4 march;                    // x max trace distance, y light march distance,
                                      // z radiance scale
     uint4 steps;                     // x view steps, y light steps, z debug mode, w reserved
@@ -47,6 +48,7 @@ CloudData load_cloud_data(ConstantBuffer<CloudData> source)
     data.ambient_extinction = source.ambient_extinction;
     data.layer = source.layer;
     data.wind_frequency = source.wind_frequency;
+    data.detail = source.detail;
     data.march = source.march;
     data.steps = source.steps;
     return data;
@@ -80,17 +82,26 @@ float sample_cloud_density(float3 world_position, CloudData data, Texture3D<floa
     if (relative_height <= 0.0 || relative_height >= 1.0)
         return 0.0;
 
-    float shape = shape_noise.SampleLevel(shape_filter, sample_position * data.wind_frequency.w,
-                                                0.0).r;
-    // Coverage remaps the noise: with a low threshold more of the field becomes cloud,
-    // so coverage grows and the fraction below the threshold shrinks to a hard wall only
-    // at the two ends of the range. Sharpening the remap then turns the smooth noise
-    // gradient into discrete cloud bodies with clean gaps, instead of a haze that fills
-    // the whole sky at every coverage.
+    // Two scales of the same tile, not one: the low frequency decides where a cloud
+    // exists at all (large masses that span kilometres), and the higher frequency erodes
+    // its edges. One scale alone cannot do both -- a field fine enough to look like cloud
+    // is also fine enough to split the sky into identical little puffs.
+    float3 mass_position = sample_position * data.wind_frequency.w;
+    float3 detail_position =
+        mass_position * data.detail.x + float3(0.31F, 0.17F, 0.73F);
+    float mass = shape_noise.SampleLevel(shape_filter, mass_position, 0.0).r;
+    float detail = shape_noise.SampleLevel(shape_filter, detail_position, 0.0).r;
+
+    // Coverage remaps the mass field: with a low threshold more of it becomes cloud, so
+    // coverage grows and the fraction below the threshold shrinks. A mild curve softens
+    // the threshold instead of stamping out hard-edged blobs.
     float coverage = max(data.layer.z, 1e-3);
-    float remapped = saturate((shape - (1.0 - coverage)) / coverage);
+    float remapped = saturate((mass - (1.0 - coverage)) / coverage);
     float bodies = remapped * remapped * (3.0 - 2.0 * remapped);
-    return bodies * height_profile(relative_height) * data.layer.w;
+    // Erosion eats density where the detail field is high, which turns round cells into
+    // torn edges and keeps the interiors dense.
+    float erosion = saturate(detail) * data.detail.y;
+    return bodies * (1.0 - erosion) * height_profile(relative_height) * data.layer.w;
 }
 
 float henyey_greenstein(float cosine, float anisotropy)

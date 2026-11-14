@@ -35,11 +35,16 @@ struct CloudSettings {
     float bottom = 1500.0F;
     float top = 3500.0F;
     // Fraction of the sky covered by cloud; the density threshold moves with it.
-    float coverage = 0.3F;
+    float coverage = 0.35F;
     float density = 1.0F;
-    // World-space extent of one shape-noise tile. Smaller values make more,
-    // smaller clouds out of the same field.
-    float noise_scale = 6000.0F;
+    // World-space extent of one shape-noise tile, i.e. the size of the large cloud
+    // masses. Smaller values make more, smaller clouds out of the same field.
+    float noise_scale = 14000.0F;
+    // Second sample of the same field at `detail_scale` times the mass frequency: it
+    // erodes cloud edges. One scale alone either looks like popcorn or like mush.
+    float detail_scale = 8.0F;
+    // Fraction of density the detail field may remove, 0 to 1.
+    float detail_strength = 0.40F;
     glm::vec3 wind_velocity{5.0F, 0.0F, 2.0F};
     // Extinction at unit density, per metre.
     float extinction = 0.02F;
@@ -52,14 +57,14 @@ struct CloudSettings {
     float max_trace_distance = 40000.0F;
     // Fraction of the scene's sky colour used as ambient cloud lighting. The sky and
     // the layer therefore brighten and darken together instead of disagreeing.
-    float ambient_scale = 0.8F;
+    float ambient_scale = 0.45F;
     // Scales the direct sunlight term. The single-scattering phase function plus the
     // two multiple-scattering octaves still under-report the energy a real cloud
     // scatters, and the scene's photometric light scale is far below its painted sky,
     // so 1.0 leaves the layer darker than the background it sits in. 1.0 is physically
     // consistent with the scene lights; higher values are the usual cloud brightness
     // control.
-    float radiance_scale = 3.0F;
+    float radiance_scale = 4.0F;
     Debug debug = Debug::Off;
 };
 
@@ -73,14 +78,16 @@ struct CloudData {
     glm::vec4 sun_radiance_albedo;      // rgb linear sun radiance; w scattering albedo
     glm::vec4 ambient_extinction;       // rgb linear ambient radiance; w extinction per metre
     glm::vec4 layer;                    // bottom, top, coverage, density scale
-    glm::vec4 wind_frequency;           // xyz wind velocity in m/s; w shape frequency, 1/m
+    glm::vec4 wind_frequency;           // xyz wind velocity in m/s; w mass frequency, 1/m
+    glm::vec4 detail;                   // x detail frequency multiplier, y erosion strength
     glm::vec4 march;                    // x max trace distance, y light march distance
     glm::uvec4 steps;                   // x view steps, y light steps, z debug mode, w reserved
 };
 
-static_assert(sizeof(CloudData) == 192);
+static_assert(sizeof(CloudData) == 208);
 static_assert(offsetof(CloudData, camera_position_time) == 64);
-static_assert(offsetof(CloudData, steps) == 176);
+static_assert(offsetof(CloudData, detail) == 160);
+static_assert(offsetof(CloudData, steps) == 192);
 
 // Layer-based volumetric clouds: one ray-march pass into a radiance/transmittance
 // image, then one composite pass into a second HDR image before Bloom and tone

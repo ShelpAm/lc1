@@ -52,6 +52,12 @@ void validate(CloudSettings const &settings)
         fail("cloud density must be finite and nonnegative");
     if (!finite(settings.noise_scale) || settings.noise_scale <= 0.0F)
         fail("cloud noise scale must be finite and positive");
+    if (!finite(settings.detail_scale) || settings.detail_scale < 1.0F ||
+        settings.detail_scale > 64.0F)
+        fail("cloud detail scale must be finite and in [1, 64]");
+    if (!finite(settings.detail_strength) || settings.detail_strength < 0.0F ||
+        settings.detail_strength > 1.0F)
+        fail("cloud detail strength must be finite and in [0, 1]");
     if (!finite_vector(settings.wind_velocity))
         fail("cloud wind velocity must be finite");
     if (!finite(settings.extinction) || settings.extinction <= 0.0F)
@@ -264,6 +270,7 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
         .ambient_extinction = {ambient, settings.extinction},
         .layer = {settings.bottom, settings.top, settings.coverage, settings.density},
         .wind_frequency = {settings.wind_velocity, 1.0F / settings.noise_scale},
+        .detail = {settings.detail_scale, settings.detail_strength, 0.0F, 0.0F},
         .march = {settings.max_trace_distance, settings.light_march_distance,
                   settings.radiance_scale, 0.0F},
         .steps = {settings.view_steps, settings.light_steps,

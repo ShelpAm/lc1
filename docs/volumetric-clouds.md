@@ -45,16 +45,21 @@
 p        = worldPosition - windVelocity * time
 h        = (p.y - CloudBottom) / (CloudTop - CloudBottom)
 profile  = smoothstep(0, 0.15, h) * (1 - smoothstep(0.6, 1, h))
-shape    = ShapeNoise.Sample(p / NoiseScale)
-remapped = saturate((shape - (1 - Coverage)) / max(Coverage, eps))
-density  = smoothstep(0, 1, remapped) * profile * Density
+mass     = ShapeNoise.Sample(p / NoiseScale)                 # 大尺度云团
+detail   = ShapeNoise.Sample(p * DetailScale / NoiseScale + 偏移)  # 侵蚀边缘
+remapped = saturate((mass - (1 - Coverage)) / max(Coverage, eps))
+bodies   = smoothstep(0, 1, remapped) * (1 - DetailStrength * detail)
+density  = bodies * profile * Density
 ```
+
+两层频率用的是同一张体数据，只差采样缩放：低频决定“哪里有一团云”，高频只侵蚀边缘。
+只用一层做不出这两件事——细到像云的一层，也细到把整片天空切成一样大的小泡。
 
 - 世界坐标采样，不是相机相对坐标：相机移动不会带动云层，云层形态只由世界位置与时间决定。
   采样距离受最大追踪距离限制，float 精度足够。
 - 覆盖率移动阈值而不是缩放任一常数，因此 0 附近密度必为零、1 时保留噪声原始形态。
-- 重映射后再做一次 `smoothstep`：把连续的噪声梯度压成**离散云团 + 干净间隙**，而不是一层
-  任何覆盖率下都铺满天空的薄雾。
+- 重映射后再做一次 `smoothstep`：把连续的噪声梯度压成**成团 + 干净间隙**，而不是一层
+  任何覆盖率下都铺满天空的薄雾。`DetailStrength` 越大，云的边缘越碎，越大团。
 - 高度剖面在底面与顶面平滑收敛，中间保持高密度，避免水平硬边。
 - 风把采样位置按 `windVelocity * time` 平移，时间来自 `steady_clock` 的挂钟秒数，
   与帧率无关。
@@ -132,9 +137,10 @@ Bloom 与色调映射据此读合成结果。该指向每帧由 `ensure_attachme
 |---|---:|---|
 | `enabled` | false | 是否注册云层 pass |
 | `bottom` / `top` | 1500 / 3500 m | 云层高度区间 |
-| `coverage` | 0.30 | 覆盖率，必须 > 0 |
+| `coverage` | 0.35 | 覆盖率，必须 > 0 |
 | `density` | 1.0 | 密度倍率 |
-| `noise_scale` | 6000 m | 一个形态噪声瓦片的世界尺度 |
+| `noise_scale` | 14000 m | 云团特征尺度（形态噪声瓦片的世界大小） |
+| `detail_scale` / `detail_strength` | 8 / 0.40 | 细节采样倍率与最大侵蚀比例 |
 | `wind_velocity` | (5, 0, 2) m/s | 云层移动速度 |
 | `extinction` | 0.02 /m | 单位密度消光 |
 | `scattering_albedo` | 0.9 | 散射反照率 |
@@ -142,8 +148,8 @@ Bloom 与色调映射据此读合成结果。该指向每帧由 `ensure_attachme
 | `view_steps` / `light_steps` | 48 / 6 | 视线与太阳方向采样数 |
 | `light_march_distance` | 400 m | 单次光照步进长度上限 |
 | `max_trace_distance` | 40 km | 视线积分距离上限 |
-| `ambient_scale` | 0.8 | 环境光占场景天空颜色的比例 |
-| `radiance_scale` | 3.0 | 太阳直射项增益（1.0 为与场景灯光一致） |
+| `ambient_scale` | 0.45 | 环境光占场景天空颜色的比例 |
+| `radiance_scale` | 4.0 | 太阳直射项增益（1.0 为与场景灯光一致） |
 | `debug` | Off | 关闭 / 密度 / 太阳透射率 / 视线透射率 / 步数 |
 
 参数在 `Renderer::add_passes` 注册时校验一次：区间必须有厚度、覆盖率必须大于零、步数必须

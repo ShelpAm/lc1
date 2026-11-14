@@ -145,10 +145,12 @@ std::vector<std::uint8_t> make_cloud_shape_noise(std::uint32_t size)
     constexpr std::array<std::uint32_t, 3> octave_periods{4U, 8U, 16U};
     constexpr float octave_gain = 0.5F;
     constexpr std::uint32_t worley_cells = 8U;
-    // The classic Perlin-Worley blend: fbm for the large shape, inverted Worley for
-    // the billowing cell edges. The weights sum to one.
-    constexpr float shape_weight = 0.65F;
-    constexpr float billow_weight = 0.35F;
+    // Mostly fbm: at this scale the large shapes have to read as masses, and Worley's
+    // evenly sized cells would texture the whole field into identical puffs. Enough
+    // Worley survives to roughen the silhouette, and the shader's second, higher
+    // frequency sample supplies the fine billowing.
+    constexpr float shape_weight = 0.88F;
+    constexpr float billow_weight = 0.12F;
 
     float octave_total = 0.0F;
     float gain = 1.0F;

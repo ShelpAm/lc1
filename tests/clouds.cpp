@@ -57,7 +57,8 @@ struct Capture {
 Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
                 lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
                 bool composited = true, vk::Extent2D extent = test_extent,
-                double *frame_ms = nullptr, lc1::TextFrameInput text = {})
+                double *frame_ms = nullptr, lc1::TextFrameInput text = {},
+                lc1::OutputSettings output_settings = {})
 {
     std::optional<vk::raii::QueryPool> timing;
     if (frame_ms)
@@ -89,7 +90,7 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
             commands.resetQueryPool(**timing, 0, 2);
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, **timing, 0);
         }
-        renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, {},
+        renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, output_settings,
                         std::move(text));
         if (timing)
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, **timing, 1);
@@ -330,8 +331,8 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
         // From below the layer but well off the ground: a view into the deck rather
         // than along it, where the layer's thickness and structure are visible.
         auto showcase_camera = camera;
-        showcase_camera.set_position({0.0F, 800.0F, 0.0F});
-        showcase_camera.add_pitch(glm::radians(20.0F));
+        showcase_camera.set_position({0.0F, 700.0F, 0.0F});
+        showcase_camera.add_pitch(glm::radians(30.0F));
         clouds.enabled = true;
         // A character-name style world label over the layer: the outline has to keep it
         // readable over sky, cloud and terrain alike.
@@ -345,11 +346,13 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
             .world = {{.text = "lc1 from Empire",
                        .center = label_center,
                        .line_height = 40.0F,
+                       .color = {8.0F, 8.0F, 8.0F},
                        .normal = showcase_camera.position() - label_center}},
             .screen = {},
         };
+        lc1::OutputSettings const showcase_output{.exposure = 2.0F};
         save(capture(device, renderer, frame, showcase_camera, scene, true, artifact_extent,
-                     &cloud_ms, text),
+                     &cloud_ms, text, showcase_output),
              "artifacts/clouds.ppm");
         std::cout << std::format("480x270 frame: {:.3f} ms without clouds, {:.3f} ms with them\n",
                                  clear_ms, cloud_ms);

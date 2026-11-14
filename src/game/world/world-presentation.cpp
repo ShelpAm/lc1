@@ -339,9 +339,10 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
 {
     // Billboard labels are drawn over whatever the world shows behind them, sky and
     // sunlit cloud included. Printed panel lettering keeps the caller's colour (it sits
-    // on its own dark panel); these floats are self-luminous UI, so they are emitted
-    // above the brightest cloud radiance and rely on the text pass's outline.
-    constexpr glm::vec3 label_color{2.0F, 2.0F, 2.0F};
+    // on its own dark panel); these floats are UI, not lit surfaces, so they are emitted
+    // far above the brightest cloud radiance: tone mapping compresses 8.0 to roughly
+    // 0.94 of display white, which no cloud reaches.
+    constexpr glm::vec3 label_color{8.0F, 8.0F, 8.0F};
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
 
