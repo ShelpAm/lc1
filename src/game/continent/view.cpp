@@ -160,6 +160,15 @@ float road_distance(Road const &road, glm::vec2 point)
     return distance;
 }
 
+// Signed distance to the rectangle: negative inside, positive outside.
+float patch_distance(GroundPatch const &patch, glm::vec2 point)
+{
+    auto const delta = glm::abs(point - (patch.bounds.min + patch.bounds.max) * 0.5F) -
+                       (patch.bounds.max - patch.bounds.min) * 0.5F;
+    return glm::length(glm::max(delta, glm::vec2{0.0F})) +
+           std::min(std::max(delta.x, delta.y), 0.0F);
+}
+
 void ground(Geometry &geometry, Continent const &continent, GroundBounds chunk)
 {
     // Include patch and tile edges in the tessellation. Vertex heights and normals come
@@ -191,25 +200,26 @@ void ground(Geometry &geometry, Continent const &continent, GroundBounds chunk)
             glm::vec2 const max{edges[0][x], edges[1][z]};
             glm::vec2 const center = (min + max) * 0.5F;
             glm::vec3 color = terrain_color(continent.region_at(center)->type);
-            for (auto const &patch : continent.patches()) {
-                if (glm::all(glm::greaterThanEqual(center, patch.bounds.min)) &&
-                    glm::all(glm::lessThan(center, patch.bounds.max)))
-                    color = color_of(patch.surface);
-            }
 
             auto const center_sample = continent.terrain_sample(center);
             float const elevation = center_sample ? center_sample->height : 0.0F;
             float const rock = std::clamp((elevation - 2.0F) / 12.0F, 0.0F, 0.65F);
             color = glm::mix(color, glm::vec3{0.38F, 0.36F, 0.31F}, rock);
 
-            // Only refine near road edges. Interiors keep the coarse heightfield mesh.
+            // Only refine near paving edges. Interiors keep the coarse heightfield mesh.
             auto emit = [&](this auto const &self, glm::vec2 lo, glm::vec2 hi) -> void {
                 auto const middle = (lo + hi) * 0.5F;
                 float const reach = glm::distance(lo, hi) * 0.5F + 1.2F;
-                bool const edge = std::ranges::any_of(continent.roads(), [&](auto const &road) {
-                    return std::abs(road_distance(road, middle) - road.width * 0.5F) < reach;
-                });
-                if (edge && std::max(hi.x - lo.x, hi.y - lo.y) > 1.0F) {
+                bool const road_edge =
+                    std::ranges::any_of(continent.roads(), [&](auto const &road) {
+                        return std::abs(road_distance(road, middle) - road.width * 0.5F) < reach;
+                    });
+                bool const patch_edge =
+                    std::ranges::any_of(continent.patches(), [&](auto const &patch) {
+                        return std::abs(patch_distance(patch, middle)) < reach;
+                    });
+                float const size = std::max(hi.x - lo.x, hi.y - lo.y);
+                if ((road_edge && size > 1.0F) || (patch_edge && size > 0.5F)) {
                     self(lo, middle);
                     self({middle.x, lo.y}, {hi.x, middle.y});
                     self(middle, hi);
@@ -223,17 +233,26 @@ void ground(Geometry &geometry, Continent const &continent, GroundBounds chunk)
                     auto const sample = continent.terrain_sample(point).value_or(GroundSample{});
                     positions[i] = {point.x, sample.height, point.y};
                     normals[i] = sample.normal;
+                    float const noise = (ground_noise(point / 2.7F, 4096) - 0.5F) * 0.8F +
+                                        (ground_noise(point / 0.65F, 4096) - 0.5F) * 0.25F;
+                    auto paving_color = color;
+                    for (auto const &patch : continent.patches()) {
+                        float const coverage =
+                            1.0F -
+                            glm::smoothstep(-0.65F, 0.35F, patch_distance(patch, point) + noise);
+                        auto const patch_color =
+                            glm::mix(color_of(patch.surface), glm::vec3{0.38F, 0.36F, 0.31F}, rock);
+                        paving_color = glm::mix(paving_color, patch_color, coverage);
+                    }
                     float coverage = 0.0F;
                     for (auto const &road : continent.roads()) {
                         float const width = std::min(0.9F, road.width * 0.15F);
-                        float const noise = (ground_noise(point / 2.7F, 4096) - 0.5F) * 0.8F +
-                                            (ground_noise(point / 0.65F, 4096) - 0.5F) * 0.25F;
                         float const distance = road_distance(road, point) - road.width * 0.5F;
                         coverage =
                             std::max(coverage, 1.0F - glm::smoothstep(-width * 0.65F, width * 0.35F,
                                                                       distance + noise));
                     }
-                    colors[i] = glm::mix(color, color_of(ContinentSurface::Road), coverage) *
+                    colors[i] = glm::mix(paving_color, color_of(ContinentSurface::Road), coverage) *
                                 (0.88F + 0.24F * ground_noise(point / 7.0F, 4096));
                 }
                 geometry.terrain_quad(positions, normals, colors);

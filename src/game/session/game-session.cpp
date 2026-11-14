@@ -89,10 +89,10 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
                     ? static_cast<int>(input_router_.pressed(GameAction::IncreaseExposure)) -
                           static_cast<int>(input_router_.pressed(GameAction::DecreaseExposure))
                     : 0,
-            .first_person = !player_view_.oblique(),
+            .first_person = player_view_.first_person(),
         });
     std::optional<glm::mat4> eye_transform;
-    if (!player_view_.oblique())
+    if (player_view_.first_person())
         eye_transform = world_presentation_.observer_eye_transform();
     player_view_.update_camera(delta_seconds, snapshot_.player(connection_.player_id()).pose,
                                eye_transform);

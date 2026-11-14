@@ -21,6 +21,7 @@ struct PlayerCharacterInput {
     bool view_changed = false;
     std::optional<glm::vec2> restored_first_person_angles;
     glm::vec3 view_heading{0, 0, -1};
+    bool third_person_follow = false;
 };
 
 struct EquipmentRequest {
