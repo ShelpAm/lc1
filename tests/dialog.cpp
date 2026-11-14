@@ -7,6 +7,10 @@
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/world/interactable.hpp"
+#include "lc1/text/glyph-atlas.hpp"
+#include "lc1/text/text-layout.hpp"
+
+#include <algorithm>
 
 #include <array>
 #include <chrono>
@@ -445,6 +449,42 @@ void invalid_catalogs(std::filesystem::path const &path)
     check(catalog.select(world.player, world.captive, lc1::DialogTrigger::Interaction) ==
               "companion",
           "all conditions must still hold after a state change");
+
+    // A later branch and its answer must be drawable before any conversation starts.
+    {
+        auto output = std::ofstream{directory.path / "greeting.yaml"};
+        output << R"(version: 2
+entry: greeting
+nodes:
+  - id: greeting
+    speaker: Target
+    respondent: Talker
+    text: "你好，{talker_name}。"
+    choices:
+      - {id: chat, text: "继续", condition: Always, action: None, recruiter: Talker, npc_priority: 0, next: news}
+  - id: news
+    speaker: Target
+    respondent: Talker
+    text: "牛逼"
+    choices:
+      - {id: goodbye, text: "再见", condition: Always, action: None, recruiter: Talker, npc_priority: 0, next: end}
+)";
+    }
+    lc1::DialogCatalog const unicode_catalog{directory.path / "catalog.yaml"};
+    auto const codepoints = unicode_catalog.codepoints();
+    for (auto const codepoint : std::u32string_view{U"你好，。继续牛逼再见"})
+        check(std::ranges::find(codepoints, codepoint) != codepoints.end(),
+              "catalog includes Unicode from all nodes and choices");
+    auto const font = std::filesystem::path{"runtime/assets/fonts/SourceHanSansCN-Regular.otf"};
+    if (std::filesystem::exists(font)) {
+        lc1::text::GlyphAtlas const atlas{font, {.codepoints = codepoints}};
+        std::vector<lc1::Vertex> vertices;
+        lc1::text::append_text(vertices, atlas, "牛逼再见", {.line_height = 32});
+        check(vertices.size() == 24, "dialog-only Chinese speech and answers produce glyphs");
+    }
+    else {
+        std::cout << "dialog Unicode glyph checks skipped: font is absent\n";
+    }
 }
 
 void benchmark(std::filesystem::path const &path)

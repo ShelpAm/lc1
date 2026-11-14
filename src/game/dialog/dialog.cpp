@@ -1,4 +1,5 @@
 #include "lc1/game/dialog/dialog.hpp"
+#include "lc1/text/utf8.hpp"
 
 #include "lc1/error.hpp"
 #include "lc1/game/character/character.hpp"
@@ -198,6 +199,19 @@ DialogCatalog::DialogCatalog(std::filesystem::path const &path)
         throw Error(std::format("invalid dialog catalog {}: {}", path.string(), error.what()),
                     error.location());
     }
+}
+
+std::u32string DialogCatalog::codepoints() const
+{
+    std::u32string result;
+    for (auto const &[id, script] : scripts_) {
+        for (auto const &node : script.nodes) {
+            result.append(text::decode_utf8(node.text));
+            for (auto const &choice : node.choices)
+                result.append(text::decode_utf8(choice.text));
+        }
+    }
+    return result;
 }
 
 DialogScript const &DialogCatalog::script(std::string_view id) const
@@ -426,6 +440,11 @@ void Dialog::clear()
 DialogSystem::DialogSystem(std::filesystem::path const &catalog_path)
     : catalog_(catalog_path), initial_delay_(catalog_.settings().initial_delay)
 {
+}
+
+DialogCatalog const &DialogSystem::catalog() const
+{
+    return catalog_;
 }
 
 Dialog const *DialogSystem::find(Character const &character) const
