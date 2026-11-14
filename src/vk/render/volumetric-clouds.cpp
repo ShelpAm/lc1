@@ -27,16 +27,19 @@ struct CloudPushData {
     std::uint32_t depth;
     std::uint32_t shape_noise;
     std::uint32_t noise_sampler;
+    std::uint32_t detail_noise;
 };
 
-static_assert(sizeof(CloudPushData) == 16);
+static_assert(sizeof(CloudPushData) == 20);
 
 struct CompositePushData {
     std::uint32_t cloud;
     std::uint32_t hdr;
+    std::uint32_t data;
+    std::uint32_t depth;
 };
 
-static_assert(sizeof(CompositePushData) == 8);
+static_assert(sizeof(CompositePushData) == 16);
 
 void validate(CloudSettings const &settings)
 {
@@ -169,54 +172,61 @@ void VolumetricCloudRenderer::ensure_shape_noise()
     if (shape_noise_)
         return;
 
-    constexpr auto format = vk::Format::eR8Unorm;
     constexpr auto required = vk::FormatFeatureFlagBits::eSampledImage |
                               vk::FormatFeatureFlagBits::eSampledImageFilterLinear;
-    if ((device_->raii_physical().getFormatProperties(format).optimalTilingFeatures & required) !=
-        required)
-        fail("volumetric clouds require a linearly filterable R8_UNORM 3D image");
+    for (auto format : {vk::Format::eR8Unorm, vk::Format::eR8G8Unorm})
+        if ((device_->raii_physical().getFormatProperties(format).optimalTilingFeatures &
+             required) != required)
+            fail("volumetric clouds require linearly filterable R8_UNORM and RG8_UNORM 3D images");
     auto const limit = device_->raii_physical().getProperties().limits.maxImageDimension3D;
     if (cloud_noise_size > limit)
         fail("cloud shape noise needs {} voxels per axis, above the device limit {}",
              cloud_noise_size, limit);
 
-    auto const voxels = make_cloud_shape_noise();
-    vk::Extent3D const extent{cloud_noise_size, cloud_noise_size, cloud_noise_size};
-    shape_noise_.emplace(*device_, format, extent, 1, vk::SampleCountFlagBits::e1,
-                         vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
-                         vk::ImageAspectFlagBits::eColor);
-
-    // One-time upload: the volume is immutable offline data and the wait happens
-    // once, when the first cloud frame is registered.
-    GpuBuffer staging{*device_, voxels.size(), vk::BufferUsageFlagBits2::eTransferSrc,
-                      vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
-    staging.upload(std::as_bytes(std::span{voxels}));
-    one_time_submit(*device_, [&](vk::raii::CommandBuffer const &commands) {
-        auto const &volume = *shape_noise_;
-        volume.transition_layout(
-            commands, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
-            vk::PipelineStageFlagBits2::eNone, {}, vk::PipelineStageFlagBits2::eTransfer,
-            vk::AccessFlagBits2::eTransferWrite);
-        vk::BufferImageCopy2 region{
-            .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
-                                 .mipLevel = 0,
-                                 .baseArrayLayer = 0,
-                                 .layerCount = 1},
-            .imageOffset = {.x = 0, .y = 0, .z = 0},
-            .imageExtent = extent,
-        };
-        vk::CopyBufferToImageInfo2 copy{
-            .srcBuffer = *staging.raii(),
-            .dstImage = *volume.raii(),
-            .dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
-        };
-        copy.setRegions(region);
-        commands.copyBufferToImage2(copy);
-        volume.transition_layout(
-            commands, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
-            vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite,
-            vk::PipelineStageFlagBits2::eFragmentShader, vk::AccessFlagBits2::eShaderSampledRead);
-    });
+    auto const upload = [&](std::span<std::uint8_t const> voxels, std::uint32_t size,
+                            vk::Format format) {
+        vk::Extent3D const extent{size, size, size};
+        GpuImage volume{*device_,
+                        format,
+                        extent,
+                        1,
+                        vk::SampleCountFlagBits::e1,
+                        vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
+                        vk::ImageAspectFlagBits::eColor};
+        GpuBuffer staging{*device_, voxels.size(), vk::BufferUsageFlagBits2::eTransferSrc,
+                          vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
+        staging.upload(std::as_bytes(voxels));
+        one_time_submit(*device_, [&](vk::raii::CommandBuffer const &commands) {
+            volume.transition_layout(
+                commands, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+                vk::PipelineStageFlagBits2::eNone, {}, vk::PipelineStageFlagBits2::eTransfer,
+                vk::AccessFlagBits2::eTransferWrite);
+            vk::BufferImageCopy2 region{
+                .imageSubresource = {.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                     .mipLevel = 0,
+                                     .baseArrayLayer = 0,
+                                     .layerCount = 1},
+                .imageOffset = {.x = 0, .y = 0, .z = 0},
+                .imageExtent = extent,
+            };
+            vk::CopyBufferToImageInfo2 copy{
+                .srcBuffer = *staging.raii(),
+                .dstImage = *volume.raii(),
+                .dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+            };
+            copy.setRegions(region);
+            commands.copyBufferToImage2(copy);
+            volume.transition_layout(
+                commands, vk::ImageLayout::eTransferDstOptimal,
+                vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits2::eTransfer,
+                vk::AccessFlagBits2::eTransferWrite, vk::PipelineStageFlagBits2::eFragmentShader,
+                vk::AccessFlagBits2::eShaderSampledRead);
+        });
+        return volume;
+    };
+    detail_noise_.emplace(
+        upload(make_cloud_detail_noise(), cloud_detail_noise_size, vk::Format::eR8G8Unorm));
+    shape_noise_.emplace(upload(make_cloud_shape_noise(), cloud_noise_size, vk::Format::eR8Unorm));
 }
 
 void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &resources,
@@ -236,6 +246,8 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
     auto const depth_index = resources.image_index(resources.cloud_depth_index, scene_depth);
     if (!resources.cloud_noise_index)
         resources.cloud_noise_index = heap.allocate_image(*shape_noise_);
+    if (!resources.cloud_detail_index)
+        resources.cloud_detail_index = heap.allocate_image(*detail_noise_);
     if (!resources.cloud_noise_sampler)
         // Repeat addressing is what makes the single shape tile an endless sky: the
         // world position runs far beyond one tile and must wrap, never clamp.
@@ -252,11 +264,8 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
     glm::vec3 sun_direction;
     glm::vec3 sun_radiance;
     sun_light(scene, sun_direction, sun_radiance);
-    // A flat ambient source stands in for multiple scattering; the scene's own sky
-    // radiance, which already follows the sun, is a better colour than a constant,
-    // and the configured fallback keeps a floor under it.
-    // One sky colour feeds the background and the layer's ambient term, so a change
-    // to the sky (daylight, dusk, night) moves both together.
+    // The shader varies this skylight through the cloud height. The same scene
+    // sky colour drives both the background and cloud illumination.
     glm::vec3 const ambient = settings.ambient_scale * scene.sky_color;
 
     auto const inverse_view_projection = glm::inverse(scene.camera.view_projection_matrix());
@@ -275,6 +284,7 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
                   settings.radiance_scale, 0.0F},
         .steps = {settings.view_steps, settings.light_steps,
                   static_cast<std::uint32_t>(settings.debug), 0U},
+        .sky_color = {scene.sky_color, 0.0F},
     };
     resources.cloud_buffer.upload(std::as_bytes(std::span{&data, 1}));
 
@@ -284,6 +294,7 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
         .depth = depth_index,
         .shape_noise = *resources.cloud_noise_index,
         .noise_sampler = *resources.cloud_noise_sampler,
+        .detail_noise = *resources.cloud_detail_index,
     };
     cmd.push_data(std::span{&push, 1});
 
@@ -328,7 +339,10 @@ void VolumetricCloudRenderer::record_composite(CommandBuffer &cmd, FrameResource
     auto const composited_index = resources.image_index(resources.hdr_cloud_index, *composited);
 
     cmd.bind_descriptor_heap(heap);
-    CompositePushData const push{.cloud = cloud_index, .hdr = hdr_index};
+    CompositePushData const push{.cloud = cloud_index,
+                                 .hdr = hdr_index,
+                                 .data = resources.cloud_index,
+                                 .depth = *resources.cloud_depth_index};
     cmd.push_data(std::span{&push, 1});
 
     composited->transition_layout(

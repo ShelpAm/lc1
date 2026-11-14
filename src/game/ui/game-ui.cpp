@@ -494,7 +494,7 @@ void clouds(lc1::CloudSettings *settings)
     // instead of letting the next registration fail.
     clouds.top = std::max(clouds.top, clouds.bottom + 100.0F);
     ImGui::SetNextItemWidth(180.0F);
-    ImGui::SliderFloat("Shape scale", &clouds.noise_scale, 1000.0F, 40000.0F, "%.0f m",
+    ImGui::SliderFloat("Shape scale", &clouds.noise_scale, 1000.0F, 120000.0F, "%.0f m",
                        ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
     ImGui::SetNextItemWidth(180.0F);
     ImGui::SliderFloat("Detail", &clouds.detail_strength, 0.0F, 1.0F, "%.2f",

@@ -5,103 +5,69 @@
 // reconstructs `radiance + transmittance * background` exactly. Nothing here is
 // blended or gamma encoded: both intermediate images stay in HDR until tone mapping.
 
-struct CloudData {
-    // World position from clip space, stored column by column: whole-matrix loads
-    // through a heap ConstantBuffer are mishandled by the NVIDIA driver here, see
-    // docs/external-defects.md.
-    float4 inverse_view_projection_0;
-    float4 inverse_view_projection_1;
-    float4 inverse_view_projection_2;
-    float4 inverse_view_projection_3;
-    float4 camera_position_time;     // xyz camera position; w wind time in seconds
-    float4 sun_direction_anisotropy; // xyz unit vector towards the sun; w phase anisotropy
-    float4 sun_radiance_albedo;      // rgb linear sun radiance; w scattering albedo
-    float4 ambient_extinction;       // rgb linear ambient radiance; w extinction per metre
-    float4 layer;                    // bottom, top, coverage, density scale
-    float4 wind_frequency;           // xyz wind velocity in m/s; w mass frequency, 1/m
-    float4 detail;                   // x detail frequency multiplier, y erosion strength
-    float4 march;                    // x max trace distance, y light march distance,
-                                     // z radiance scale
-    uint4 steps;                     // x view steps, y light steps, z debug mode, w reserved
-};
+#include "cloud-data.slang"
 
 struct CloudPushData {
     uint cloud;
     uint depth;
     uint shape_noise;
     uint noise_sampler;
+    uint detail_noise;
 };
 [[vk::push_constant]] ConstantBuffer<CloudPushData> push;
 
-// Copy every field out of the heap buffer before marching: the loops below read the
-// parameters hundreds of times per pixel.
-CloudData load_cloud_data(ConstantBuffer<CloudData> source)
-{
-    CloudData data;
-    data.inverse_view_projection_0 = source.inverse_view_projection_0;
-    data.inverse_view_projection_1 = source.inverse_view_projection_1;
-    data.inverse_view_projection_2 = source.inverse_view_projection_2;
-    data.inverse_view_projection_3 = source.inverse_view_projection_3;
-    data.camera_position_time = source.camera_position_time;
-    data.sun_direction_anisotropy = source.sun_direction_anisotropy;
-    data.sun_radiance_albedo = source.sun_radiance_albedo;
-    data.ambient_extinction = source.ambient_extinction;
-    data.layer = source.layer;
-    data.wind_frequency = source.wind_frequency;
-    data.detail = source.detail;
-    data.march = source.march;
-    data.steps = source.steps;
-    return data;
-}
-
-float3 clip_to_world(float2 ndc, float depth, CloudData data)
-{
-    float4 homogeneous = data.inverse_view_projection_0 * ndc.x +
-                               data.inverse_view_projection_1 * ndc.y +
-                               data.inverse_view_projection_2 * depth +
-                               data.inverse_view_projection_3 * 1.0;
-    return homogeneous.xyz / homogeneous.w;
-}
-
 float height_profile(float relative_height)
 {
-    // Smooth base and top, dense middle: a flat layer never shows a hard edge.
-    return smoothstep(0.0, 0.15, relative_height) * (1.0 - smoothstep(0.6, 1.0, relative_height));
+    // This envelope shapes the field BEFORE thresholding. Multiplying the final
+    // density by it merely fades a slab with the same flat base under every cloud.
+    return smoothstep(0.0, 0.3, relative_height) * (1.0 - smoothstep(0.55, 1.0, relative_height));
 }
 
 // The single density definition shared by the view march and the sun march.
 // Sampling the same field at the same world position from both is what keeps cloud
 // bodies and their self shadowing consistent.
 float sample_cloud_density(float3 world_position, CloudData data, Texture3D<float> shape_noise,
-                           SamplerState shape_filter)
+                           SamplerState shape_filter, Texture3D<float2> detail_noise, float sample_length)
 {
     float3 sample_position =
         world_position - data.wind_frequency.xyz * data.camera_position_time.w;
     float relative_height =
-        (sample_position.y - data.layer.x) / max(data.layer.y - data.layer.x, 1e-3);
+        (world_position.y - data.layer.x) / (data.layer.y - data.layer.x);
     if (relative_height <= 0.0 || relative_height >= 1.0)
         return 0.0;
 
-    // Two scales of the same tile, not one: the low frequency decides where a cloud
-    // exists at all (large masses that span kilometres), and the higher frequency erodes
-    // its edges. One scale alone cannot do both -- a field fine enough to look like cloud
-    // is also fine enough to split the sky into identical little puffs.
-    float3 mass_position = sample_position * data.wind_frequency.w;
-    float3 detail_position =
-        mass_position * data.detail.x + float3(0.31F, 0.17F, 0.73F);
+    float3 mass_position = sample_position * data.wind_frequency.w * float3(1.0, 2.0, 1.0);
     float mass = shape_noise.SampleLevel(shape_filter, mass_position, 0.0).r;
-    float detail = shape_noise.SampleLevel(shape_filter, detail_position, 0.0).r;
+    // Independently seeded Worley octaves supply rounded billows and smaller torn
+    // edges. The mass field only decides where a cloud forms, never its fine texture.
+    float3 detail_position = mass_position * data.detail.x + float3(0.31, 0.17, 0.73);
+    // Low-frequency deformation prevents the independent cells reading as a
+    // regular field of equal-sized puffs.
+    detail_position += (mass - 0.5) * float3(1.3, -0.9, 1.1);
+    float2 detail_fields = detail_noise.SampleLevel(shape_filter, detail_position, 0.0);
+    float footprint = sample_length * data.wind_frequency.w * data.detail.x * 2.0;
+    // Attenuate detail that this integration stratum cannot resolve. Without it,
+    // distant clouds break into speckles as the march skips individual billows.
+    float billow_weight = 1.0 - smoothstep(0.25, 1.0, footprint * 2.0);
+    float detail_weight = 1.0 - smoothstep(0.25, 1.0, footprint * 8.0);
+    float billow = lerp(0.5, smoothstep(0.2, 0.8, detail_fields.r), billow_weight);
+    float detail = lerp(0.5, detail_fields.g, detail_weight);
+    mass = saturate(mass + (billow - 0.5) * 0.2);
 
     // Coverage remaps the mass field: with a low threshold more of it becomes cloud, so
     // coverage grows and the fraction below the threshold shrinks. A mild curve softens
     // the threshold instead of stamping out hard-edged blobs.
     float coverage = max(data.layer.z, 1e-3);
-    float remapped = saturate((mass - (1.0 - coverage)) / coverage);
-    float bodies = remapped * remapped * (3.0 - 2.0 * remapped);
-    // Erosion eats density where the detail field is high, which turns round cells into
-    // torn edges and keeps the interiors dense.
-    float erosion = saturate(detail) * data.detail.y;
-    return bodies * (1.0 - erosion) * height_profile(relative_height) * data.layer.w;
+    float shaped_mass = mass * height_profile(relative_height);
+    float remapped = saturate((shaped_mass - (1.0 - coverage)) / coverage);
+    // Subtract and remap rather than attenuating density: thin edges can now
+    // disappear altogether while dense interiors retain their body.
+    float erosion = (1.0 - detail) * data.detail.y * 0.25;
+    remapped = saturate((remapped - erosion) / (1.0 - erosion));
+    // Reach a dense core before the noise reaches its rare maximum; otherwise
+    // almost every surviving mass stays a translucent, blurred wisp.
+    float bodies = smoothstep(0.0, 0.45, remapped);
+    return bodies * data.layer.w;
 }
 
 float henyey_greenstein(float cosine, float anisotropy)
@@ -111,10 +77,10 @@ float henyey_greenstein(float cosine, float anisotropy)
     return (1.0 - squared) / (4.0 * 3.14159265359 * pow(denominator, 1.5));
 }
 
-// Optical depth towards the sun over a short segment, clamped to the layer top. This
+// Optical depth towards the sun through the layer, capped by the trace budget. This
 // is the density integral; extinction turns it into a transmittance.
 float sun_optical_depth(float3 position, CloudData data, Texture3D<float> shape_noise,
-                        SamplerState shape_filter)
+                        SamplerState shape_filter, Texture3D<float2> detail_noise)
 {
     float3 to_sun = data.sun_direction_anisotropy.xyz;
     // A source at or below the horizon does not light the layer from above.
@@ -124,13 +90,18 @@ float sun_optical_depth(float3 position, CloudData data, Texture3D<float> shape_
     float to_top = (data.layer.y - position.y) / to_sun.y;
     float distance = clamp(min(data.march.y, to_top), 0.0, data.march.y);
     uint samples = max(data.steps.y, 1u);
-    float step_length = distance / float(samples);
-
     float optical_depth = 0.0;
     for (uint i = 0; i < samples; ++i) {
-        float3 sample = position + to_sun * ((float(i) + 0.5) * step_length);
+        // Quadratic strata resolve the near surface without ignoring the full
+        // column above it. Integrate each stratum with its actual length.
+        float a = float(i) / float(samples);
+        float b = float(i + 1) / float(samples);
+        float start = distance * a * a;
+        float end = distance * b * b;
+        float step_length = end - start;
+        float3 sample = position + to_sun * (0.5 * (start + end));
         optical_depth +=
-            sample_cloud_density(sample, data, shape_noise, shape_filter) * step_length;
+            sample_cloud_density(sample, data, shape_noise, shape_filter, detail_noise, step_length) * step_length;
     }
     return optical_depth;
 }
@@ -140,25 +111,21 @@ float sun_transmittance(float optical_depth, CloudData data)
     return exp(-data.ambient_extinction.w * optical_depth);
 }
 
-// Sunlight reaching the eye from one sample: single scattering plus a two-octave
-// approximation of multiple scattering. Light that has scattered more than once leaves
-// the cloud nearly isotropic and survives a longer path, so each further octave assumes
-// half the extinction and carries half the energy of the previous one, normalised as a
-// diffuse emitter (1/pi) instead of by the single-scattering phase function. Without it
-// an optically thick cloud saturates at the phase function and reads as a dark grey
-// sheet instead of a white one. Self shadowing survives: every octave still measures
-// its own optical depth towards the sun.
+// Dual-lobe single scattering and two broad multiple-scattering octaves. Each
+// later octave has reduced extinction and energy, modelling light redistributed
+// through the cloud. This remains an approximation, not an energy-conserving solver.
 float3 scattered_sunlight(float optical_depth, float cosine, CloudData data)
 {
-    float single = sun_transmittance(optical_depth, data) *
-                   henyey_greenstein(cosine, data.sun_direction_anisotropy.w);
+    float phase = lerp(henyey_greenstein(cosine, -0.2),
+                       henyey_greenstein(cosine, data.sun_direction_anisotropy.w), 0.9);
+    float single = sun_transmittance(optical_depth, data) * phase;
     float multiple = 0.0;
     float energy = 0.5;
-    float extinction_scale = 0.5;
+    float extinction_scale = 0.2;
     for (uint octave = 0; octave < 2; ++octave) {
         multiple += energy * exp(-data.ambient_extinction.w * extinction_scale * optical_depth);
-        energy *= 0.5;
-        extinction_scale *= 0.5;
+        energy *= 0.5 * data.sun_radiance_albedo.w;
+        extinction_scale *= 0.2;
     }
     return data.sun_radiance_albedo.xyz * data.march.z * (single + multiple / 3.14159265359);
 }
@@ -196,6 +163,7 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
 {
     CloudData data = load_cloud_data(ResourceDescriptorHeap[push.cloud]);
     Texture3D<float> shape_noise = ResourceDescriptorHeap[push.shape_noise];
+    Texture3D<float2> detail_noise = ResourceDescriptorHeap[push.detail_noise];
     SamplerState shape_filter = SamplerDescriptorHeap[push.noise_sampler];
     Texture2DMS<float> scene_depth = ResourceDescriptorHeap[push.depth];
 
@@ -220,6 +188,7 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     float scene_distance =
         depth >= 1.0 ? data.march.x : length(clip_to_world(ndc, depth, data) - camera_position);
 
+
     float enter, leave;
     if (!intersect_layer(camera_position, ray_direction, data.layer.x, data.layer.y, data.march.x,
                          enter, leave))
@@ -232,6 +201,10 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     uint view_steps = max(data.steps.x, 1u);
     float step_length = (leave - enter) / float(view_steps);
     float cosine = dot(ray_direction, data.sun_direction_anisotropy.xyz);
+    // A fixed screen-space offset decorrelates the strata between neighbouring
+    // rays. Identical midpoints expose the 48 integration slices as contour bands
+    // on the newly shaped bottoms. Keep it frame invariant to avoid flicker.
+    float sample_offset = frac(52.9829189 * frac(dot(position.xy, float2(0.06711056, 0.00583715))));
 
     float3 radiance = float3(0.0);
     float transmittance = 1.0;
@@ -240,26 +213,30 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     float peak_sun = 0.0;
     for (uint i = 0; i < view_steps; ++i) {
         marched = i + 1;
-        float distance = enter + (float(i) + 0.5) * step_length;
+        float distance = enter + (float(i) + sample_offset) * step_length;
         float3 sample = camera_position + ray_direction * distance;
         // Fade towards the far cut instead of clipping the layer at a plane. The fade
         // starts at half the trace distance so the horizon dissolves into haze rather
         // than ending in a band where the layer is out of range.
         float distance_fade = 1.0 - smoothstep(0.5, 1.0, distance / data.march.x);
-        float density = sample_cloud_density(sample, data, shape_noise, shape_filter) * distance_fade;
+        float density = sample_cloud_density(sample, data, shape_noise, shape_filter, detail_noise, step_length) * distance_fade;
         if (density <= 0.0)
             continue;
 
-        float optical_depth = sun_optical_depth(sample, data, shape_noise, shape_filter);
+        float optical_depth = sun_optical_depth(sample, data, shape_noise, shape_filter, detail_noise);
         // Debug views report the densest sample of the ray, which is what reads as "is
         // there cloud here"; the first hit is only the layer's thin base.
         if (density > peak_density) {
             peak_density = density;
             peak_sun = sun_transmittance(optical_depth, data);
         }
+        // Skylight reaches the upper cloud more easily than its underside; a
+        // constant ambient term flattens both into the same grey even in shadow.
+        float relative_height = saturate((sample.y - data.layer.x) / (data.layer.y - data.layer.x));
+        float3 ambient = data.ambient_extinction.xyz * lerp(0.45, 1.0, relative_height);
         float3 source =
             data.sun_radiance_albedo.w *
-            (scattered_sunlight(optical_depth, cosine, data) + data.ambient_extinction.xyz);
+            (scattered_sunlight(optical_depth, cosine, data) + ambient);
         // Segment-constant approximation: density and source hold across the step.
         float segment = exp(-data.ambient_extinction.w * density * step_length);
         radiance += transmittance * (1.0 - segment) * source;

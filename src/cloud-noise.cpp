@@ -132,6 +132,23 @@ std::uint32_t neighbour(std::uint32_t cell, std::int32_t step, std::uint32_t cou
            count;
 }
 
+float sample_worley(glm::vec3 position, WorleyCells const &cells)
+{
+    auto const cell = glm::uvec3{glm::floor(position)};
+    auto const fraction = position - glm::floor(position);
+    float nearest = 8.0F;
+    for (std::int32_t dz = -1; dz <= 1; ++dz)
+        for (std::int32_t dy = -1; dy <= 1; ++dy)
+            for (std::int32_t dx = -1; dx <= 1; ++dx) {
+                auto const &jitter =
+                    cells.at(neighbour(cell.x, dx, cells.count), neighbour(cell.y, dy, cells.count),
+                             neighbour(cell.z, dz, cells.count));
+                auto const offset = fraction - glm::vec3{dx, dy, dz} - jitter;
+                nearest = std::min(nearest, glm::dot(offset, offset));
+            }
+    return 1.0F - std::sqrt(nearest);
+}
+
 } // namespace
 
 std::vector<std::uint8_t> make_cloud_shape_noise(std::uint32_t size)
@@ -166,7 +183,6 @@ std::vector<std::uint8_t> make_cloud_shape_noise(std::uint32_t size)
         lattices[octave] =
             make_lattice(octave_periods[octave], static_cast<std::uint32_t>(octave) * 8U + 1U);
     }
-    AxisKernel const billow_kernel = make_axis_kernel(size, worley_cells);
     WorleyCells const worley = make_worley_cells(worley_cells, 97U);
 
     auto const cell_scale = static_cast<float>(worley_cells) / static_cast<float>(size);
@@ -199,33 +215,36 @@ std::vector<std::uint8_t> make_cloud_shape_noise(std::uint32_t size)
                 }
                 shape /= octave_total;
 
-                // Worley in unwrapped cell space: q = cell + fraction.
-                float const qx = (static_cast<float>(x) + 0.5F) * cell_scale;
-                float const qy = (static_cast<float>(y) + 0.5F) * cell_scale;
-                float const qz = (static_cast<float>(z) + 0.5F) * cell_scale;
-                std::array<float, 3> const fraction{qx - std::floor(qx), qy - std::floor(qy),
-                                                    qz - std::floor(qz)};
-                std::array<std::uint32_t, 3> const centre{billow_kernel.low_index[x],
-                                                          billow_kernel.low_index[y],
-                                                          billow_kernel.low_index[z]};
-                float nearest = 8.0F;
-                for (std::int32_t dz = -1; dz <= 1; ++dz)
-                    for (std::int32_t dy = -1; dy <= 1; ++dy)
-                        for (std::int32_t dx = -1; dx <= 1; ++dx) {
-                            glm::vec3 const &jitter =
-                                worley.at(neighbour(centre[0], dx, worley_cells),
-                                          neighbour(centre[1], dy, worley_cells),
-                                          neighbour(centre[2], dz, worley_cells));
-                            float const ex = fraction[0] - static_cast<float>(dx) - jitter.x;
-                            float const ey = fraction[1] - static_cast<float>(dy) - jitter.y;
-                            float const ez = fraction[2] - static_cast<float>(dz) - jitter.z;
-                            nearest = std::min(nearest, ex * ex + ey * ey + ez * ez);
-                        }
-                float const billow = 1.0F - std::sqrt(nearest);
+                auto const position = (glm::vec3{x, y, z} + 0.5F) * cell_scale;
+                float const billow = sample_worley(position, worley);
 
                 float const combined =
                     std::clamp(shape * shape_weight + billow * billow_weight, 0.0F, 1.0F);
                 voxels[index++] = static_cast<std::uint8_t>(std::lround(combined * 255.0F));
+            }
+    return voxels;
+}
+
+std::vector<std::uint8_t> make_cloud_detail_noise(std::uint32_t size)
+{
+    if (size < 16 || size > 128)
+        fail("cloud detail noise requires 16 to 128 voxels per axis, got {}", size);
+
+    std::array const cells{make_worley_cells(2, 157), make_worley_cells(8, 271),
+                           make_worley_cells(16, 389)};
+    std::vector<std::uint8_t> voxels(static_cast<std::size_t>(size) * size * size * 2);
+    auto index = std::size_t{0};
+    for (std::uint32_t z = 0; z < size; ++z)
+        for (std::uint32_t y = 0; y < size; ++y)
+            for (std::uint32_t x = 0; x < size; ++x) {
+                auto const position = (glm::vec3{x, y, z} + 0.5F) / static_cast<float>(size);
+                std::array<float, 3> values;
+                for (std::size_t octave = 0; octave < cells.size(); ++octave)
+                    values[octave] = sample_worley(
+                        position * static_cast<float>(cells[octave].count), cells[octave]);
+                for (float value : {values[0], values[1] * 0.75F + values[2] * 0.25F})
+                    voxels[index++] = static_cast<std::uint8_t>(
+                        std::lround(std::clamp(value, 0.0F, 1.0F) * 255.0F));
             }
     return voxels;
 }

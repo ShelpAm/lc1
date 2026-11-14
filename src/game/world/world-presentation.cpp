@@ -337,12 +337,9 @@ void WorldPresentation::update_instances()
 
 std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
 {
-    // Billboard labels are drawn over whatever the world shows behind them, sky and
-    // sunlit cloud included. Printed panel lettering keeps the caller's colour (it sits
-    // on its own dark panel); these floats are UI, not lit surfaces, so they are emitted
-    // far above the brightest cloud radiance: tone mapping compresses 8.0 to roughly
-    // 0.94 of display white, which no cloud reaches.
-    constexpr glm::vec3 label_color{8.0F, 8.0F, 8.0F};
+    // Billboard labels stay at the bloom soft knee's zero-contribution boundary.
+    // Printed panel lettering keeps the caller's colour.
+    constexpr glm::vec3 label_color{1.F, 1.F, 1.F};
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
 

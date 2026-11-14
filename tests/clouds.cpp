@@ -229,6 +229,9 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     auto const clear_sky = capture(device, renderer, frame, camera, scene, false);
 
     clouds.enabled = true;
+    // The behavioural checks need several cloud masses in frame whichever way the
+    // shipped default scale is tuned, so they pin their own.
+    clouds.noise_scale = 8000.0F;
     auto const first = capture(device, renderer, frame, camera, scene);
     check(frame.hdr_cloud_image.has_value(), "cloud rendering must produce a composited HDR image");
     check(frame.cloud_image.has_value(),
@@ -278,12 +281,33 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     variance /= std::max<std::size_t>(sky_count, 1);
     check(std::sqrt(variance) > 0.01F, "cloud coverage must have visible structure");
 
-    // Zero density is the neutral element: the composite must reproduce the scene.
+    // Zero density preserves geometry; sky still includes directional atmosphere and sun.
     clouds.density = 0.0F;
     auto const no_density = capture(device, renderer, frame, camera, scene);
     for (std::size_t i = 0; i < no_density.hdr.size(); ++i)
-        check(no_density.hdr[i] == clear_sky.hdr[i],
-              "a layer without density must not change the scene");
+        if (i / test_extent.width >= test_extent.height * 3 / 4)
+            check(no_density.hdr[i] == clear_sky.hdr[i],
+                  "a layer without density must not change foreground geometry");
+    auto solar_camera = camera;
+    check(solar_camera.look_at(solar_camera.position() + glm::vec3{-0.4F, 0.72F, -0.57F}),
+          "solar camera must face the directional light");
+    solar_camera.set_fov_y(5.0F);
+    auto const solar_disc = capture(device, renderer, frame, solar_camera, scene);
+    auto const peak =
+        std::ranges::max_element(solar_disc.hdr, {}, [](glm::vec4 pixel) { return pixel.r; });
+    check(peak->r > 10.0F, "clear sky must show an HDR solar disc towards the sun");
+    auto const solar_corner = solar_disc.hdr.front();
+    check(solar_corner.r < 1.0F, "solar disc must remain localized in the sky");
+    auto const aureole = solar_disc.hdr[32 * test_extent.width + 40];
+    check(aureole.r > solar_corner.r + 0.15F,
+          "sunlight must brighten the sky outside the disc with a gradual aureole");
+    lc1::scene::Scene sunless;
+    sunless.set_sky(lc1::scene::Sky{.color = {0.22F, 0.34F, 0.55F}});
+    auto const no_sun = capture(device, renderer, frame, solar_camera, sunless);
+    for (auto const pixel : no_sun.hdr)
+        check(pixel.r < 1.0F, "no directional light must mean no solar disc");
+    if (samples == vk::SampleCountFlagBits::e1)
+        save(solar_disc, "artifacts/solar-disc.ppm");
     clouds.density = 1.0F;
 
     // Coverage changes how much of the sky the layer occupies.
@@ -299,6 +323,22 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
           "higher coverage must make the layer optically thicker");
     clouds.coverage = 0.5F;
 
+    // Erosion must open gaps through thin cloud, not just dim the same slab.
+    // Freeze advection so both frames sample exactly the same field.
+    auto const original_wind = clouds.wind_velocity;
+    auto const original_detail = clouds.detail_strength;
+    clouds.wind_velocity = glm::vec3{0};
+    clouds.detail_strength = 0.0F;
+    auto const solid_edges = capture(device, renderer, frame, camera, scene);
+    clouds.detail_strength = 1.0F;
+    auto const eroded_edges = capture(device, renderer, frame, camera, scene);
+    std::size_t opened_gaps = 0;
+    for (std::size_t i = 0; i < solid_edges.hdr.size(); ++i)
+        if (solid_edges.hdr[i].x > 0.02F && eroded_edges.hdr[i].x < 1e-5F)
+            ++opened_gaps;
+    clouds.wind_velocity = original_wind;
+    clouds.detail_strength = original_detail;
+
     // The debug views are what a user reads to understand the layer.
     clouds.debug = lc1::CloudSettings::Debug::Density;
     auto const density_view = capture(device, renderer, frame, camera, scene);
@@ -307,6 +347,23 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     auto const sun_view = capture(device, renderer, frame, camera, scene);
     float const sun_mean = mean_radiance(sun_view, all);
     check(sun_mean > 0.05F && sun_mean < 1.0F, "sun transmittance must be partial under the sun");
+    // A longer sun column must account for the cloud above the local surface.
+    auto const lighting_wind = clouds.wind_velocity;
+    clouds.wind_velocity = glm::vec3{0};
+    clouds.light_march_distance = 100.0F;
+    auto const short_column = capture(device, renderer, frame, camera, scene);
+    clouds.light_march_distance = lc1::CloudSettings{}.light_march_distance;
+    auto const full_column = capture(device, renderer, frame, camera, scene);
+    check(mean_radiance(full_column, all) < mean_radiance(short_column, all) - 0.005F,
+          "sun transmittance must include the cloud above the near-surface segment");
+    clouds.debug = lc1::CloudSettings::Debug::Off;
+    lc1::scene::Scene unlit;
+    unlit.set_sky(lc1::scene::Sky{.color = {0.0F, 0.0F, 0.0F}});
+    auto const dark_cloud = capture(device, renderer, frame, camera, unlit);
+    for (auto const &pixel : dark_cloud.hdr)
+        check(glm::length(glm::vec3{pixel}) < 1e-5F,
+              "multiple scattering must not create light without sun or sky");
+    clouds.wind_velocity = lighting_wind;
     clouds.debug = lc1::CloudSettings::Debug::StepCount;
     auto const steps_view = capture(device, renderer, frame, camera, scene);
     check(mean_radiance(steps_view, all) > 0.0F, "the step count view must report marched steps");
@@ -320,19 +377,80 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
         check(restored.hdr[i] == clear_sky.hdr[i],
               "disabling the cloud pass must restore the cloudless frame");
 
+    {
+        std::filesystem::create_directories("artifacts");
+        // Fixed wind and ground-facing views make the lower silhouette comparable
+        // across density changes, for both single-sample and multisampled depth.
+        auto const original_settings = clouds;
+        clouds = lc1::CloudSettings{};
+        clouds.enabled = true;
+        clouds.wind_velocity = glm::vec3{0};
+        auto underside_camera = camera;
+        underside_camera.set_position({5500.0F, 40.0F, 4000.0F});
+        underside_camera.add_pitch(20.0F);
+        lc1::OutputSettings const display_output{.exposure = 2.0F,
+                                                 .encoding = lc1::OutputEncoding::Srgb};
+        save(capture(device, renderer, frame, underside_camera, scene, true, {960, 540}, nullptr,
+                     {}, display_output),
+             "artifacts/clouds-ground.ppm");
+        underside_camera.set_position({5500.0F, 700.0F, 1500.0F});
+        underside_camera.add_pitch(35.0F);
+        save(capture(device, renderer, frame, underside_camera, scene, true, {960, 540}, nullptr,
+                     {}, display_output),
+             "artifacts/clouds-underside.ppm");
+        auto sunlit_camera = camera;
+        sunlit_camera.set_position({5500.0F, 40.0F, -4000.0F});
+        sunlit_camera.add_yaw(180.0F);
+        sunlit_camera.add_pitch(20.0F);
+        save(capture(device, renderer, frame, sunlit_camera, scene, true, {960, 540}, nullptr, {},
+                     display_output),
+             "artifacts/clouds-sunlit.ppm");
+        auto solar_view = solar_camera;
+        solar_view.set_fov_y(55.0F);
+        solar_view.add_pitch(-12.0F);
+        lc1::OutputSettings const solar_output{
+            .exposure = 2.0F, .bloom_strength = 0.12F, .encoding = lc1::OutputEncoding::Srgb};
+        clouds.density = 0.0F;
+        save(capture(device, renderer, frame, solar_view, scene, true, {960, 540}, nullptr, {},
+                     solar_output),
+             "artifacts/solar-day-clear.ppm");
+        clouds.density = 1.0F;
+        save(capture(device, renderer, frame, solar_view, scene, true, {960, 540}, nullptr, {},
+                     solar_output),
+             "artifacts/solar-day-clouds.ppm");
+        lc1::scene::Scene sunset;
+        sunset.set_sky(lc1::scene::Sky{.color = {0.32F, 0.20F, 0.16F}});
+        sunset.add_light(lc1::scene::to_light(
+            lc1::scene::DirectionalLight{.base = {.color = {1.0F, 0.96F, 0.9F}, .intensity = 0.12F},
+                                         .direction = {-0.98F, -0.18F, 0.0F}}));
+        auto sunset_view = camera;
+        check(sunset_view.look_at(sunset_view.position() + glm::vec3{0.98F, 0.18F, 0.0F}),
+              "sunset camera must face the low sun");
+        sunset_view.set_fov_y(55.0F);
+        sunset_view.add_pitch(-6.0F);
+        clouds.density = 0.0F;
+        save(capture(device, renderer, frame, sunset_view, sunset, true, {960, 540}, nullptr, {},
+                     solar_output),
+             "artifacts/solar-sunset.ppm");
+        clouds = original_settings;
+    }
+
     // Readable captures for the layer itself, its absence and its density field. These
     // are review artifacts, not assertions: the behavioural checks are above. They come
     // from the multisampled run when the device has one, matching the game's path.
     if (samples != vk::SampleCountFlagBits::e1) {
         std::filesystem::create_directories("artifacts");
+        // Ship defaults, only enabled: these captures are the look a player sees.
+        clouds = lc1::CloudSettings{};
+        clouds.enabled = true;
         constexpr vk::Extent2D artifact_extent{480, 270};
         double clear_ms = 0.0;
         double cloud_ms = 0.0;
         // From below the layer but well off the ground: a view into the deck rather
         // than along it, where the layer's thickness and structure are visible.
         auto showcase_camera = camera;
-        showcase_camera.set_position({0.0F, 700.0F, 0.0F});
-        showcase_camera.add_pitch(glm::radians(30.0F));
+        showcase_camera.set_position({0.0F, 5000.0F, 0.0F});
+        showcase_camera.add_pitch(glm::radians(-89.0F));
         clouds.enabled = true;
         // A character-name style world label over the layer: the outline has to keep it
         // readable over sky, cloud and terrain alike.
@@ -350,24 +468,77 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
                        .normal = showcase_camera.position() - label_center}},
             .screen = {},
         };
-        lc1::OutputSettings const showcase_output{.exposure = 2.0F};
+        lc1::OutputSettings const showcase_output{.exposure = 2.0F,
+                                                  .encoding = lc1::OutputEncoding::Srgb};
         save(capture(device, renderer, frame, showcase_camera, scene, true, artifact_extent,
                      &cloud_ms, text, showcase_output),
              "artifacts/clouds.ppm");
-        std::cout << std::format("480x270 frame: {:.3f} ms without clouds, {:.3f} ms with them\n",
-                                 clear_ms, cloud_ms);
-        double full_clear = 0.0;
-        double full_cloud = 0.0;
+
+        // Interleaved measurements after warm-up at a fixed ground viewpoint.
+        // GPU timestamps cover rendering only; report medians instead of one frame.
+        std::array<double, 15> clear_times{};
+        std::array<double, 15> cloud_times{};
+        auto performance_camera = camera;
+        performance_camera.set_position({5500.0F, 40.0F, 4000.0F});
+        performance_camera.add_pitch(20.0F);
+        auto const performance_wind = clouds.wind_velocity;
+        clouds.wind_velocity = glm::vec3{0};
         constexpr vk::Extent2D full_extent{1244, 1516};
-        clouds.enabled = false;
-        capture(device, renderer, frame, showcase_camera, scene, false, full_extent, &full_clear);
-        clouds.enabled = true;
-        capture(device, renderer, frame, showcase_camera, scene, true, full_extent, &full_cloud);
-        std::cout << std::format("1244x1516 frame: {:.3f} ms without clouds, {:.3f} ms with them\n",
-                                 full_clear, full_cloud);
+        performance_camera.set_aspect_ratio(static_cast<float>(full_extent.width) /
+                                            full_extent.height);
+        lc1::GpuImage performance_output{device,
+                                         vk::Format::eR8G8B8A8Unorm,
+                                         full_extent,
+                                         1,
+                                         vk::SampleCountFlagBits::e1,
+                                         vk::ImageUsageFlagBits::eColorAttachment,
+                                         vk::ImageAspectFlagBits::eColor};
+        auto timing = device.raii().createQueryPool(
+            {.queryType = vk::QueryType::eTimestamp, .queryCount = 2});
+        auto const time_frame = [&] {
+            lc1::one_time_submit(device, [&](lc1::CommandBuffer &commands) {
+                performance_output.transition_layout(
+                    commands.raii(), vk::ImageLayout::eUndefined,
+                    vk::ImageLayout::eColorAttachmentOptimal,
+                    vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                    vk::AccessFlagBits2::eColorAttachmentWrite,
+                    vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                    vk::AccessFlagBits2::eColorAttachmentWrite);
+                commands.raii().resetQueryPool(*timing, 0, 2);
+                commands.raii().writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, *timing, 0);
+                renderer.record(commands, frame, {&performance_output.view(), full_extent}, scene,
+                                performance_camera, {});
+                commands.raii().writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, *timing,
+                                                1);
+            });
+            std::array<std::uint64_t, 2> stamps{};
+            check(timing.getResults(0, 2, sizeof(stamps), stamps.data(), sizeof(std::uint64_t),
+                                    vk::QueryResultFlagBits::e64 |
+                                        vk::QueryResultFlagBits::eWait) == vk::Result::eSuccess,
+                  "performance timestamps must be available");
+            return static_cast<double>(stamps[1] - stamps[0]) *
+                   device.raii_physical().getProperties().limits.timestampPeriod / 1e6;
+        };
+        for (int i = -30; i < 15; ++i) {
+            clouds.enabled = false;
+            auto const clear_time = time_frame();
+            clouds.enabled = true;
+            auto const cloud_time = time_frame();
+            if (i >= 0) {
+                clear_times[i] = clear_time;
+                cloud_times[i] = cloud_time;
+            }
+        }
+        clouds.wind_velocity = performance_wind;
+        std::ranges::sort(clear_times);
+        std::ranges::sort(cloud_times);
+        std::cout << std::format(
+            "1244x1516 ground frame median (15 pairs): {:.3f} ms clear, {:.3f} ms cloud "
+            "(cloud range {:.3f}..{:.3f} ms)\n",
+            clear_times[7], cloud_times[7], cloud_times.front(), cloud_times.back());
         clouds.enabled = false;
         save(capture(device, renderer, frame, showcase_camera, scene, false, artifact_extent,
-                     &clear_ms, text),
+                     &clear_ms, text, showcase_output),
              "artifacts/clouds-clear.ppm");
         clouds.enabled = true;
         clouds.debug = lc1::CloudSettings::Debug::Density;
@@ -375,6 +546,8 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
              "artifacts/clouds-density.ppm");
         clouds.debug = lc1::CloudSettings::Debug::Off;
     }
+
+    check(opened_gaps > 0, "detail erosion must remove thin edges, not just attenuate density");
 
     // Settings are validated once, at registration.
     // Registration alone validates: the rejected frames below never record or execute,

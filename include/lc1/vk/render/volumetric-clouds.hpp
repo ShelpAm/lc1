@@ -35,16 +35,15 @@ struct CloudSettings {
     float bottom = 1500.0F;
     float top = 3500.0F;
     // Fraction of the sky covered by cloud; the density threshold moves with it.
-    float coverage = 0.35F;
+    float coverage = 0.45F;
     float density = 1.0F;
     // World-space extent of one shape-noise tile, i.e. the size of the large cloud
     // masses. Smaller values make more, smaller clouds out of the same field.
     float noise_scale = 14000.0F;
-    // Second sample of the same field at `detail_scale` times the mass frequency: it
-    // erodes cloud edges. One scale alone either looks like popcorn or like mush.
-    float detail_scale = 8.0F;
-    // Fraction of density the detail field may remove, 0 to 1.
-    float detail_strength = 0.40F;
+    // Independent Worley field: medium-scale billows and finer edge erosion.
+    float detail_scale = 6.0F;
+    // Strength of subtractive edge erosion, 0 to 1.
+    float detail_strength = 0.35F;
     glm::vec3 wind_velocity{5.0F, 0.0F, 2.0F};
     // Extinction at unit density, per metre.
     float extinction = 0.02F;
@@ -53,7 +52,7 @@ struct CloudSettings {
     float anisotropy = 0.55F;
     std::uint32_t view_steps = 48;
     std::uint32_t light_steps = 6;
-    float light_march_distance = 400.0F;
+    float light_march_distance = 6000.0F;
     float max_trace_distance = 40000.0F;
     // Fraction of the scene's sky colour used as ambient cloud lighting. The sky and
     // the layer therefore brighten and darken together instead of disagreeing.
@@ -68,7 +67,7 @@ struct CloudSettings {
     Debug debug = Debug::Off;
 };
 
-// Per-frame cloud layer parameters, as uploaded to shaders/clouds.slang. Every member
+// Per-frame cloud layer parameters, shared through shaders/cloud-data.slang. Every member
 // is a 16-byte row: the shader reads the inverse view-projection column by column
 // because whole-matrix loads through a heap ConstantBuffer are mishandled on NVIDIA.
 struct CloudData {
@@ -82,16 +81,17 @@ struct CloudData {
     glm::vec4 detail;                   // x detail frequency multiplier, y erosion strength
     glm::vec4 march;                    // x max trace distance, y light march distance
     glm::uvec4 steps;                   // x view steps, y light steps, z debug mode, w reserved
+    glm::vec4 sky_color;                // scene background before directional sky shading
 };
 
-static_assert(sizeof(CloudData) == 208);
+static_assert(sizeof(CloudData) == 224);
 static_assert(offsetof(CloudData, camera_position_time) == 64);
 static_assert(offsetof(CloudData, detail) == 160);
 static_assert(offsetof(CloudData, steps) == 192);
 
 // Layer-based volumetric clouds: one ray-march pass into a radiance/transmittance
 // image, then one composite pass into a second HDR image before Bloom and tone
-// mapping. Both intermediates belong to the frame slot, only the shape volume is
+// mapping. Both intermediates belong to the frame slot, the two noise volumes are
 // owned here. Device outlives this object.
 class VolumetricCloudRenderer {
   public:
@@ -113,6 +113,7 @@ class VolumetricCloudRenderer {
     // Generated on first use: the CPU field costs real time, and a disabled pass
     // must not pay for it.
     std::optional<GpuImage> shape_noise_;
+    std::optional<GpuImage> detail_noise_;
     GraphicsShaders march_shaders_;
     GraphicsShaders composite_shaders_;
     // Wind time origin. Cloud motion is a function of elapsed wall time, not of the

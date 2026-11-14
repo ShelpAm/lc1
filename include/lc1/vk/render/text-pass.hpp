@@ -116,9 +116,6 @@ class TextPass {
     Device const *device_;
     GraphicsShaders shaders_;
     GraphicsState world_state_;
-    // The outline is drawn first with depth writes off: its offset copies must not
-    // win the depth test against the fill that follows them.
-    GraphicsState world_outline_state_;
     GraphicsState screen_state_;
     // Reused across both passes; each uploads before the other rebuilds it.
     std::vector<Vertex> vertices_;

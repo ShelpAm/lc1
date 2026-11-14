@@ -20,3 +20,5 @@
 - [物品可选装备属性块：已替代提案](items-optional-equipment-proposal-2026-11-10.md)；现行说明：[资源与穿戴](../design/resources.md)。
 
 - [DDGI 首版验证（2026-11-11）](ddgi-validation-2026-11-11.md)；现行说明：[光照](../lighting.md#ddgi-漫反射间接光)。
+
+- [体积云密度与光照验证（2026-11-14）](volumetric-clouds-validation-2026-11-14.md)；现行说明：[体积云](../volumetric-clouds.md)。

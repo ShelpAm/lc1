@@ -82,6 +82,7 @@ struct FrameResources {
     std::optional<HeapIndex> hdr_cloud_index;
     std::optional<HeapIndex> cloud_depth_index;
     std::optional<HeapIndex> cloud_noise_index;
+    std::optional<HeapIndex> cloud_detail_index;
     std::optional<HeapIndex> cloud_noise_sampler;
 
     struct PushData {

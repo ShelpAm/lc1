@@ -8,7 +8,6 @@
 #include "lc1/vk/resources/gpu-font.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <span>
 #include <utility>
@@ -31,13 +30,6 @@ TextPass::TextPass(Device const &device, vk::SampleCountFlagBits samples)
           .depth_test = true,
           .blend = true,
       },
-      world_outline_state_{
-          .vertex_input = VertexInput::Mesh,
-          .samples = samples,
-          .depth_test = true,
-          .depth_write = false,
-          .blend = true,
-      },
       screen_state_{
           .vertex_input = VertexInput::Mesh,
           .samples = vk::SampleCountFlagBits::e1,
@@ -54,32 +46,6 @@ void TextPass::draw_world(CommandBuffer &commands, FrameResources &resources, Gp
         return;
     auto const &atlas = font.atlas();
     vertices_.clear();
-    // World labels sit over sky, cloud and terrain alike, so they carry a dark outline
-    // in their own plane: a pale flat colour alone disappears against a bright or a
-    // cloudy background once the sky starts changing. The outline is one contiguous
-    // vertex range drawn before the fill with depth writes off, so its offsets cannot
-    // hide the fill behind them.
-    // Eight directions, not four: a diagonal-only ring leaves the top, bottom and
-    // sides of a stroke thin, and this label has to survive sunlit cloud behind it.
-    constexpr glm::vec3 outline_color{0.0F, 0.0F, 0.0F};
-    constexpr std::array<std::array<float, 2>, 8> outline_offsets{{
-        {-1.0F, -1.0F},
-        {0.0F, -1.0F},
-        {1.0F, -1.0F},
-        {-1.0F, 0.0F},
-        {1.0F, 0.0F},
-        {-1.0F, 1.0F},
-        {0.0F, 1.0F},
-        {1.0F, 1.0F},
-    }};
-
-    struct Placement {
-        WorldTextItem const *item;
-        float line_height;
-    };
-
-    std::vector<Placement> placements;
-    placements.reserve(items.size());
     for (auto const &item : items) {
         auto const metrics = text::measure_text(atlas, item.text, item.line_height);
         // `line_height` is the first line's ascent-to-descent box, so a line keeps
@@ -87,33 +53,17 @@ void TextPass::draw_world(CommandBuffer &commands, FrameResources &resources, Gp
         auto target_line_height = item.line_height;
         if (item.max_width > 0.0F && metrics.width > 0.0F)
             target_line_height *= std::min(1.0F, item.max_width / metrics.width);
-        placements.push_back({&item, target_line_height});
-    }
-    auto const append = [&](Placement const &placement, glm::vec3 const &color,
-                            glm::vec3 const &offset) {
-        text::append_text(vertices_, atlas, placement.item->text,
+        text::append_text(vertices_, atlas, item.text,
                           {
-                              .origin = placement.item->center + offset,
-                              .line_height = placement.line_height,
-                              .color = color,
+                              .origin = item.center,
+                              .line_height = target_line_height,
+                              .color = item.color,
                               .center_x = true,
-                              .normal = placement.item->normal,
+                              .normal = item.normal,
                           });
-    };
-    for (auto const &placement : placements) {
-        auto const basis = text::plane_basis(placement.item->normal);
-        auto const reach = 0.05F * placement.line_height;
-        for (auto const &offset : outline_offsets)
-            append(placement, outline_color,
-                   (basis.right * offset[0] + basis.up * offset[1]) * reach);
     }
-    auto const outline_vertices = vertices_.size();
-    for (auto const &placement : placements)
-        append(placement, placement.item->color, glm::vec3{0.0F});
-
-    upload_vertices(commands, resources, resources.world_text_vertices, font, view_projection);
-    draw_vertices(commands, world_outline_state_, 0, outline_vertices);
-    draw_vertices(commands, world_state_, outline_vertices, vertices_.size() - outline_vertices);
+    upload_and_draw(commands, resources, resources.world_text_vertices, font, view_projection,
+                    world_state_);
 }
 
 void TextPass::draw_screen(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent,

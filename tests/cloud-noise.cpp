@@ -87,6 +87,38 @@ int main()
     rejects(4, "too few voxels per axis must be rejected");
     rejects(300, "an oversized volume must be rejected");
 
+    auto const detail = lc1::make_cloud_detail_noise();
+    auto const detail_size = lc1::cloud_detail_noise_size;
+    check(detail.size() == static_cast<std::size_t>(detail_size) * detail_size * detail_size * 2 &&
+              detail == lc1::make_cloud_detail_noise(),
+          "detail volume must be a deterministic packed cube");
+    auto const [detail_low, detail_high] = std::minmax_element(detail.begin(), detail.end());
+    check(*detail_high - *detail_low > 100, "detail needs enough contrast to form billows");
+    std::vector<std::uint8_t> billows;
+    for (std::size_t i = 0; i < detail.size(); i += 2)
+        billows.push_back(detail[i]);
+    check(billows != lc1::make_cloud_shape_noise(detail_size),
+          "detail must be independent of the mass field");
+    // Check every axis: a seam in any direction becomes a repeated cut in cloud.
+    for (int component = 0; component < 2; ++component)
+        for (int axis = 0; axis < 3; ++axis) {
+            double wrap_delta = 0.0;
+            double inner_delta = 0.0;
+            for (std::uint32_t a = 0; a < detail_size; ++a)
+                for (std::uint32_t b = 0; b < detail_size; ++b) {
+                    auto const at = [&](std::uint32_t c) {
+                        auto const voxel = axis == 0   ? index(detail_size, c, a, b)
+                                           : axis == 1 ? index(detail_size, a, c, b)
+                                                       : index(detail_size, a, b, c);
+                        return detail[voxel * 2 + component];
+                    };
+                    wrap_delta += std::abs(int(at(detail_size - 1)) - int(at(0)));
+                    inner_delta +=
+                        std::abs(int(at(detail_size / 2)) - int(at(detail_size / 2 + 1)));
+                }
+            check(wrap_delta < inner_delta * 1.5, "detail must tile continuously on every axis");
+        }
+
     std::cout << "cloud shape noise: tiling, range, histogram and determinism passed\n";
     return 0;
 }

@@ -97,12 +97,12 @@ FrameResources Renderer::make_frame_resources(std::uint32_t object_capacity) con
     // Samplers: five material slots per draw plus the texture cache's default and
     // the text pass's clamped font sampler, DDGI and Bloom filters, and the cloud
     // layer's wrap-addressed shape sampler. Images also include HDR/shadow histories,
-    // font atlas, DDGI, two Bloom images and the cloud pass's four slots.
+    // font atlas, DDGI, two Bloom images and the cloud pass's five slots.
     // Buffers: three per draw, the shared frame uniforms, TLAS address, the DDGI UBO
     // and the cloud parameters.
     auto heap = std::make_unique<DescriptorHeap>(
         *device_, 5ULL * object_capacity + 5,
-        5ULL * object_capacity + 14 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
+        5ULL * object_capacity + 15 + std::tuple_size_v<decltype(FrameResources::ddgi_images)>,
         3ULL * object_capacity + 8);
     FrameResources result{std::move(heap),
                           make_buffer(sizeof(CameraData)),
