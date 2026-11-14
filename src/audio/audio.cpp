@@ -1,4 +1,5 @@
 #include "lc1/audio/audio.hpp"
+#include "lc1/error.hpp"
 
 #define DR_MP3_IMPLEMENTATION
 #define DR_WAV_IMPLEMENTATION
@@ -490,6 +491,17 @@ void Source::set_gain(float gain)
     clear_al_errors();
     alSourcef(source_, AL_GAIN, gain);
     check_al("alSourcef(AL_GAIN)");
+}
+
+void Source::set_reference_distance(float distance)
+{
+    require_valid();
+    if (!std::isfinite(distance) || distance <= 0)
+        fail("audio reference distance must be finite and positive");
+    context_->make_current();
+    clear_al_errors();
+    alSourcef(source_, AL_REFERENCE_DISTANCE, distance);
+    check_al("alSourcef(AL_REFERENCE_DISTANCE)");
 }
 
 void Source::set_position(float x, float y, float z)

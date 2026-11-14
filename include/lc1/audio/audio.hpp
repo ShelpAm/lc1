@@ -81,6 +81,8 @@ class Source {
 
     void set_looping(bool looping);
     void set_gain(float gain);
+    // Metres before distance attenuation begins; must be finite and positive.
+    void set_reference_distance(float distance);
     void set_position(float x, float y, float z);
 
     [[nodiscard]] bool is_playing() const;

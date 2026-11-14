@@ -43,6 +43,25 @@ std::optional<DiffuseGi> const &Scene::diffuse_gi() const
     return diffuse_gi_;
 }
 
+void Scene::set_fog(std::optional<DistanceFog> settings)
+{
+    if (settings) {
+        if (!std::isfinite(settings->start) || !std::isfinite(settings->end) ||
+            settings->start < 0 || settings->end <= settings->start)
+            fail("fog requires finite distances with 0 <= start < end");
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(settings->radiance[axis]) || settings->radiance[axis] < 0 ||
+                settings->radiance[axis] > 65504)
+                fail("fog radiance must be finite and inside the nonnegative HDR range");
+    }
+    fog_ = settings;
+}
+
+std::optional<DistanceFog> const &Scene::fog() const
+{
+    return fog_;
+}
+
 SceneLight *Scene::add_light(Light light)
 {
     auto owned = std::make_unique<SceneLight>(SceneLight{light});

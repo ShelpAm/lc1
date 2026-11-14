@@ -38,7 +38,9 @@ static_assert(sizeof(ToneMapData) == 16);
 struct CameraData {
     glm::mat4 view;
     glm::mat4 proj;
-    glm::vec4 position; // World-space camera position; w is unused.
+    glm::vec4 position;      // World-space camera position; w is unused.
+    glm::vec4 fog_radiance;  // Linear HDR color; w enables distance fog.
+    glm::vec4 fog_distances; // Start/end in metres; zw reserved.
 };
 
 struct ObjectData {
@@ -47,7 +49,9 @@ struct ObjectData {
     glm::uvec4 shadow_identity; // x: surface ID; y: moving receiver rejects history.
 };
 
-static_assert(sizeof(CameraData) == 144 && offsetof(CameraData, position) == 128);
+static_assert(sizeof(CameraData) == 176 && offsetof(CameraData, position) == 128 &&
+              offsetof(CameraData, fog_radiance) == 144 &&
+              offsetof(CameraData, fog_distances) == 160);
 static_assert(sizeof(ObjectData) == 144 && offsetof(ObjectData, normal_transform) == 64);
 
 constexpr auto max_num_lights = 10U;

@@ -56,7 +56,7 @@ void RayQueryShadows::add_passes(RenderGraph &graph, FrameResources &resources, 
                    {"shadow.scene", "shadow.frame", "shadow.history"},
                    [this, &resources, extent, scene](CommandBuffer &cmd) {
                        prepare_frame(cmd, resources, extent, scene->camera, scene->lights,
-                                     scene->draws);
+                                     scene->draws, scene->fog);
                    });
     graph.add_pass("Shadow visibility", {"shadow.scene", "shadow.frame"},
                    {"shadow.raw_visibility", "shadow.surface"},
@@ -284,7 +284,8 @@ void RayQueryShadows::update_acceleration_structure(vk::raii::CommandBuffer cons
 void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resources,
                                     vk::Extent2D extent, scene::FpsCamera const &camera,
                                     std::span<scene::Light const> lights,
-                                    std::span<DrawItem const> draws)
+                                    std::span<DrawItem const> draws,
+                                    std::optional<scene::DistanceFog> const &fog)
 {
     auto const &command_buffer = cmd.raii();
     validate_draws(resources, extent, draws);
@@ -309,6 +310,8 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
         .view = camera.view_matrix(),
         .proj = camera.projection_matrix(),
         .position = glm::vec4{camera.position(), 1.0F},
+        .fog_radiance = fog ? glm::vec4{fog->radiance, 1} : glm::vec4{0},
+        .fog_distances = fog ? glm::vec4{fog->start, fog->end, 0, 0} : glm::vec4{0},
     };
     resources.camera_buffer.upload(std::as_bytes(std::span{&ubo, 1}));
 

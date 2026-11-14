@@ -531,7 +531,73 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
                                     std::max(block.min.z, chunk.min.y)};
                 glm::vec3 const max{std::min(block.max.x, chunk.max.x), block.max.y,
                                     std::min(block.max.z, chunk.max.y)};
-                if (min.x < max.x && min.z < max.z)
+                if (block.shape != BlockShape::Box) {
+                    // Emit each shaped object once from its owning chunk, preserving the
+                    // complete outline across chunk boundaries.
+                    if (block.min.x < chunk.min.x || block.min.x >= chunk.max.x ||
+                        block.min.z < chunk.min.y || block.min.z >= chunk.max.y)
+                        continue;
+                    if (block.shape >= BlockShape::CylinderX) {
+                        int const axis = block.shape == BlockShape::CylinderX   ? 0
+                                         : block.shape == BlockShape::CylinderY ? 1
+                                                                                : 2;
+                        int const u_axis = (axis + 1) % 3;
+                        int const v_axis = (axis + 2) % 3;
+                        auto const center = (block.min + block.max) * 0.5F;
+                        auto const radius = (block.max - block.min) * 0.5F;
+                        auto const color = color_of(block.surface);
+                        constexpr int sides = 12;
+                        auto point = [&](int side, float height, float breadth) {
+                            float const angle =
+                                static_cast<float>(side) * 2 * std::numbers::pi_v<float> / sides;
+                            auto position = center;
+                            position[axis] += height * radius[axis];
+                            position[u_axis] += std::cos(angle) * radius[u_axis] * breadth;
+                            position[v_axis] += std::sin(angle) * radius[v_axis] * breadth;
+                            return position;
+                        };
+                        for (int side = 0; side < sides; ++side) {
+                            // Four rings give barrels a bowed stave profile; thin axial
+                            // bounds produce wheels, and long bounds produce stacked logs.
+                            constexpr std::array heights{-1.0F, -0.7F, 0.7F, 1.0F};
+                            constexpr std::array breadths{0.87F, 1.0F, 1.0F, 0.87F};
+                            for (std::size_t ring = 1; ring < heights.size(); ++ring) {
+                                auto const a = point(side, heights[ring - 1], breadths[ring - 1]);
+                                auto const b =
+                                    point(side + 1, heights[ring - 1], breadths[ring - 1]);
+                                auto const c = point(side + 1, heights[ring], breadths[ring]);
+                                auto const d = point(side, heights[ring], breadths[ring]);
+                                auto const shade = color * (side % 2 == 0 ? 1.0F : 0.78F);
+                                buildings.triangle(a, b, c, shade);
+                                buildings.triangle(a, c, d, shade);
+                            }
+                            auto bottom = center;
+                            bottom[axis] = block.min[axis];
+                            auto top = center;
+                            top[axis] = block.max[axis];
+                            buildings.triangle(bottom, point(side + 1, -1, 0.87F),
+                                               point(side, -1, 0.87F), color);
+                            buildings.triangle(top, point(side, 1, 0.87F),
+                                               point(side + 1, 1, 0.87F), color);
+                        }
+                        continue;
+                    }
+                    auto const size = block.max - block.min;
+                    bool const ridge_x = block.shape == BlockShape::GableX;
+                    auto const base =
+                        ridge_x ? block.min : glm::vec3{block.min.x, block.min.y, block.max.z};
+                    auto const across = ridge_x ? glm::vec3{0, 0, size.z} : glm::vec3{size.x, 0, 0};
+                    auto const along = ridge_x ? glm::vec3{size.x, 0, 0} : glm::vec3{0, 0, -size.z};
+                    auto const peak = across * 0.5F + glm::vec3{0, size.y, 0};
+                    auto const color = color_of(block.surface);
+                    buildings.quad(base, peak, along, color);
+                    buildings.quad(base + peak, across - peak, along, color);
+                    buildings.triangle(base + along, base + along + peak, base + along + across,
+                                       color);
+                    buildings.triangle(base + across, base + peak, base, color);
+                    buildings.quad(base + along, across, -along, color);
+                }
+                else if (min.x < max.x && min.z < max.z)
                     buildings.box(min, max, color_of(block.surface));
             }
             roadside_details(buildings, continent, chunk);

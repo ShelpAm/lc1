@@ -1,5 +1,6 @@
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/game/character/character-model.hpp"
+#include "lc1/game/continent/village.hpp"
 #include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/resources/catalog.hpp"
@@ -238,6 +239,28 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
     sun_ = scene_.add_light(to_light(sun));
     lights_.push_back(sun_);
     lights_.push_back(scene_.add_light(to_light(lamp)));
+    if (continent_->location(village::smithy)) {
+        lights_.push_back(scene_.add_light(
+            to_light(scene::SphereLight{.base = {.color = {1.0F, 0.28F, 0.045F}, .intensity = 28},
+                                        .position = village::hearth + glm::vec3{0, 0.35F, 0},
+                                        .radius = 0.4F,
+                                        .shadow_sample_count = 2})));
+    }
+    if (continent_->location(village::smithy) && continent_->location(village::tower)) {
+        for (auto const *name : {"wind.wav", "hammer.wav", "bell.wav"}) {
+            auto &source = village_sounds_.emplace_back(audio_context_);
+            source.set_looping(true);
+            source.set_gain(0);
+            source.play(
+                audio::Sound::load_from_file(audio_context_, asset_root / "audio/village" / name));
+        }
+        village_sounds_[1].set_reference_distance(8);
+        village_sounds_[2].set_reference_distance(18);
+        village_sounds_[1].set_position(village::hearth.x, village::hearth.y, village::hearth.z);
+        auto const *tower = continent_->location(village::tower);
+        auto const center = (tower->bounds.min + tower->bounds.max) * 0.5F;
+        village_sounds_[2].set_position(center.x, 17, center.y);
+    }
     for (auto const &light : showcase_.lights())
         lights_.push_back(scene_.add_light(light));
 
@@ -389,11 +412,29 @@ void WorldPresentation::update_lighting()
     auto const angle = (time_of_day_ - 6.0) * std::numbers::pi / 12.0;
     auto const altitude = static_cast<float>(std::sin(angle));
     sun_->parameters.direction = glm::vec3{-static_cast<float>(std::cos(angle)), -altitude, 0.0F};
-    sun_->parameters.intensity = 0.45F * std::max(altitude, 0.0F);
+    auto const position = world_->player(observer_).pose.position();
+    float const village_weather =
+        continent_->location(village::smithy)
+            ? 1.0F - glm::smoothstep(
+                         65.0F, 130.0F,
+                         glm::distance(glm::vec2{position.x, position.z}, glm::vec2{0, 130}))
+            : 0.0F;
+    sun_->parameters.color =
+        glm::mix(glm::vec3{1, 0.95F, 0.9F}, glm::vec3{0.7F, 0.8F, 1}, village_weather);
+    sun_->parameters.intensity = glm::mix(0.45F, 0.09F, village_weather) * std::max(altitude, 0.0F);
     sun_->enabled = sun_->enabled && altitude > 0.0F;
+    scene_.set_fog(continent_->location(village::smithy)
+                       ? std::optional{scene::DistanceFog{
+                             .radiance = glm::vec3{0.24F, 0.28F, 0.31F} * std::max(altitude, 0.0F),
+                             .start = 60,
+                             .end = 320}}
+                       : std::nullopt);
     scene_.set_diffuse_gi(scene::DiffuseGi{
         .center = world_->player(observer_).pose.position() + glm::vec3{0, 6, 0},
-        .sky_radiance = sun_->enabled ? glm::vec3{0.08F, 0.105F, 0.14F} * altitude : glm::vec3{0},
+        .sky_radiance = sun_->enabled ? glm::mix(glm::vec3{0.08F, 0.105F, 0.14F},
+                                                 glm::vec3{0.13F, 0.16F, 0.21F}, village_weather) *
+                                            altitude
+                                      : glm::vec3{0},
     });
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
@@ -636,6 +677,38 @@ void WorldPresentation::update_particles(float delta_seconds)
             });
         }
     }
+    if (continent_->location(village::smithy)) {
+        // Continuous furnace tongues use the same transparent particle pass as torches.
+        for (int i = 0; i < 24; ++i) {
+            float const phase = glm::fract(flame_time_ * 0.8F + static_cast<float>(i) / 24.0F);
+            float const angle = static_cast<float>(i) * 2.39996F;
+            visible.push_back({
+                .position = village::hearth + glm::vec3{std::cos(angle) * 0.5F, phase * 0.85F,
+                                                        std::sin(angle) * 0.65F},
+                .size = {0.22F * (1 - phase * 0.5F), 0.45F * (1 - phase * 0.7F)},
+                .radiance = glm::mix(glm::vec3{10, 3.5F, 0.2F}, glm::vec3{3, 0.15F, 0.01F}, phase),
+                .opacity = (1 - phase) * 0.65F,
+                .rotation = std::sin(flame_time_ * 3 + angle) * 0.2F,
+                .spark = false,
+            });
+        }
+    }
+    if (continent_->location(village::smithy)) {
+        // Sparse smoke shares the sorted transparent pass, with no emissive light.
+        for (int i = 0; i < 10; ++i) {
+            float const phase = glm::fract(flame_time_ * 0.12F + static_cast<float>(i) / 10);
+            float const width = 0.55F + phase * 1.4F;
+            visible.push_back({
+                .position = village::chimney +
+                            glm::vec3{phase * 3.5F, 0.3F + phase * 7, std::sin(phase * 5) * 0.35F},
+                .size = {width, width * 1.4F},
+                .radiance = {0.08F, 0.085F, 0.09F},
+                .opacity = 0.14F * (1 - phase) * (1 - phase),
+                .rotation = phase * 0.3F,
+                .spark = false,
+            });
+        }
+    }
     scene_.set_particles(std::move(visible));
 }
 
@@ -646,6 +719,15 @@ void WorldPresentation::update_listener(scene::FpsCamera const &camera)
     auto const up = camera.up();
     audio_listener_.set_position(position.x, position.y, position.z);
     audio_listener_.set_orientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
+    if (!village_sounds_.empty()) {
+        float const presence = 1 - glm::smoothstep(65.0F, 130.0F,
+                                                   glm::distance(glm::vec2{position.x, position.z},
+                                                                 glm::vec2{0, 130}));
+        village_sounds_[0].set_position(position.x, position.y, position.z);
+        village_sounds_[0].set_gain(0.35F * presence);
+        village_sounds_[1].set_gain(0.7F * presence);
+        village_sounds_[2].set_gain(0.8F * presence);
+    }
 }
 
 glm::mat4 WorldPresentation::observer_eye_transform() const

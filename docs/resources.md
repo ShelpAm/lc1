@@ -29,6 +29,7 @@ AVIF、BMP、TIFF、ICO 和 SVG 图片交给 Git LFS（扩展名不区分大小�
 |---|---|
 | `runtime/assets/models/` | 被配置引用的模型，以及生成这些模型所需的 GLB／Blender 源文件 |
 | `runtime/assets/textures/` | 被材质和渲染代码引用的贴图 |
+| `runtime/assets/audio/` | 被场景引用的音效和环境音，以及其离线生成脚本对应的派生 WAV |
 | `runtime/assets/fonts/` | 游戏和字体测试使用的字体 |
 | `runtime/assets/unused/` | 没有代码、种子存档或生成脚本引用的本地备用资源；由 `.gitignore` 排除 |
 
