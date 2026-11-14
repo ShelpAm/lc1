@@ -26,7 +26,8 @@ GameSession::GameSession(Device const &device, std::filesystem::path const &asse
     : window_(window), clouds_(&clouds),
       input_router_(default_game_bindings(), GameInputContext::Gameplay), simulation_(&simulation),
       connection_(simulation.connect(player)), snapshot_(*simulation_->snapshot()),
-      world_presentation_(device, asset_root, simulation_->continent(), snapshot_, output, player),
+      world_presentation_(device, asset_root, simulation_->continent(), snapshot_, output, player,
+                          simulation_->dialog_catalog()),
       player_view_(simulation_->continent(),
                    snapshot_.player(connection_.player_id()).pose.position()),
       music_(world_presentation_.audio_context()),
@@ -100,10 +101,10 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
                     ? static_cast<int>(input_router_.pressed(GameAction::IncreaseExposure)) -
                           static_cast<int>(input_router_.pressed(GameAction::DecreaseExposure))
                     : 0,
-            .first_person = !player_view_.oblique(),
+            .first_person = player_view_.first_person(),
         });
     std::optional<glm::mat4> eye_transform;
-    if (!player_view_.oblique())
+    if (player_view_.first_person())
         eye_transform = world_presentation_.observer_eye_transform();
     player_view_.update_camera(delta_seconds, snapshot_.player(connection_.player_id()).pose,
                                eye_transform);

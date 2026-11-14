@@ -229,6 +229,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .draws = std::move(draws),
         .diffuse_gi = input.diffuse_gi(),
         .sky_color = input.sky() ? input.sky()->color : scene::Sky{}.color,
+        .fog = input.fog(),
         .particles =
             std::vector<scene::Particle>{input.particles().begin(), input.particles().end()},
     });
@@ -250,7 +251,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         {"hdr.color"},
         [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
             record_hdr(commands, resources, extent, scene->draws, scene->camera, scene->sky_color,
-                       text, scene->particles);
+                       text, scene->particles, scene->fog);
         });
     // Clouds stand between the lit scene and the output chain: Bloom and tone mapping
     // both read the composited HDR image, so the layer's radiance is bloomed and tone
@@ -332,7 +333,8 @@ void Renderer::prepare_materials(FrameResources &resources, std::span<DrawItem c
 void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
                           std::span<DrawItem const> draws, scene::FpsCamera const &camera,
                           glm::vec3 sky_color, TextFrameInput const &text,
-                          std::span<scene::Particle const> particles)
+                          std::span<scene::Particle const> particles,
+                          std::optional<scene::DistanceFog> const &fog)
 {
     auto &command_buffer = cmd.raii();
     ensure_attachments(resources, extent);
@@ -468,7 +470,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         text_pass_.draw_world(cmd, resources, *text.font, text.world,
                               camera.view_projection_matrix());
 
-    record_particles(cmd, camera, particles);
+    record_particles(cmd, camera, particles, fog);
     command_buffer.endRendering();
     resources.hdr_image->transition_layout(
         command_buffer, vk::ImageLayout::eColorAttachmentOptimal,

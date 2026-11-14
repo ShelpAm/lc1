@@ -67,7 +67,7 @@ struct PlayerSnapshot {
 // Owned values only. Public character state and per-player state have separate identities.
 // This local exchange is not a network replication or visibility policy.
 struct WorldSnapshot {
-    uint64_t ab;
+    std::uint64_t ab;
     std::uint64_t tick = 0;
     std::vector<CharacterSnapshot> characters;
     std::vector<Party> parties;

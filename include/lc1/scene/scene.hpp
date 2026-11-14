@@ -58,6 +58,13 @@ struct Sky {
     glm::vec3 color{0.24F, 0.42F, 0.64F};
 };
 
+// Distance haze in linear HDR space. Geometry inside start remains unchanged.
+struct DistanceFog {
+    glm::vec3 radiance{0.24F, 0.28F, 0.31F};
+    float start = 1500;
+    float end = 3500;
+};
+
 struct SceneLight {
     Light parameters;
     bool enabled = true;
@@ -74,6 +81,8 @@ class Scene {
 
     void set_sky(std::optional<Sky> sky);
     std::optional<Sky> const &sky() const;
+    void set_fog(std::optional<DistanceFog> settings);
+    std::optional<DistanceFog> const &fog() const;
 
     SceneLight *add_light(Light light);
     void remove_light(SceneLight const *light);
@@ -96,6 +105,7 @@ class Scene {
     std::vector<Particle> particles_;
     std::optional<DiffuseGi> diffuse_gi_;
     std::optional<Sky> sky_;
+    std::optional<DistanceFog> fog_;
     std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
     std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;
 };

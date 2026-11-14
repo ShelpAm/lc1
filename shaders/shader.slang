@@ -36,6 +36,8 @@ struct Camera {
     float4x4 view;
     float4x4 proj;
     float4 position;
+    float4 fog_radiance;
+    float4 fog_distances;
 };
 
 struct LightsData {
@@ -161,6 +163,11 @@ float4 fragMain(VSOutput input, uint sample_index: SV_SampleIndex) : SV_TARGET
         color += unpack_visibility(visibility, i) * sample.radiance * brdf * n_dot_l;
     }
 
+    if (camera.fog_radiance.w > 0) {
+        float distance = length(to_view);
+        float amount = smoothstep(camera.fog_distances.x, camera.fog_distances.y, distance);
+        color = lerp(color, camera.fog_radiance.rgb, amount);
+    }
     // Opaque output; preserve HDR up to the largest finite RGBA16F value.
     return float4(min(color, float3(65504.0)), 1.0);
 }

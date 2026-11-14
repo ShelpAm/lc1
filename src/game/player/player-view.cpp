@@ -45,7 +45,16 @@ void PlayerView::toggle(CharacterPose const &player)
 {
     if (!oblique_)
         first_person_angles_ = {player.body_yaw() + player.look_yaw(), player.look_pitch()};
-    oblique_ = !oblique_;
+    if (oblique_)
+        oblique_ = false;
+    else if (!third_person_) {
+        third_person_ = true;
+        follow_angles_ = {player.body_yaw() + player.look_yaw(), player.look_pitch()};
+    }
+    else {
+        third_person_ = false;
+        oblique_ = true;
+    }
     view_changed_ = true;
     if (oblique_) {
         // Recenter while preserving zoom and the Y lock state.
@@ -53,10 +62,11 @@ void PlayerView::toggle(CharacterPose const &player)
         map_camera_.update(0.0F, camera_, player.position());
     }
     else {
-        follow_first_person(player.eye_position(), player.look_direction());
+        update_camera(0.0F, player);
     }
-    spdlog::info("[camera] {}",
-                 oblique_ ? "update_player2: oblique" : "update_player: first-person");
+    spdlog::info("[camera] {}", oblique_        ? "oblique"
+                                : third_person_ ? "third-person"
+                                                : "first-person");
 }
 
 void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_enabled,
@@ -76,6 +86,10 @@ void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_en
 
 void PlayerView::prepare_input(glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled)
 {
+    if (third_person_ && mouse_enabled && !view_changed_) {
+        follow_angles_.x -= look_delta.x * 0.05F;
+        follow_angles_.y = std::clamp(follow_angles_.y - look_delta.y * 0.05F, -60.0F, 60.0F);
+    }
     character_input_ = {
         .look_delta = view_changed_ ? glm::vec2{} : look_delta,
         .keyboard_enabled = keyboard_enabled,
@@ -83,8 +97,10 @@ void PlayerView::prepare_input(glm::vec2 look_delta, bool keyboard_enabled, bool
         .oblique = oblique_,
         .view_changed = view_changed_,
         .restored_first_person_angles = first_person_angles_,
-        .view_heading =
-            oblique_ && (keyboard_enabled || mouse_enabled) ? camera_.heading() : glm::vec3{},
+        .view_heading = (oblique_ || third_person_) && (keyboard_enabled || mouse_enabled)
+                            ? camera_.heading()
+                            : glm::vec3{},
+        .third_person_follow = third_person_,
     };
     view_changed_ = false;
 }
@@ -108,6 +124,15 @@ void PlayerView::update_pointer(float delta_seconds, InputState const &devices,
 void PlayerView::update_camera(float delta_seconds, CharacterPose const &player,
                                std::optional<glm::mat4> eye_transform)
 {
+    if (third_person_) {
+        auto const yaw = glm::radians(follow_angles_.x);
+        glm::vec3 const heading{-std::sin(yaw), 0.0F, -std::cos(yaw)};
+        auto const target = player.eye_position();
+        camera_.set_position(target - heading * 4.0F + glm::vec3{0, 2.0F, 0});
+        camera_.look_at(target + heading * 2.0F +
+                        glm::vec3{0, std::tan(glm::radians(follow_angles_.y)) * 2.0F, 0});
+        return;
+    }
     if (!oblique_) {
         auto direction = player.look_direction();
         auto position = player.eye_position();
@@ -138,6 +163,11 @@ void PlayerView::set_aspect_ratio(float aspect_ratio)
 bool PlayerView::oblique() const
 {
     return oblique_;
+}
+
+bool PlayerView::first_person() const
+{
+    return !oblique_ && !third_person_;
 }
 
 scene::FpsCamera const &PlayerView::camera() const

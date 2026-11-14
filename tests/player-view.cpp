@@ -93,6 +93,8 @@ void shared_position_and_remembered_look()
     check(near(view.camera().forward(), player.look_direction()),
           "first-person camera tracks mouse look");
 
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     update_view(0, view, world, player, {});
     check(near(player.position(), first_person_position),
@@ -103,6 +105,8 @@ void shared_position_and_remembered_look()
           "oblique movement continues from that position");
     check(!near(player.body_yaw(), first_person_yaw), "oblique walking turns the body");
 
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     update_view(0, view, world, player, {}, {-1200, 600});
     check(near(player.position(), oblique_position),
@@ -129,10 +133,14 @@ void zoom_and_unlock_survive_switching()
     auto const zoomed_camera = view.camera().position();
     check(!near(initial_camera, zoomed_camera), "wheel input changes oblique zoom");
 
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     update_view(0, view, world, player, {});
     glm::vec3 const first_move{3, 0, 1};
     player.move(world, first_move);
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     update_view(0, view, world, player, {});
     update_view(0.1F, view, world, player, {});
@@ -182,6 +190,8 @@ void disabled_input_preserves_pose()
               "UI/focus gating prevents player movement and mouse look in either view");
         check(near(view.camera().position(), camera),
               "disabled input cannot zoom or pan the camera");
+        if (view.first_person())
+            view.toggle(player);
         view.toggle(player);
         update_view(0, view, world, player, {});
     }
@@ -192,6 +202,8 @@ void independent_capture_gates()
     auto const world = make_world();
     lc1::Character player{world, {.position = world.spawn()}, {}};
     lc1::PlayerView view{world, player.position()};
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     update_view(0, view, world, player, {});
     lc1::InputState devices;
@@ -281,6 +293,8 @@ void animated_eye_mount()
     check(near(eye_position(), player.eye_position()),
           "default eye mount preserves the configured eye height");
     lc1::PlayerView view{world, player.position()};
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     auto const clips = model.definition().animations();
     auto const nod = std::ranges::find(clips, "Nod", &lc1::scene::AnimationClip::name);
@@ -323,6 +337,8 @@ void animated_eye_mount()
     view.update_camera(0, player);
     check(near(view.camera().position(), player.eye_position()),
           "callers without a mount retain the gameplay eye fallback");
+    if (view.first_person())
+        view.toggle(player);
     view.toggle(player);
     auto const oblique = view.camera().position();
     view.update_camera(0, player, eye_transform());
@@ -336,6 +352,30 @@ void animated_eye_mount()
         rejected = true;
     }
     check(rejected, "invalid mount indices are rejected");
+}
+
+void third_person_follow()
+{
+    auto const world = make_world();
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    lc1::PlayerView view{world, player.position()};
+    view.toggle(player);
+    view.toggle(player);
+    check(!view.oblique() && !view.first_person(), "third person is a distinct view");
+    for (float yaw : {0.0F, 90.0F, 180.0F}) {
+        player.set_body_yaw(yaw);
+        view.update_camera(0, player);
+        auto const offset = view.camera().position() - player.eye_position();
+        check(offset.y > 0, "third person stays above the player");
+        check(offset.z > 0, "body rotation does not rotate the follow camera");
+        for (auto key : {lc1::Key::S, lc1::Key::A, lc1::Key::D}) {
+            update_view(0.1F, view, world, player, {key});
+            check(glm::dot(player.heading(), view.camera().heading()) < 0.01F,
+                  "non-forward movement turns the body away from camera forward");
+        }
+    }
+    view.toggle(player);
+    check(view.oblique(), "third person cycles back to oblique");
 }
 
 void weapon_mouse_binding()
@@ -378,6 +418,7 @@ int main()
         animated_eye_mount();
         long_frame_camera_pan();
         weapon_mouse_binding();
+        third_person_follow();
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

@@ -50,6 +50,8 @@ struct GroundPatch {
     ContinentSurface surface = ContinentSurface::Grass;
 };
 
+enum class BlockShape : std::uint8_t { Box, GableX, GableZ, CylinderX, CylinderY, CylinderZ };
+
 struct ContinentBlock {
     glm::vec3 min;
     glm::vec3 max;
@@ -58,6 +60,8 @@ struct ContinentBlock {
     // Marks the top face as a walkable support surface. Walls and building shells keep
     // this false; bridges, terraces and roofs that characters may stand on set it true.
     bool walkable_top = false;
+    // Shape axes are explicit; bounds remain the conservative collision volume.
+    BlockShape shape = BlockShape::Box;
 };
 
 // A point on a terrain or walkable surface. `normal` is the surface normal used for

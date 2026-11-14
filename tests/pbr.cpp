@@ -949,8 +949,9 @@ void player_models_test(lc1::Device const &device)
     lc1::GameWorld world{lc1::Save{slot}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
     {
-        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                            {},     lc1::PlayerId{73}};
+        lc1::WorldPresentation presentation{
+            device, "runtime/assets",  world.continent(),        state,
+            {},     lc1::PlayerId{73}, world.dialogs().catalog()};
         auto &rumble_state = state.characters.front();
         auto const &rumble_pose = presentation.character_model(rumble_state.keyid).pose;
         auto const clip_name = [&]() -> std::string_view {
@@ -1245,8 +1246,8 @@ void first_person_test(lc1::Device const &device)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
-    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                        {},     lc1::PlayerId{1}};
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(),        state,
+                                        {},     lc1::PlayerId{1}, world.dialogs().catalog()};
     auto const capacity = presentation.object_capacity();
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e4};
     std::array frames{renderer.make_frame_resources(capacity),
@@ -1306,19 +1307,20 @@ void torch_test(lc1::Device const &device)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
-    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                        {},     lc1::PlayerId{1}};
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(),        state,
+                                        {},     lc1::PlayerId{1}, world.dialogs().catalog()};
     presentation.update(0, {});
     auto const capacity = presentation.object_capacity();
     auto const unlit_draws = presentation.scene().draws().size();
     auto const unlit_lights = presentation.scene().lights().size();
+    auto const ambient_particles = presentation.scene().particles().size();
     auto &player = state.characters.front();
     auto const original = player.main_hand;
     player.main_hand = *world.weapons().at(1006);
     presentation.update(0, {});
     check(presentation.object_capacity() == capacity &&
               presentation.scene().draws().size() == unlit_draws &&
-              !presentation.scene().particles().empty(),
+              presentation.scene().particles().size() > ambient_particles,
           "torch emits particles without growing mesh frame capacity");
     check(presentation.scene().lights().size() == unlit_lights + 1,
           "equipped torch enables its bearer light");
@@ -1355,7 +1357,8 @@ void torch_test(lc1::Device const &device)
     check(presentation.scene().lights().size() == unlit_lights &&
               presentation.scene().draws().size() == unlit_draws,
           "death extinguishes both flame and light");
-    check(presentation.scene().particles().empty(), "death removes flame particles");
+    check(presentation.scene().particles().size() == ambient_particles,
+          "death removes the bearer flame and preserves ambient furnace particles");
     player.dead = false;
     player.main_hand = original;
     presentation.update(0, {});
@@ -1370,6 +1373,102 @@ void torch_test(lc1::Device const &device)
               flashlight_lights,
               [](auto const &light) { return light.type == 2 && light.intensity == 64; }),
           "switching to flashlight restores spotlight parameters on the shared light");
+    device.wait_idle();
+}
+
+void fog_test(lc1::Device const &device, vk::SampleCountFlagBits samples)
+{
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, samples};
+    std::array frames{renderer.make_frame_resources(1), renderer.make_frame_resources(1)};
+    std::array const vertices{
+        lc1::Vertex{.position = {-500, -500, 0}, .normal = {0, 0, 1}, .uv = {0, 0}},
+        lc1::Vertex{.position = {500, -500, 0}, .normal = {0, 0, 1}, .uv = {1, 0}},
+        lc1::Vertex{.position = {500, 500, 0}, .normal = {0, 0, 1}, .uv = {1, 1}},
+        lc1::Vertex{.position = {-500, 500, 0}, .normal = {0, 0, 1}, .uv = {0, 1}}};
+    std::array<std::uint32_t, 6> const indices{0, 1, 2, 0, 2, 3};
+    lc1::scene::GpuModel mesh{lc1::GpuMesh{device, std::span<lc1::Vertex const>{vertices},
+                                           std::span<std::uint32_t const>{indices}}};
+    lc1::MaterialInfo material{.parameters = {.emissive_factor = {2, 0, 0}}};
+    lc1::scene::Scene scene;
+    auto *model = scene.add_model({.model = &mesh, .material = &material});
+    lc1::scene::FpsCamera camera;
+    camera.set_zfar(6000);
+    auto const render = [&](float distance, std::size_t slot) {
+        camera.set_position({0, 0, distance});
+        return capture(device, renderer, frames[slot], camera, scene);
+    };
+    scene.set_fog(
+        lc1::scene::DistanceFog{.radiance = {0.1F, 0.2F, 0.3F}, .start = 1500, .end = 3500});
+    near(render(1000, 0).center().r, 2, "near geometry retains its full radiance");
+    auto const middle = render(2500, 1).center();
+    near(middle.r, 1.05F, "middle-distance geometry mixes fog in linear HDR");
+    near(middle.g, 0.1F, "fog adds its own radiance before tone mapping");
+    auto const far = render(4500, 0);
+    for (int channel = 0; channel < 3; ++channel) {
+        float const expected = scene.fog()->radiance[channel];
+        near(far.center()[channel], expected, "far geometry converges to the fog color");
+        near(far.hdr.front()[channel], glm::vec3{0.24F, 0.42F, 0.64F}[channel],
+             "surface fog preserves the sky for a separate cloud layer");
+    }
+    model->visible = false;
+    scene.set_particles(
+        {{.position = {0, 0, 0}, .size = {500, 500}, .radiance = {2, 0, 0}, .opacity = 1}});
+    auto const particle = render(4500, 1).center();
+    near(particle.r, 0.1F, "distant particles do not shine through fog");
+    near(particle.b, 0.3F, "distant particles share the geometry fog color");
+    scene.set_particles({});
+    model->visible = true;
+    scene.set_fog(std::nullopt);
+    near(render(4500, 0).center().r, 2, "turning fog off clears the previous frame setting");
+    device.wait_idle();
+}
+
+void village_test(lc1::Device const &device)
+{
+    lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    auto &player = state.characters.front();
+    player.pose.world_transform.position = {-5, 0, 103};
+    lc1::WorldPresentation presentation{
+        device,
+        "runtime/assets",
+        world.continent(),
+        state,
+        {.exposure = 2, .bloom_strength = 0.08F, .encoding = lc1::OutputEncoding::Srgb},
+        lc1::PlayerId{1},
+        world.dialogs().catalog()};
+    presentation.update(0.2F, {});
+    check(!presentation.scene().particles().empty(), "smithy furnace burns without a held torch");
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(presentation.object_capacity());
+    lc1::scene::FpsCamera camera;
+    std::filesystem::create_directories("artifacts");
+    camera.set_zfar(350);
+    camera.set_fov_y(65);
+    camera.set_aspect_ratio(1.5F);
+    int view = 0;
+    for (auto const position :
+         {glm::vec3{1, 2.2F, 82}, glm::vec3{24, 32, 86}, glm::vec3{-12, 1.65F, 106}}) {
+        camera.set_position(position);
+        camera.set_fov_y(view == 2 ? 45 : 65);
+        camera.look_at(view == 0   ? glm::vec3{-9, 4, 120}
+                       : view == 1 ? glm::vec3{-2, 2, 133}
+                                   : glm::vec3{-23, 1.5F, 110});
+        presentation.update_listener(camera);
+        Capture image;
+        double gpu_ms = 0;
+        for (int warmup = 0; warmup < 20; ++warmup)
+            image = capture(device, renderer, frame, camera, presentation.scene(),
+                            {.width = 1200, .height = 800}, presentation.output(),
+                            vk::Format::eR8G8B8A8Unorm, {}, &gpu_ms);
+        std::ofstream file{std::format("artifacts/village-{}.ppm", view++), std::ios::binary};
+        file << "P6\n1200 800\n255\n";
+        for (std::size_t pixel = 0; pixel < image.output.size(); pixel += 4)
+            for (int channel = 0; channel < 3; ++channel)
+                file.put(static_cast<char>(image.output[pixel + channel]));
+        check(file.good(), "village capture saved");
+        std::cout << "Village view GPU ms: " << gpu_ms << '\n';
+    }
     device.wait_idle();
 }
 
@@ -1574,11 +1673,14 @@ int main(int argc, char **argv)
         bool const first_person_only = argc == 2 && std::string_view{argv[1]} == "--first-person";
         bool const particles_only = argc == 2 && std::string_view{argv[1]} == "--particles";
         bool const torch_only = argc == 2 && std::string_view{argv[1]} == "--torch";
+        bool const fog_only = argc == 2 && std::string_view{argv[1]} == "--fog";
+        bool const village_only = argc == 2 && std::string_view{argv[1]} == "--village";
         bool const showcase_only = argc == 2 && std::string_view{argv[1]} == "--showcase";
         check(argc == 1 || animation_only || player_only || showcase_only || torch_only ||
-                  particles_only || first_person_only,
+                  particles_only || first_person_only || village_only || fog_only,
               "usage: lc1_pbr_tests "
-              "[--model-animation|--player-models|--showcase|--torch|--particles|--first-person]");
+              "[--model-animation|--player-models|--showcase|--torch|--particles|--first-person|--"
+              "village|--fog]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -1588,6 +1690,19 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (fog_only) {
+            for (auto samples : {vk::SampleCountFlagBits::e1, vk::SampleCountFlagBits::e4}) {
+                fog_test(device, samples);
+                particle_render_test(device, samples);
+            }
+            std::cout << "Distance fog and particle regression GPU tests passed\n";
+            return 0;
+        }
+        if (village_only) {
+            village_test(device);
+            std::cout << "Village GPU capture passed\n";
+            return 0;
+        }
         if (first_person_only) {
             first_person_test(device);
             std::cout << "First-person visibility GPU tests passed\n";
@@ -1626,6 +1741,8 @@ int main(int argc, char **argv)
         }
         particle_render_test(device, vk::SampleCountFlagBits::e1);
         particle_render_test(device, vk::SampleCountFlagBits::e4);
+        fog_test(device, vk::SampleCountFlagBits::e1);
+        fog_test(device, vk::SampleCountFlagBits::e4);
         ddgi_tests(device);
         mutable_material_tests(device);
         material_tests(device, vk::SampleCountFlagBits::e1);

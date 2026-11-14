@@ -33,6 +33,7 @@ class PlayerView {
     void set_aspect_ratio(float aspect_ratio);
 
     bool oblique() const;
+    bool first_person() const;
 
     scene::FpsCamera const &camera() const;
 
@@ -43,6 +44,8 @@ class PlayerView {
     MapCameraController map_camera_;
     scene::FpsCamera camera_;
     bool oblique_ = true;
+    bool third_person_ = false;
+    glm::vec2 follow_angles_{};
     glm::vec2 first_person_angles_{};
     bool view_changed_ = false;
     bool recenter_ = false;

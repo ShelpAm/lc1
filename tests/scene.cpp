@@ -26,6 +26,13 @@ template <typename F> void rejects(F &&action)
 void scene_lifetime_and_snapshots()
 {
     lc1::scene::Scene scene;
+    check(!scene.fog(), "distance fog is disabled by default");
+    scene.set_fog(lc1::scene::DistanceFog{});
+    rejects([&] { scene.set_fog(lc1::scene::DistanceFog{.start = 10, .end = 10}); });
+    rejects([&] { scene.set_fog(lc1::scene::DistanceFog{.radiance = {-1, 0, 0}}); });
+    check(scene.fog()->start == 1500, "invalid fog preserves the existing scene setting");
+    scene.set_fog(std::nullopt);
+    check(!scene.fog(), "distance fog can be removed");
     scene.set_particles({{.opacity = 0.5F}});
     check(scene.particles().size() == 1 && scene.draw_count() == 0,
           "particles are separate from opaque mesh draws");

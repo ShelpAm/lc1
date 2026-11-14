@@ -250,15 +250,23 @@ void present_outline()
     auto const back = lc1::WorldCollision{world}.move(through_gate, {0, 160}, 0.3F, 1.8F);
     check(glm::distance(back, world.spawn()) < 0.001F, "the city gate allows returning to spawn");
     for (auto const &road : world.roads()) {
-        for (bool reverse : {false, true}) {
-            auto const from = reverse ? road.points.back() : road.points.front();
-            auto const to = reverse ? road.points.front() : road.points.back();
-            check(glm::distance(lc1::WorldCollision{world}.move({from.x, 0, from.y}, to - from,
-                                                                road.width * 0.5F, 1.8F),
-                                glm::vec3{to.x, 0, to.y}) < 0.001F,
-                  "the village and shore paths have full-width clearance in both directions");
+        for (std::size_t segment = 1; segment < road.points.size(); ++segment) {
+            for (bool reverse : {false, true}) {
+                auto const from = road.points[reverse ? segment : segment - 1];
+                auto const to = road.points[reverse ? segment - 1 : segment];
+                check(glm::distance(lc1::WorldCollision{world}.move({from.x, 0, from.y}, to - from,
+                                                                    road.width * 0.5F, 1.8F),
+                                    glm::vec3{to.x, 0, to.y}) < 0.001F,
+                      "every village and shore bend has full-width clearance in both directions");
+            }
         }
     }
+    check(std::ranges::none_of(world.patches(),
+                               [](auto const &patch) {
+                                   return patch.surface == lc1::ContinentSurface::Road &&
+                                          patch.bounds.max.y > 80;
+                               }),
+          "village lanes use road geometry rather than rectangular patches");
     auto const shoreline = lc1::WorldCollision{world}.move(world.spawn(), {0, 2000}, 0.3F, 1.8F);
     check(std::abs(shoreline.z - 271.7F) < 0.001F &&
               lc1::WorldCollision{world}.can_stand(shoreline, 0.3F, 1.8F),

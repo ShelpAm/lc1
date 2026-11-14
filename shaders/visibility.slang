@@ -18,6 +18,8 @@ struct Camera {
     float4x4 view;
     float4x4 proj;
     float4 position;
+    float4 fog_radiance;
+    float4 fog_distances;
 };
 
 struct LightsData {

@@ -137,6 +137,11 @@ Continent const &GameSimulation::continent() const
     return world_.continent();
 }
 
+DialogCatalog const &GameSimulation::dialog_catalog() const
+{
+    return world_.dialogs().catalog();
+}
+
 void GameSimulation::run(std::stop_token stop)
 {
     std::vector<std::promise<SerializedWorld>> requests;

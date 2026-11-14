@@ -73,6 +73,8 @@ class DialogCatalog {
                             DialogTrigger trigger) const;
 
     DialogSettings const &settings() const;
+    // All node and choice text, including branches that are not currently active.
+    std::u32string codepoints() const;
 
   private:
     std::map<std::string, DialogScript, std::less<>> scripts_;
@@ -145,6 +147,8 @@ class DialogSystem {
     DialogSystem(DialogSystem &&) = delete;
     DialogSystem &operator=(DialogSystem &&) = delete;
     ~DialogSystem() = default;
+
+    DialogCatalog const &catalog() const;
 
     Dialog *find(Character const &character);
     Dialog const *find(Character const &character) const;

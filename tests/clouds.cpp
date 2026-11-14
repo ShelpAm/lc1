@@ -549,6 +549,25 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
 
     check(opened_gaps > 0, "detail erosion must remove thin edges, not just attenuate density");
 
+    // Merged surface fog and sky/cloud rendering must remain independent.
+    scene.set_fog(
+        lc1::scene::DistanceFog{.radiance = {0.24F, 0.28F, 0.31F}, .start = 60.0F, .end = 320.0F});
+    clouds.enabled = false;
+    auto const fogged_clear = capture(device, renderer, frame, camera, scene, false);
+    clouds.enabled = true;
+    auto const fogged_cloud = capture(device, renderer, frame, camera, scene);
+    float ground_fog_change = 0.0F;
+    for (std::size_t i = test_extent.width * test_extent.height * 3 / 4;
+         i < fogged_clear.hdr.size(); ++i) {
+        auto const cloud_delta = glm::abs(glm::vec3{fogged_cloud.hdr[i] - fogged_clear.hdr[i]});
+        check(cloud_delta.x + cloud_delta.y + cloud_delta.z < 1e-3F,
+              "cloud compositing must preserve distance fog on foreground geometry");
+        ground_fog_change += glm::length(glm::vec3{fogged_clear.hdr[i] - clear_sky.hdr[i]});
+    }
+    check(ground_fog_change > 0.1F,
+          "surface fog must still affect ground with the sky path present");
+    scene.set_fog(std::nullopt);
+
     // Settings are validated once, at registration.
     // Registration alone validates: the rejected frames below never record or execute,
     // and the target is only read for its extent.
