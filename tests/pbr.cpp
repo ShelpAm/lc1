@@ -949,8 +949,9 @@ void player_models_test(lc1::Device const &device)
     lc1::GameWorld world{lc1::Save{slot}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
     {
-        lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                            {},     lc1::PlayerId{73}};
+        lc1::WorldPresentation presentation{
+            device, "runtime/assets",  world.continent(),        state,
+            {},     lc1::PlayerId{73}, world.dialogs().catalog()};
         auto &rumble_state = state.characters.front();
         auto const &rumble_pose = presentation.character_model(rumble_state.keyid).pose;
         auto const clip_name = [&]() -> std::string_view {
@@ -1245,8 +1246,8 @@ void first_person_test(lc1::Device const &device)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
-    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                        {},     lc1::PlayerId{1}};
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(),        state,
+                                        {},     lc1::PlayerId{1}, world.dialogs().catalog()};
     auto const capacity = presentation.object_capacity();
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e4};
     std::array frames{renderer.make_frame_resources(capacity),
@@ -1306,8 +1307,8 @@ void torch_test(lc1::Device const &device)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
-    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(), state,
-                                        {},     lc1::PlayerId{1}};
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(),        state,
+                                        {},     lc1::PlayerId{1}, world.dialogs().catalog()};
     presentation.update(0, {});
     auto const capacity = presentation.object_capacity();
     auto const unlit_draws = presentation.scene().draws().size();
@@ -1434,7 +1435,8 @@ void village_test(lc1::Device const &device)
         world.continent(),
         state,
         {.exposure = 2, .bloom_strength = 0.08F, .encoding = lc1::OutputEncoding::Srgb},
-        lc1::PlayerId{1}};
+        lc1::PlayerId{1},
+        world.dialogs().catalog()};
     presentation.update(0.2F, {});
     check(!presentation.scene().particles().empty(), "smithy furnace burns without a held torch");
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
