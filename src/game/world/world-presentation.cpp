@@ -360,6 +360,9 @@ void WorldPresentation::update_instances()
 
 std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
 {
+    // Billboard labels stay at the bloom soft knee's zero-contribution boundary.
+    // Printed panel lettering keeps the caller's colour.
+    constexpr glm::vec3 label_color{1.F, 1.F, 1.F};
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
 
@@ -368,6 +371,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
         labels.push_back({.text = "Patrol House",
                           .center = center,
                           .line_height = 0.5F,
+                          .color = label_color,
                           .normal = camera.position() - center});
     }
 
@@ -377,6 +381,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
         labels.push_back({.text = std::format("{} from {}", character.name, character.faction),
                           .center = center,
                           .line_height = 0.3F,
+                          .color = label_color,
                           .normal = camera.position() - center});
         if (!character.speech.empty() && character.keyid != world_->player(observer_).keyid &&
             character.dialog_partner != world_->player(observer_).keyid) {
@@ -384,6 +389,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
             labels.push_back({.text = character.speech,
                               .center = speech_center,
                               .line_height = 0.25F,
+                              .color = label_color,
                               .normal = camera.position() - speech_center});
         }
     }
@@ -423,6 +429,16 @@ void WorldPresentation::update_lighting()
         glm::mix(glm::vec3{1, 0.95F, 0.9F}, glm::vec3{0.7F, 0.8F, 1}, village_weather);
     sun_->parameters.intensity = glm::mix(0.45F, 0.09F, village_weather) * std::max(altitude, 0.0F);
     sun_->enabled = sun_->enabled && altitude > 0.0F;
+    // The visible sky follows the same sun the cloud layer is lit by: daylight blue
+    // towards noon, a warm band while the sun crosses the horizon, and near-black at
+    // night. A flat painted colour is what made the layer look pasted on.
+    auto const rise = glm::smoothstep(0.0F, 0.28F, altitude);
+    auto const twilight =
+        glm::smoothstep(-0.10F, 0.05F, altitude) * (1.0F - glm::smoothstep(0.10F, 0.28F, altitude));
+    glm::vec3 const daylight{0.22F, 0.34F, 0.55F};
+    glm::vec3 const warm{0.60F, 0.30F, 0.15F};
+    glm::vec3 const night_sky{0.010F, 0.014F, 0.030F};
+    scene_.set_sky(scene::Sky{.color = night_sky + daylight * rise + warm * (0.55F * twilight)});
     scene_.set_fog(continent_->location(village::smithy)
                        ? std::optional{scene::DistanceFog{
                              .radiance = glm::vec3{0.24F, 0.28F, 0.31F} * std::max(altitude, 0.0F),

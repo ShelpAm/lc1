@@ -16,6 +16,9 @@ struct FrameScene {
     std::vector<scene::Light> lights;
     std::vector<DrawItem> draws;
     std::optional<scene::DiffuseGi> diffuse_gi;
+    // Resolved at registration: scenes without their own sky keep the neutral default,
+    // and both the clear colour and the cloud ambient read this one value.
+    glm::vec3 sky_color;
     std::optional<scene::DistanceFog> fog;
     std::vector<scene::Particle> particles;
 };

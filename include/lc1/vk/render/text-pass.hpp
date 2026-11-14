@@ -95,9 +95,19 @@ class TextPass {
 
     static_assert(sizeof(PushData) == 72);
 
-    // Uploads `vertices_` into the slot's buffer, growing it when this frame
-    // needs more room, then records the single draw. Runs after the slot fence,
-    // so replacing the buffer is safe.
+    // Uploads `vertices_` into the slot's buffer, growing it when this frame needs
+    // more room, and binds everything a draw needs. Runs after the slot fence, so
+    // replacing the buffer is safe. The caller issues one or more draws over the
+    // uploaded range with draw_vertices().
+    void upload_vertices(CommandBuffer &commands, FrameResources &resources,
+                         std::optional<GpuBuffer> &buffer, GpuFont const &font,
+                         glm::mat4 const &transform);
+
+    // Applies `state` and draws one contiguous vertex range from the bound buffer.
+    void draw_vertices(CommandBuffer &commands, GraphicsState const &state, std::size_t first,
+                       std::size_t count);
+
+    // Uploads, then draws the whole range once.
     void upload_and_draw(CommandBuffer &commands, FrameResources &resources,
                          std::optional<GpuBuffer> &buffer, GpuFont const &font,
                          glm::mat4 const &transform, GraphicsState const &state);

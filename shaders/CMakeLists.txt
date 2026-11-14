@@ -86,6 +86,8 @@ set_target_properties(descriptor_heap_bulk_test_shader PROPERTIES EXCLUDE_FROM_A
 
 add_slang_shaders(shaders
     shader.slang
+    clouds.slang
+    clouds-composite.slang
     ddgi-emitter-prepare.slang
     ddgi-candidates.slang
     ddgi-trace.slang

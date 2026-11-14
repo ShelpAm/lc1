@@ -34,7 +34,7 @@ struct RayQueryShadowFrameResources {
 // Device and Renderer must outlive these resources.
 struct FrameResources {
     FrameResources(std::unique_ptr<DescriptorHeap> heap, GpuBuffer camera, GpuBuffer lights,
-                   GpuBuffer temporal, GpuBuffer tone_map);
+                   GpuBuffer temporal, GpuBuffer tone_map, GpuBuffer cloud);
 
     ~FrameResources() = default;
     FrameResources(FrameResources const &) = delete;
@@ -73,6 +73,17 @@ struct FrameResources {
     std::array<std::optional<GpuImage>, 2> bloom_images;
     std::array<std::optional<HeapIndex>, 2> bloom_indices;
     std::optional<HeapIndex> bloom_sampler;
+    // Volumetric clouds: marched radiance/transmittance, then the HDR image with the
+    // layer composited into it. Both are created lazily from the output extent; the
+    // depth and shape-volume slots borrow resources owned by the caller.
+    std::optional<GpuImage> cloud_image;
+    std::optional<GpuImage> hdr_cloud_image;
+    std::optional<HeapIndex> cloud_image_index;
+    std::optional<HeapIndex> hdr_cloud_index;
+    std::optional<HeapIndex> cloud_depth_index;
+    std::optional<HeapIndex> cloud_noise_index;
+    std::optional<HeapIndex> cloud_detail_index;
+    std::optional<HeapIndex> cloud_noise_sampler;
 
     struct PushData {
         HeapIndex frame_buffer_index;
@@ -150,8 +161,11 @@ struct FrameResources {
     GpuBuffer lights_buffer;
     GpuBuffer temporal_buffer;
     GpuBuffer tone_map_buffer;
+    // Cloud layer parameters; rebuilt every frame the cloud pass runs.
+    GpuBuffer cloud_buffer;
     HeapIndex camera_index{};
     HeapIndex lights_index{};
+    HeapIndex cloud_index{};
     std::optional<HeapIndex> shadow_visibility_index;
     std::vector<GpuBuffer> frame_buffers;
     std::vector<GpuBuffer> object_buffers;

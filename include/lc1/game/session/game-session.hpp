@@ -6,6 +6,7 @@
 #include "lc1/game/ui/game-ui.hpp"
 #include "lc1/game/ui/music-browser.hpp"
 #include "lc1/game/world/world-presentation.hpp"
+#include "lc1/vk/render/volumetric-clouds.hpp"
 #include <utility>
 
 namespace lc1 {
@@ -15,9 +16,11 @@ namespace lc1 {
 // session; Application waits for submitted GPU work before destroying it.
 class GameSession {
   public:
+    // `clouds` is the renderer's live cloud configuration: the session enables the
+    // layer for the game and the debug panel edits it. Application keeps it alive.
     GameSession(Device const &device, std::filesystem::path const &asset_root,
                 GameSimulation &simulation, std::filesystem::path const &save_directory,
-                OutputSettings output, Window *window, PlayerId player);
+                OutputSettings output, Window *window, PlayerId player, CloudSettings &clouds);
 
     GameSession(GameSession const &) = delete;
     GameSession &operator=(GameSession const &) = delete;
@@ -63,7 +66,8 @@ class GameSession {
 
     bool should_captures_cursor() const;
 
-    Window *window_; // Required non-null borrow; Application's Window outlives this.
+    Window *window_;        // Required non-null borrow; Application's Window outlives this.
+    CloudSettings *clouds_; // Required non-null borrow of the renderer's settings.
     GameInputRouter input_router_;
     // Owners precede borrowers: presentation reads the local snapshot, music borrows its audio
     // context.

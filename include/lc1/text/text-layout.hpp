@@ -28,6 +28,18 @@ struct TextPlacement {
     glm::vec3 normal{0.0F, 0.0F, 1.0F};
 };
 
+// Orthonormal axes of the plane facing `normal`: right first, then up. Up is world +Y
+// projected onto the plane, falling back to +Z when the normal is nearly vertical.
+struct PlaneBasis {
+    glm::vec3 right{};
+    glm::vec3 up{};
+    // Unit front direction: cross(right, up), the winding the glyph quads use.
+    glm::vec3 normal{};
+};
+
+// Rejects a zero or non-finite normal, exactly as append_text does.
+PlaneBasis plane_basis(glm::vec3 normal);
+
 // Extent of a laid-out run in caller units for the requested line height.
 struct TextMetrics {
     float width = 0.0F;

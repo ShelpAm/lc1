@@ -21,10 +21,11 @@ std::string slot_name(std::filesystem::path const &directory)
 
 GameSession::GameSession(Device const &device, std::filesystem::path const &asset_root,
                          GameSimulation &simulation, std::filesystem::path const &save_directory,
-                         OutputSettings output, Window *window, PlayerId player)
-    : window_(window), input_router_(default_game_bindings(), GameInputContext::Gameplay),
-      simulation_(&simulation), connection_(simulation.connect(player)),
-      snapshot_(*simulation_->snapshot()),
+                         OutputSettings output, Window *window, PlayerId player,
+                         CloudSettings &clouds)
+    : window_(window), clouds_(&clouds),
+      input_router_(default_game_bindings(), GameInputContext::Gameplay), simulation_(&simulation),
+      connection_(simulation.connect(player)), snapshot_(*simulation_->snapshot()),
       world_presentation_(device, asset_root, simulation_->continent(), snapshot_, output, player,
                           simulation_->dialog_catalog()),
       player_view_(simulation_->continent(),
@@ -35,6 +36,11 @@ GameSession::GameSession(Device const &device, std::filesystem::path const &asse
 {
     if (!window_)
         fail("game session requires a window");
+
+    // The engine leaves the layer off so tools and GPU tests keep their single HDR
+    // image; the game is the scene that asks for it. Debug-panel edits persist across
+    // reloads because the settings belong to the renderer, not to the session.
+    clouds_->enabled = true;
 
     refresh_saves();
     window_->set_cursor_captured(should_captures_cursor());
@@ -59,8 +65,14 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
         input_router_.active_context() == GameInputContext::Gameplay &&
         input_router_.pressed(GameAction::TogglePlayerInfo))
         ui_.toggle_player_info();
-    if (window_->focused() && !imgui_io.WantCaptureKeyboard)
-        quit_requested_ = input_router_.pressed(GameAction::QuitGame);
+    // Esc opens the debug panel and menu over the game and closes them again. It works
+    // while ImGui owns the keyboard, except inside a text field, so the key that opened
+    // the overlay always closes it. Quitting is the menu's own button; nothing here
+    // ends the session.
+    if (window_->focused() && !imgui_io.WantTextInput &&
+        input_router_.active_context() == GameInputContext::Gameplay &&
+        input_router_.pressed(GameAction::ToggleMenu))
+        ui_.toggle_menu();
 
     bool const controls_enabled = ui_.gameplay_enabled() && window_->focused() &&
                                   input_router_.active_context() == GameInputContext::Gameplay;
@@ -127,6 +139,7 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
             .grass_density = world_presentation_.grass_density(),
             .showcase_animated = world_presentation_.showcase_animated(),
             .interaction_target = snapshot_.players.at(connection_.player_id()).interaction_target,
+            .clouds = clouds_,
         },
         music_);
     controls.equipment = ui_actions.equipment;

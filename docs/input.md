@@ -5,7 +5,7 @@
 - `Window` 拥有原始 `InputState`，不解释游戏按键。`Window`/`input.hpp` 不包含 Vulkan，输入头也不包含 GLFW。
 - `lc1/platform/input.hpp` 只提供设备状态和 `BasicInputRouter` 模板；游戏动作、context、类型别名和默认绑定属于
   `game/actions.*`。游戏通过 `GameAction` 查询动作；`GameInputContext::Ui` 刻意无绑定，用来屏蔽玩法。
-  Escape 映射为 `QuitGame`，由 GameSession 请求退出、Application 结束循环。
+  Escape 映射为 `ToggleMenu`：切换暂停叠加层（调试面板 + 菜单），不退出游戏。
 - 路由器只解析栈顶 context，每次 update 从头计算，重复调用保持幂等。多个键绑定同一动作时，
   `released` 必须与 `!held` 相与；`pressed` 不做同样屏蔽。保留 GLFW ↔ Key 映射的完整性和唯一性断言。
 - `poll_events()` 先调用 `begin_frame()` 再处理 GLFW 事件；`wait_events()` 不构成帧边界。
@@ -18,6 +18,9 @@
   菜单、失焦、UI context 和 ImGui 鼠标捕获期间不触发。近战物品执行既有挥砍与命中规则；手电筒切换开关，不挥砍、不造成伤害；右键未绑定手电筒操作。
 - B 打开／关闭角色与背包窗口，打开时禁用玩法输入并释放光标；关闭后恢复。
   面板拥有 ImGui 键盘焦点时 B 仍可关闭，文本输入和保存／读档期间不触发。
+- Esc 开关暂停叠加层：打开时同时显示调试面板和菜单，玩法输入停止，任何视角下都释放光标；
+  再按一次关闭并恢复原来的捕获状态。叠加层中的 Start Game／Close 按钮做同样的事。
+  文本输入框聚焦时 Esc 不触发；退出只能通过菜单的 Quit 按钮。
 - F6 打开命名保存，F9 打开存档选择；窗口打开时禁用玩法输入并释放第一人称光标，取消后恢复。
 - GLFW 光标位置是逻辑屏幕坐标；拾取在 framebuffer 边界转换为像素坐标。
   视口尺寸来自窗口整数尺寸，不重复检查浮点有限性；边缘推屏仍检查有效尺寸、光标有限性及范围。

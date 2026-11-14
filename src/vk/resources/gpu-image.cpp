@@ -34,11 +34,28 @@ vk::Format find_depth_format(Device const &device)
 GpuImage::GpuImage(Device const &device, vk::Format format, vk::Extent2D extent,
                    std::uint32_t mip_levels, vk::SampleCountFlagBits samples,
                    vk::ImageUsageFlags usage, vk::ImageAspectFlags aspect)
+    : GpuImage(device, format,
+               vk::Extent3D{.width = extent.width, .height = extent.height, .depth = 1},
+               vk::ImageType::e2D, mip_levels, samples, usage, aspect)
+{
+}
+
+GpuImage::GpuImage(Device const &device, vk::Format format, vk::Extent3D extent,
+                   std::uint32_t mip_levels, vk::SampleCountFlagBits samples,
+                   vk::ImageUsageFlags usage, vk::ImageAspectFlags aspect)
+    : GpuImage(device, format, extent, vk::ImageType::e3D, mip_levels, samples, usage, aspect)
+{
+}
+
+GpuImage::GpuImage(Device const &device, vk::Format format, vk::Extent3D extent,
+                   vk::ImageType image_type, std::uint32_t mip_levels,
+                   vk::SampleCountFlagBits samples, vk::ImageUsageFlags usage,
+                   vk::ImageAspectFlags aspect)
     : image_{device.allocator().createImage(
           {
-              .imageType = vk::ImageType::e2D,
+              .imageType = image_type,
               .format = format,
-              .extent = vk::Extent3D{.width = extent.width, .height = extent.height, .depth = 1},
+              .extent = extent,
               .mipLevels = mip_levels,
               .arrayLayers = 1,
               .samples = samples,
@@ -54,7 +71,8 @@ GpuImage::GpuImage(Device const &device, vk::Format format, vk::Extent2D extent,
           })},
       view_{device.raii().createImageView({
           .image = *image_,
-          .viewType = vk::ImageViewType::e2D,
+          .viewType =
+              image_type == vk::ImageType::e3D ? vk::ImageViewType::e3D : vk::ImageViewType::e2D,
           .format = format,
           .subresourceRange =
               {
@@ -68,17 +86,22 @@ GpuImage::GpuImage(Device const &device, vk::Format format, vk::Extent2D extent,
       format_{format},
       optimal_tiling_features_{
           device.raii_physical().getFormatProperties(format).optimalTilingFeatures},
-      extent_{extent}, mip_levels_{mip_levels}, aspect_{aspect}
+      extent_{extent}, image_type_{image_type}, mip_levels_{mip_levels}, aspect_{aspect}
 {
-    spdlog::debug("[GpuImage] created a {}x{} image, format {}, usage {}", extent.width,
-                  extent.height, vk::to_string(format), vk::to_string(usage));
+    if (image_type == vk::ImageType::e3D)
+        spdlog::debug("[GpuImage] created a {}x{}x{} volume, format {}, usage {}", extent.width,
+                      extent.height, extent.depth, vk::to_string(format), vk::to_string(usage));
+    else
+        spdlog::debug("[GpuImage] created a {}x{} image, format {}, usage {}", extent.width,
+                      extent.height, vk::to_string(format), vk::to_string(usage));
 }
 
 vk::ImageViewCreateInfo GpuImage::view_create_info() const
 {
     return vk::ImageViewCreateInfo{
         .image = *image_,
-        .viewType = vk::ImageViewType::e2D,
+        .viewType =
+            image_type_ == vk::ImageType::e3D ? vk::ImageViewType::e3D : vk::ImageViewType::e2D,
         .format = format_,
         .subresourceRange =
             {
@@ -128,6 +151,8 @@ void GpuImage::transition_layout(vk::raii::CommandBuffer const &command_buffer,
 
 void GpuImage::generate_mipmaps(vk::raii::CommandBuffer const &command_buffer) const
 {
+    if (image_type_ == vk::ImageType::e3D && mip_levels_ > 1)
+        fail("mipmap generation is 2D-only; a volume keeps one level here");
     if (mip_levels_ > 1) {
         constexpr auto required = vk::FormatFeatureFlagBits::eBlitSrc |
                                   vk::FormatFeatureFlagBits::eBlitDst |
@@ -234,6 +259,11 @@ vk::raii::ImageView const &GpuImage::view() const
 }
 
 vk::Extent2D GpuImage::extent() const
+{
+    return {.width = extent_.width, .height = extent_.height};
+}
+
+vk::Extent3D GpuImage::extent_3d() const
 {
     return extent_;
 }

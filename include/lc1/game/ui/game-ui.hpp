@@ -4,6 +4,7 @@
 #include "lc1/game/world/world-snapshot.hpp"
 #include "lc1/platform/window.hpp"
 #include "lc1/vk/render/text-pass.hpp"
+#include "lc1/vk/render/volumetric-clouds.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
 #include <array>
 #include <optional>
@@ -27,6 +28,8 @@ struct GameUiInfo {
     int grass_density;
     bool showcase_animated;
     std::string_view interaction_target;
+    // Live renderer configuration; null when the caller does not render clouds.
+    CloudSettings *clouds = nullptr;
 };
 
 struct GameUiActions {
@@ -57,6 +60,11 @@ class GameUi {
     void start_game();
 
     void toggle_player_info();
+
+    // Esc: opens the debug panel and menu over the running game, and closes them again.
+    // While they are open gameplay input stops and the cursor is released in every view
+    // mode, because gameplay_enabled() is false.
+    void toggle_menu();
 
     void set_save_status(std::string status);
 

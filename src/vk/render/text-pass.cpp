@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <span>
 #include <utility>
+#include <vector>
 
 namespace lc1 {
 namespace {
@@ -95,9 +96,9 @@ void TextPass::draw_screen(CommandBuffer &commands, FrameResources &resources, v
                     screen_state_);
 }
 
-void TextPass::upload_and_draw(CommandBuffer &commands, FrameResources &resources,
+void TextPass::upload_vertices(CommandBuffer &commands, FrameResources &resources,
                                std::optional<GpuBuffer> &buffer, GpuFont const &font,
-                               glm::mat4 const &transform, GraphicsState const &state)
+                               glm::mat4 const &transform)
 {
     auto const bytes = std::span<Vertex const>{vertices_}.size_bytes();
     if (bytes == 0)
@@ -123,9 +124,25 @@ void TextPass::upload_and_draw(CommandBuffer &commands, FrameResources &resource
     commands.push_data(std::span{&push, 1});
 
     shaders_.bind_to_command_buffer(commands);
-    set_graphics_state(commands.raii(), state);
     commands.raii().bindVertexBuffers(0, *buffer->raii(), vk::DeviceSize{0});
-    commands.raii().draw(static_cast<std::uint32_t>(vertices_.size()), 1, 0, 0);
+}
+
+void TextPass::draw_vertices(CommandBuffer &commands, GraphicsState const &state, std::size_t first,
+                             std::size_t count)
+{
+    if (count == 0)
+        return;
+    set_graphics_state(commands.raii(), state);
+    commands.raii().draw(static_cast<std::uint32_t>(count), 1, static_cast<std::uint32_t>(first),
+                         0);
+}
+
+void TextPass::upload_and_draw(CommandBuffer &commands, FrameResources &resources,
+                               std::optional<GpuBuffer> &buffer, GpuFont const &font,
+                               glm::mat4 const &transform, GraphicsState const &state)
+{
+    upload_vertices(commands, resources, buffer, font, transform);
+    draw_vertices(commands, state, 0, vertices_.size());
 }
 
 } // namespace lc1

@@ -50,5 +50,11 @@ float4 fragMain(VSOutput input) : SV_TARGET
     // The atlas stores white RGB with glyph coverage in alpha; level 0 keeps one
     // cell's texels from bleeding into its neighbours.
     float coverage = atlas.SampleLevel(atlas_sampler, input.uv, 0.0).a;
+    // World text writes depth so the cloud layer cannot cover a label. The glyph quad
+    // covers more than the glyph, so transparent texels have to be dropped here:
+    // otherwise every quad writes depth and carves a box-shaped hole in the clouds
+    // behind the label, showing as the label's own blue background.
+    if (coverage < 0.1)
+        discard;
     return float4(input.color, coverage);
 }

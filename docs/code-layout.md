@@ -116,8 +116,10 @@ Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::u
    本帧视角切换已丢弃旧位移，下一次光标位置事件建立新基线。边缘推屏仅在斜视角且窗口光标已释放时允许。
 
 菜单之外的 ImGui 占用同样需要区分：会话读取的 capture 只表示“某个控件正在使用键盘或存在模态窗口”。
-Esc 在 `game/actions.*` 中映射为 `QuitGame`；窗口有焦点且 ImGui 未占用键盘时，
-会话将其转为 `quit_requested`，主菜单中也可退出。Application 统一消费退出请求。
+Esc 在 `game/actions.*` 中映射为 `ToggleMenu`：窗口有焦点且不在文本输入框里时（ImGui
+占用键盘也照常生效），会话切换 `GameUi` 的菜单叠加层。叠加层打开时调试面板与菜单一起出现、
+玩法输入停止、光标在任何视角下都释放；再按一次 Esc 关闭。退出只由菜单里的 Quit 按钮发起，
+Application 统一消费该请求。
 Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureKeyboard = false`。导航会和角色
 争用方向键与空格；默认设置下，仅被聚焦的窗口（常驻调试面板就是一例）也会让 `WantCaptureKeyboard`
 每帧为真，使所有 `GameAction` 都解析为未按下。菜单与面板都由鼠标操作。

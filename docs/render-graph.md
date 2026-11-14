@@ -25,13 +25,19 @@
 | Material preparation | `frame.inputs` | `material.frame` |
 | DDGI probes | `shadow.scene`、`shadow.frame`、`shadow.surface`、`shadow.filtered_visibility`、`material.frame` | `ddgi.irradiance` |
 | HDR lighting（含世界文字与粒子） | `shadow.frame`、`shadow.filtered_visibility`、`material.frame`、`ddgi.irradiance` | `hdr.color` |
-| Bloom（可选） | `hdr.color` | `bloom.color` |
-| Tone mapping | `hdr.color` 或 `bloom.color`、`output.target` | `output.color` |
+| Cloud ray marching（可选） | `hdr.color`、场景深度、形态体纹理 | `cloud.result` |
+| Cloud composite（可选） | `hdr.color`、`cloud.result` | `hdr.cloud` |
+| Bloom（可选） | `hdr.color` 或 `hdr.cloud` | `bloom.color` |
+| Tone mapping | `hdr.color`、`hdr.cloud` 或 `bloom.color`、`output.target` | `output.color` |
 | UI text | `output.color` | `output.ui_text` |
 | ImGui overlay（应用添加） | `output.ui_text` | `output.ui` |
 
 `RayQueryShadows::add_passes()` 注册前四个 pass，Renderer 注册光照与色调映射以及界面文字的
 pass，以及材质上传和 DDGI 探针更新；应用将 ImGui 绘制注册为消费 `output.ui_text` 的最后一个节点，渲染层不依赖 ImGui。
+体积云两节点只在 `Renderer::cloud_settings().enabled` 时注册，顺序与依赖由
+`hdr.color → hdr.cloud` 决定；合成把 `pass_data.hdr_image` 指向合成图，Bloom 与色调映射
+因此读同一张结果。深度附件仅在启用云层时以 `eStore` 保留内容，并带 `SAMPLED_BIT` 供
+步进读取；其余帧仍使用 `eDontCare`。云层细节与参数见[体积云](volumetric-clouds.md)。
 场景准备包括 camera/light/object UBO 上传、TLAS 更新、附件创建与历史准备；
 光照 pass 保留线性 RGBA16F HDR、最多 4× MSAA 和 pass 内 resolve，之后才执行色调映射。
 世界文字和透明粒子在光照 pass 的同一个渲染实例末尾依次混合绘制：瞬态 MSAA 附件不保证跨实例内容，
