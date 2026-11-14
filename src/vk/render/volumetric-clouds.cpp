@@ -71,9 +71,8 @@ void validate(CloudSettings const &settings)
         fail("cloud trace distance must be finite and positive");
     if (!finite(settings.ambient_scale) || settings.ambient_scale < 0.0F)
         fail("cloud ambient scale must be finite and nonnegative");
-    if (!finite_vector(settings.ambient_radiance) ||
-        glm::any(glm::lessThan(settings.ambient_radiance, glm::vec3{0})))
-        fail("cloud ambient radiance must be finite and nonnegative");
+    if (!finite(settings.radiance_scale) || settings.radiance_scale < 0.0F)
+        fail("cloud radiance scale must be finite and nonnegative");
 }
 
 // Brightest directional light double as the sun: the layer is lit by one source, and
@@ -250,10 +249,9 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
     // A flat ambient source stands in for multiple scattering; the scene's own sky
     // radiance, which already follows the sun, is a better colour than a constant,
     // and the configured fallback keeps a floor under it.
-    glm::vec3 const sky_radiance =
-        scene.diffuse_gi ? scene.diffuse_gi->sky_radiance : glm::vec3{0.0F};
-    glm::vec3 const ambient =
-        settings.ambient_scale * glm::max(sky_radiance, settings.ambient_radiance);
+    // One sky colour feeds the background and the layer's ambient term, so a change
+    // to the sky (daylight, dusk, night) moves both together.
+    glm::vec3 const ambient = settings.ambient_scale * scene.sky_color;
 
     auto const inverse_view_projection = glm::inverse(scene.camera.view_projection_matrix());
     auto const elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - origin_);
@@ -266,7 +264,8 @@ void VolumetricCloudRenderer::record_march(CommandBuffer &cmd, FrameResources &r
         .ambient_extinction = {ambient, settings.extinction},
         .layer = {settings.bottom, settings.top, settings.coverage, settings.density},
         .wind_frequency = {settings.wind_velocity, 1.0F / settings.noise_scale},
-        .march = {settings.max_trace_distance, settings.light_march_distance, 0.0F, 0.0F},
+        .march = {settings.max_trace_distance, settings.light_march_distance,
+                  settings.radiance_scale, 0.0F},
         .steps = {settings.view_steps, settings.light_steps,
                   static_cast<std::uint32_t>(settings.debug), 0U},
     };

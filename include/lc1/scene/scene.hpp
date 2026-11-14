@@ -51,6 +51,13 @@ struct DiffuseGi {
     bool emissive_lighting = false;
 };
 
+// Linear HDR sky behind the scene. This is the colour the renderer clears to and the
+// radiance the volumetric cloud layer's ambient term is built from, so the two cannot
+// disagree. Scenes that never set it keep the renderer's neutral daylight default.
+struct Sky {
+    glm::vec3 color{0.24F, 0.42F, 0.64F};
+};
+
 struct SceneLight {
     Light parameters;
     bool enabled = true;
@@ -64,6 +71,9 @@ class Scene {
   public:
     void set_diffuse_gi(std::optional<DiffuseGi> settings);
     std::optional<DiffuseGi> const &diffuse_gi() const;
+
+    void set_sky(std::optional<Sky> sky);
+    std::optional<Sky> const &sky() const;
 
     SceneLight *add_light(Light light);
     void remove_light(SceneLight const *light);
@@ -85,6 +95,7 @@ class Scene {
   private:
     std::vector<Particle> particles_;
     std::optional<DiffuseGi> diffuse_gi_;
+    std::optional<Sky> sky_;
     std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
     std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;
 };

@@ -391,6 +391,16 @@ void WorldPresentation::update_lighting()
     sun_->parameters.direction = glm::vec3{-static_cast<float>(std::cos(angle)), -altitude, 0.0F};
     sun_->parameters.intensity = 0.45F * std::max(altitude, 0.0F);
     sun_->enabled = sun_->enabled && altitude > 0.0F;
+    // The visible sky follows the same sun the cloud layer is lit by: daylight blue
+    // towards noon, a warm band while the sun crosses the horizon, and near-black at
+    // night. A flat painted colour is what made the layer look pasted on.
+    auto const rise = glm::smoothstep(0.0F, 0.28F, altitude);
+    auto const twilight =
+        glm::smoothstep(-0.10F, 0.05F, altitude) * (1.0F - glm::smoothstep(0.10F, 0.28F, altitude));
+    glm::vec3 const daylight{0.22F, 0.34F, 0.55F};
+    glm::vec3 const warm{0.60F, 0.30F, 0.15F};
+    glm::vec3 const night_sky{0.010F, 0.014F, 0.030F};
+    scene_.set_sky(scene::Sky{.color = night_sky + daylight * rise + warm * (0.55F * twilight)});
     scene_.set_diffuse_gi(scene::DiffuseGi{
         .center = world_->player(observer_).pose.position() + glm::vec3{0, 6, 0},
         .sky_radiance = sun_->enabled ? glm::vec3{0.08F, 0.105F, 0.14F} * altitude : glm::vec3{0},

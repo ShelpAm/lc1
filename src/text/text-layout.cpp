@@ -71,6 +71,22 @@ TextMetrics measure_text_atlas_pixels(GlyphAtlas const &atlas, std::string_view 
 
 } // namespace
 
+PlaneBasis plane_basis(glm::vec3 normal)
+{
+    if (!std::isfinite(normal.x) || !std::isfinite(normal.y) || !std::isfinite(normal.z))
+        fail("text normal must be finite and nonzero");
+    // Rescale first to avoid overflow/underflow for finite non-unit directions.
+    auto const largest = std::max({std::abs(normal.x), std::abs(normal.y), std::abs(normal.z)});
+    if (largest == 0.0F)
+        fail("text normal must be finite and nonzero");
+    auto const plane_normal = glm::normalize(normal / largest);
+    auto const reference_up = std::abs(plane_normal.y) > 0.999F ? glm::vec3{0.0F, 0.0F, 1.0F}
+                                                                : glm::vec3{0.0F, 1.0F, 0.0F};
+    auto const right = glm::normalize(glm::cross(reference_up, plane_normal));
+    auto const up = glm::cross(plane_normal, right);
+    return {right, up, glm::cross(right, up)};
+}
+
 TextMetrics measure_text(GlyphAtlas const &atlas, std::string_view text, float line_height)
 {
     auto const scale = layout_scale(atlas, line_height);
@@ -88,18 +104,10 @@ void append_text(std::vector<Vertex> &vertices, GlyphAtlas const &atlas, std::st
     auto const scale = layout_scale(atlas, placement.line_height);
     // The quad's front must agree with the rest of the project: the same vertex
     // order as Geometry::quad, whose normal is cross(right, up).
-    auto const normal = placement.normal;
-    if (!std::isfinite(normal.x) || !std::isfinite(normal.y) || !std::isfinite(normal.z))
-        fail("text normal must be finite and nonzero");
-    // Rescale first to avoid overflow/underflow for finite non-unit directions.
-    auto const largest = std::max({std::abs(normal.x), std::abs(normal.y), std::abs(normal.z)});
-    if (largest == 0.0F)
-        fail("text normal must be finite and nonzero");
-    auto const plane_normal = glm::normalize(normal / largest);
-    auto const reference_up = std::abs(plane_normal.y) > 0.999F ? glm::vec3{0.0F, 0.0F, 1.0F}
-                                                                : glm::vec3{0.0F, 1.0F, 0.0F};
-    auto const plane_right = glm::normalize(glm::cross(reference_up, plane_normal));
-    auto const plane_up = glm::cross(plane_normal, plane_right);
+    auto const basis = plane_basis(placement.normal);
+    auto const &plane_right = basis.right;
+    auto const &plane_up = basis.up;
+    auto const &plane_normal = basis.normal;
 
     float baseline = first_baseline(atlas);
     for (auto const &line : lines) {

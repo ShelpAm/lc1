@@ -35,11 +35,11 @@ struct CloudSettings {
     float bottom = 1500.0F;
     float top = 3500.0F;
     // Fraction of the sky covered by cloud; the density threshold moves with it.
-    float coverage = 0.5F;
+    float coverage = 0.3F;
     float density = 1.0F;
     // World-space extent of one shape-noise tile. Smaller values make more,
     // smaller clouds out of the same field.
-    float noise_scale = 3500.0F;
+    float noise_scale = 6000.0F;
     glm::vec3 wind_velocity{5.0F, 0.0F, 2.0F};
     // Extinction at unit density, per metre.
     float extinction = 0.02F;
@@ -50,10 +50,16 @@ struct CloudSettings {
     std::uint32_t light_steps = 6;
     float light_march_distance = 400.0F;
     float max_trace_distance = 40000.0F;
-    // Fraction of the scene's linear sky radiance used as ambient cloud lighting.
-    // ambient_radiance is the fallback for scenes without a sky radiance.
-    float ambient_scale = 0.5F;
-    glm::vec3 ambient_radiance{0.25F, 0.30F, 0.38F};
+    // Fraction of the scene's sky colour used as ambient cloud lighting. The sky and
+    // the layer therefore brighten and darken together instead of disagreeing.
+    float ambient_scale = 0.8F;
+    // Scales the direct sunlight term. The single-scattering phase function plus the
+    // two multiple-scattering octaves still under-report the energy a real cloud
+    // scatters, and the scene's photometric light scale is far below its painted sky,
+    // so 1.0 leaves the layer darker than the background it sits in. 1.0 is physically
+    // consistent with the scene lights; higher values are the usual cloud brightness
+    // control.
+    float radiance_scale = 3.0F;
     Debug debug = Debug::Off;
 };
 

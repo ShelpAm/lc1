@@ -43,6 +43,21 @@ std::optional<DiffuseGi> const &Scene::diffuse_gi() const
     return diffuse_gi_;
 }
 
+void Scene::set_sky(std::optional<Sky> sky)
+{
+    if (sky) {
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(sky->color[axis]) || sky->color[axis] < 0)
+                fail("sky colour must be finite and nonnegative");
+    }
+    sky_ = sky;
+}
+
+std::optional<Sky> const &Scene::sky() const
+{
+    return sky_;
+}
+
 SceneLight *Scene::add_light(Light light)
 {
     auto owned = std::make_unique<SceneLight>(SceneLight{light});

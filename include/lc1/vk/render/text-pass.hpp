@@ -95,9 +95,19 @@ class TextPass {
 
     static_assert(sizeof(PushData) == 72);
 
-    // Uploads `vertices_` into the slot's buffer, growing it when this frame
-    // needs more room, then records the single draw. Runs after the slot fence,
-    // so replacing the buffer is safe.
+    // Uploads `vertices_` into the slot's buffer, growing it when this frame needs
+    // more room, and binds everything a draw needs. Runs after the slot fence, so
+    // replacing the buffer is safe. The caller issues one or more draws over the
+    // uploaded range with draw_vertices().
+    void upload_vertices(CommandBuffer &commands, FrameResources &resources,
+                         std::optional<GpuBuffer> &buffer, GpuFont const &font,
+                         glm::mat4 const &transform);
+
+    // Applies `state` and draws one contiguous vertex range from the bound buffer.
+    void draw_vertices(CommandBuffer &commands, GraphicsState const &state, std::size_t first,
+                       std::size_t count);
+
+    // Uploads, then draws the whole range once.
     void upload_and_draw(CommandBuffer &commands, FrameResources &resources,
                          std::optional<GpuBuffer> &buffer, GpuFont const &font,
                          glm::mat4 const &transform, GraphicsState const &state);
@@ -106,6 +116,9 @@ class TextPass {
     Device const *device_;
     GraphicsShaders shaders_;
     GraphicsState world_state_;
+    // The outline is drawn first with depth writes off: its offset copies must not
+    // win the depth test against the fill that follows them.
+    GraphicsState world_outline_state_;
     GraphicsState screen_state_;
     // Reused across both passes; each uploads before the other rebuilds it.
     std::vector<Vertex> vertices_;

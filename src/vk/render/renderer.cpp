@@ -228,6 +228,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .lights = std::move(lights),
         .draws = std::move(draws),
         .diffuse_gi = input.diffuse_gi(),
+        .sky_color = input.sky() ? input.sky()->color : scene::Sky{}.color,
         .particles =
             std::vector<scene::Particle>{input.particles().begin(), input.particles().end()},
     });
@@ -248,8 +249,8 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         {"shadow.frame", "shadow.filtered_visibility", "material.frame", "ddgi.irradiance"},
         {"hdr.color"},
         [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
-            record_hdr(commands, resources, extent, scene->draws, scene->camera, text,
-                       scene->particles);
+            record_hdr(commands, resources, extent, scene->draws, scene->camera, scene->sky_color,
+                       text, scene->particles);
         });
     // Clouds stand between the lit scene and the output chain: Bloom and tone mapping
     // both read the composited HDR image, so the layer's radiance is bloomed and tone
@@ -330,7 +331,8 @@ void Renderer::prepare_materials(FrameResources &resources, std::span<DrawItem c
 
 void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
                           std::span<DrawItem const> draws, scene::FpsCamera const &camera,
-                          TextFrameInput const &text, std::span<scene::Particle const> particles)
+                          glm::vec3 sky_color, TextFrameInput const &text,
+                          std::span<scene::Particle const> particles)
 {
     auto &command_buffer = cmd.raii();
     ensure_attachments(resources, extent);
@@ -363,7 +365,9 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         // must not be 0: VUID-VkRenderingInfo-viewMask-06069
         .layerCount = 1,
     };
-    constexpr vk::ClearColorValue clear_color{0.24F, 0.42F, 0.64F, 1.0F};
+    // The scene's sky is the background every uncovered pixel keeps.
+    vk::ClearColorValue const clear_color{
+        std::array<float, 4>{sky_color.x, sky_color.y, sky_color.z, 1.0F}};
 
     // Preserve the dependency on prior shader reads when this frame slot is reused.
     resources.hdr_image->transition_layout(

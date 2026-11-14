@@ -482,6 +482,9 @@ void clouds(lc1::CloudSettings *settings)
     ImGui::SliderFloat("Density", &clouds.density, 0.0F, 3.0F, "%.2f",
                        ImGuiSliderFlags_AlwaysClamp);
     ImGui::SetNextItemWidth(180.0F);
+    ImGui::SliderFloat("Brightness", &clouds.radiance_scale, 0.5F, 8.0F, "x%.1f",
+                       ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SetNextItemWidth(180.0F);
     ImGui::SliderFloat("Cloud bottom", &clouds.bottom, 200.0F, 7900.0F, "%.0f m",
                        ImGuiSliderFlags_AlwaysClamp);
     ImGui::SetNextItemWidth(180.0F);

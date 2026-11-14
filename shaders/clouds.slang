@@ -19,7 +19,8 @@ struct CloudData {
     float4 ambient_extinction;       // rgb linear ambient radiance; w extinction per metre
     float4 layer;                    // bottom, top, coverage, density scale
     float4 wind_frequency;           // xyz wind velocity in m/s; w shape frequency, 1/m
-    float4 march;                    // x max trace distance, y light march distance
+    float4 march;                    // x max trace distance, y light march distance,
+                                     // z radiance scale
     uint4 steps;                     // x view steps, y light steps, z debug mode, w reserved
 };
 
@@ -83,10 +84,13 @@ float sample_cloud_density(float3 world_position, CloudData data, Texture3D<floa
                                                 0.0).r;
     // Coverage remaps the noise: with a low threshold more of the field becomes cloud,
     // so coverage grows and the fraction below the threshold shrinks to a hard wall only
-    // at the two ends of the range.
+    // at the two ends of the range. Sharpening the remap then turns the smooth noise
+    // gradient into discrete cloud bodies with clean gaps, instead of a haze that fills
+    // the whole sky at every coverage.
     float coverage = max(data.layer.z, 1e-3);
-    float density = saturate((shape - (1.0 - coverage)) / coverage);
-    return density * height_profile(relative_height) * data.layer.w;
+    float remapped = saturate((shape - (1.0 - coverage)) / coverage);
+    float bodies = remapped * remapped * (3.0 - 2.0 * remapped);
+    return bodies * height_profile(relative_height) * data.layer.w;
 }
 
 float henyey_greenstein(float cosine, float anisotropy)
@@ -145,7 +149,7 @@ float3 scattered_sunlight(float optical_depth, float cosine, CloudData data)
         energy *= 0.5;
         extinction_scale *= 0.5;
     }
-    return data.sun_radiance_albedo.xyz * (single + multiple / 3.14159265359);
+    return data.sun_radiance_albedo.xyz * data.march.z * (single + multiple / 3.14159265359);
 }
 
 // Entry and exit distances of the ray through the layer's two height planes.

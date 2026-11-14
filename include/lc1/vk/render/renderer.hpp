@@ -103,7 +103,8 @@ class Renderer {
     void prepare_materials(FrameResources &resources, std::span<DrawItem const> draws);
     void record_hdr(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent,
                     std::span<DrawItem const> draws, scene::FpsCamera const &camera,
-                    TextFrameInput const &text, std::span<scene::Particle const> particles);
+                    glm::vec3 sky_color, TextFrameInput const &text,
+                    std::span<scene::Particle const> particles);
     void record_particles(CommandBuffer &commands, scene::FpsCamera const &camera,
                           std::span<scene::Particle const> particles);
     void record_bloom(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent);

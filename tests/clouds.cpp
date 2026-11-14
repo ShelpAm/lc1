@@ -14,6 +14,7 @@
 #include "lc1/vk/presentation/surface.hpp"
 #include "lc1/vk/render/render-graph.hpp"
 #include "lc1/vk/render/renderer.hpp"
+#include "lc1/vk/resources/gpu-font.hpp"
 #include "lc1/vk/resources/gpu-texture.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
 
@@ -56,7 +57,7 @@ struct Capture {
 Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
                 lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
                 bool composited = true, vk::Extent2D extent = test_extent,
-                double *frame_ms = nullptr)
+                double *frame_ms = nullptr, lc1::TextFrameInput text = {})
 {
     std::optional<vk::raii::QueryPool> timing;
     if (frame_ms)
@@ -88,7 +89,8 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
             commands.resetQueryPool(**timing, 0, 2);
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, **timing, 0);
         }
-        renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera);
+        renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, {},
+                        std::move(text));
         if (timing)
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, **timing, 1);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
@@ -210,11 +212,12 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
     // Sun in front of the camera and well above the horizon: the layer must show
     // directional lighting, forward scattering and self shadowing.
     scene.add_light(lc1::scene::to_light(
-        lc1::scene::DirectionalLight{.base = {.color = {1.0F, 0.96F, 0.9F}, .intensity = 3.0F},
+        lc1::scene::DirectionalLight{.base = {.color = {1.0F, 0.96F, 0.9F}, .intensity = 0.45F},
                                      .direction = {0.4F, -0.72F, 0.57F}}));
     // No diffuse GI: its probes accumulate across frames, and these checks compare
-    // successive frames of the same scene exactly. The cloud layer then lights itself
-    // from the configured ambient fallback.
+    // successive frames of the same scene exactly.
+    // A daylight sky, as the game drives it: the layer's ambient term comes from here.
+    scene.set_sky(lc1::scene::Sky{.color = {0.22F, 0.34F, 0.55F}});
 
     lc1::scene::FpsCamera camera;
     camera.set_zfar(600.0F);
@@ -242,8 +245,8 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
             touched_sky += touched[i] ? 1 : 0;
         }
     }
-    check(touched_sky > sky_total / 5,
-          "the layer must cover a large part of the upper, sky-facing rows");
+    check(touched_sky > sky_total / 10,
+          "the layer must cover a meaningful part of the upper, sky-facing rows");
 
     // Depth limits the march: the ground is in front of the layer, so those pixels
     // must come through unchanged instead of being fogged over.
@@ -329,8 +332,23 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
         showcase_camera.set_position({0.0F, 800.0F, 0.0F});
         showcase_camera.add_pitch(glm::radians(20.0F));
         clouds.enabled = true;
+        // A character-name style world label over the layer: the outline has to keep it
+        // readable over sky, cloud and terrain alike.
+        lc1::GpuFont const font{
+            device, lc1::text::GlyphAtlas{"runtime/assets/fonts/SourceHanSansCN-Regular.otf", {}}};
+        // Inside the camera's far plane: a label beyond it is clipped, not dimmed.
+        auto const label_center =
+            showcase_camera.position() + showcase_camera.forward() * 260.0F + glm::vec3{0, 45, 0};
+        lc1::TextFrameInput const text{
+            .font = &font,
+            .world = {{.text = "lc1 from Empire",
+                       .center = label_center,
+                       .line_height = 40.0F,
+                       .normal = showcase_camera.position() - label_center}},
+            .screen = {},
+        };
         save(capture(device, renderer, frame, showcase_camera, scene, true, artifact_extent,
-                     &cloud_ms),
+                     &cloud_ms, text),
              "artifacts/clouds.ppm");
         std::cout << std::format("480x270 frame: {:.3f} ms without clouds, {:.3f} ms with them\n",
                                  clear_ms, cloud_ms);
@@ -345,7 +363,7 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
                                  full_clear, full_cloud);
         clouds.enabled = false;
         save(capture(device, renderer, frame, showcase_camera, scene, false, artifact_extent,
-                     &clear_ms),
+                     &clear_ms, text),
              "artifacts/clouds-clear.ppm");
         clouds.enabled = true;
         clouds.debug = lc1::CloudSettings::Debug::Density;
