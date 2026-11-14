@@ -337,6 +337,11 @@ void WorldPresentation::update_instances()
 
 std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera const &camera) const
 {
+    // Billboard labels are drawn over whatever the world shows behind them, sky and
+    // sunlit cloud included. Printed panel lettering keeps the caller's colour (it sits
+    // on its own dark panel); these floats are self-luminous UI, so they are emitted
+    // above the brightest cloud radiance and rely on the text pass's outline.
+    constexpr glm::vec3 label_color{2.0F, 2.0F, 2.0F};
     std::vector<WorldTextItem> labels;
     labels.append_range(showcase_.labels());
 
@@ -345,6 +350,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
         labels.push_back({.text = "Patrol House",
                           .center = center,
                           .line_height = 0.5F,
+                          .color = label_color,
                           .normal = camera.position() - center});
     }
 
@@ -354,6 +360,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
         labels.push_back({.text = std::format("{} from {}", character.name, character.faction),
                           .center = center,
                           .line_height = 0.3F,
+                          .color = label_color,
                           .normal = camera.position() - center});
         if (!character.speech.empty() && character.keyid != world_->player(observer_).keyid &&
             character.dialog_partner != world_->player(observer_).keyid) {
@@ -361,6 +368,7 @@ std::vector<WorldTextItem> WorldPresentation::world_labels(scene::FpsCamera cons
             labels.push_back({.text = character.speech,
                               .center = speech_center,
                               .line_height = 0.25F,
+                              .color = label_color,
                               .normal = camera.position() - speech_center});
         }
     }

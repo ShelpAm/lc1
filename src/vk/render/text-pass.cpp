@@ -59,11 +59,17 @@ void TextPass::draw_world(CommandBuffer &commands, FrameResources &resources, Gp
     // cloudy background once the sky starts changing. The outline is one contiguous
     // vertex range drawn before the fill with depth writes off, so its offsets cannot
     // hide the fill behind them.
-    constexpr glm::vec3 outline_color{0.02F, 0.02F, 0.03F};
-    constexpr std::array<std::array<float, 2>, 4> outline_offsets{{
+    // Eight directions, not four: a diagonal-only ring leaves the top, bottom and
+    // sides of a stroke thin, and this label has to survive sunlit cloud behind it.
+    constexpr glm::vec3 outline_color{0.0F, 0.0F, 0.0F};
+    constexpr std::array<std::array<float, 2>, 8> outline_offsets{{
         {-1.0F, -1.0F},
+        {0.0F, -1.0F},
         {1.0F, -1.0F},
+        {-1.0F, 0.0F},
+        {1.0F, 0.0F},
         {-1.0F, 1.0F},
+        {0.0F, 1.0F},
         {1.0F, 1.0F},
     }};
 
@@ -96,7 +102,7 @@ void TextPass::draw_world(CommandBuffer &commands, FrameResources &resources, Gp
     };
     for (auto const &placement : placements) {
         auto const basis = text::plane_basis(placement.item->normal);
-        auto const reach = 0.03F * placement.line_height;
+        auto const reach = 0.05F * placement.line_height;
         for (auto const &offset : outline_offsets)
             append(placement, outline_color,
                    (basis.right * offset[0] + basis.up * offset[1]) * reach);

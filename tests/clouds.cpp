@@ -320,8 +320,9 @@ void exercise(lc1::Device const &device, vk::SampleCountFlagBits samples)
               "disabling the cloud pass must restore the cloudless frame");
 
     // Readable captures for the layer itself, its absence and its density field. These
-    // are review artifacts, not assertions: the behavioural checks are above.
-    if (samples == vk::SampleCountFlagBits::e1) {
+    // are review artifacts, not assertions: the behavioural checks are above. They come
+    // from the multisampled run when the device has one, matching the game's path.
+    if (samples != vk::SampleCountFlagBits::e1) {
         std::filesystem::create_directories("artifacts");
         constexpr vk::Extent2D artifact_extent{480, 270};
         double clear_ms = 0.0;
