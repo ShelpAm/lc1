@@ -1,6 +1,7 @@
 #include "lc1/game/world/world-presentation.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/debug/world-setup.hpp"
+#include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/resources/catalog.hpp"
 #include "lc1/image.hpp"
@@ -35,13 +36,11 @@ float volume_to_gain(float volume_percent)
 // docs/text-rendering.md.
 constexpr std::string_view font_file = "fonts/SourceHanSansCN-Regular.otf";
 
-// The atlas holds one fixed set of glyphs and layout silently skips what it does not hold,
-// so every character the world or the HUD can draw has to be requested up front. Names come
-// from save records, which is where non-ASCII text enters the game; the remaining drawn text
-// is ASCII (`ascii_codepoints()`, the map's own names and the debug UI).
-std::u32string font_codepoints(WorldSnapshot const &world)
+// Include every possible dialog branch before the fixed atlas is uploaded.
+std::u32string font_codepoints(WorldSnapshot const &world, DialogCatalog const &dialogs)
 {
     std::u32string codepoints = text::ascii_codepoints();
+    codepoints.append(dialogs.codepoints());
     auto const append = [&codepoints](std::string_view name) {
         codepoints.append(text::decode_utf8(name));
     };
@@ -65,10 +64,11 @@ WorldPresentation::ModelResources::ModelResources(Device const &device,
 
 WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
                                      Continent const &continent, WorldSnapshot const &world,
-                                     OutputSettings output, PlayerId observer)
+                                     OutputSettings output, PlayerId observer,
+                                     DialogCatalog const &dialogs)
     : world_(&world), continent_(&continent), observer_(observer),
-      font_{device,
-            text::GlyphAtlas{asset_root / font_file, {.codepoints = font_codepoints(world)}}},
+      font_{device, text::GlyphAtlas{asset_root / font_file,
+                                     {.codepoints = font_codepoints(world, dialogs)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
       continent_view_{device, white_, continent},
       showcase_{device, continent.spawn() + (continent.identity().id == "present"

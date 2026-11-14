@@ -26,7 +26,7 @@
 `GlyphAtlasOptions::codepoints` 为空时用 `text::ascii_codepoints()`（可打印 ASCII，U+0020..U+007E）。
 图集一旦构造就固定，而布局会**静默跳过**图集里没有的码位，所以"画什么就必须请求什么"是调用方的
 责任，不是靠字体覆盖自动兜底：`WorldPresentation` 传入的是 `ascii_codepoints()` 加上存档里会画出来的
-角色名和势力名码位（`font_codepoints(world)`）。重复的码位在光栅化前排序去重，不会占两份图集空间。
+角色名、势力名和整个对话目录中所有节点台词与选项的码位（`font_codepoints`）。重复的码位在光栅化前排序去重，不会占两份图集空间。
 
 - 采样固定在 mip 0：`GpuTexture` 总会生成 mipmap，图集一旦降到 mip 0 以上，相邻字形就会互相
   渗透。`GpuFont::sampler_info()` 因此返回钳位到边缘、`maxLod = 0` 的采样器，shader 里用
@@ -110,7 +110,9 @@ ImGui 在 `Application` 初始化时也从同一素材目录加载这份字体�
 按需光栅化和上传，不需要预烘焙整个中文范围；这不改变上面世界文字图集的固定字符集约定。
 
 字符集在 `WorldPresentation` 构造时定下，所以**之后新增的可绘制文本来源必须加进 `font_codepoints()`**：
-目前是存档里的角色名与势力名，其余绘制文本（地图名称、HUD、调试 UI）都是 ASCII 字面量。
+目前包含存档里的角色名与势力名，以及不可变对话目录中的全部节点台词和选项，
+因此尚未触发的分支同样可以显示 UTF-8 文字。占位符替换后的角色名由存档字符集覆盖。
+其余绘制文本（地图名称、HUD、调试 UI）都是 ASCII 字面量。
 将来做读档/换存档功能时，图集要跟着目标存档重建。
 
 CPU 测试 `lc1_font_tests` 用 `LiberationSans-Regular.ttf` 覆盖图集与布局路径（包括"字符集外的码位

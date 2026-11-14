@@ -54,7 +54,7 @@
 |---|---|
 | `GameWorld` | 按存档标识和内容版本加载并拥有大陆、势力、装备、武器、队伍、角色、角色控制器和 `DialogSystem`；装配世界、推进规则、生成存档快照；不依赖 Window、ImGui、音频或 Vulkan |
 | `GameSimulation` | 独占 `GameWorld`，以 60 Hz 固定步长推进规则；接收输入消息、发布不可变快照并处理存档快照请求 |
-| `WorldPresentation` | 读取主线程的 `WorldSnapshot` 和只读大陆，拥有地形/角色/武器 GPU 资源、字体、持久 Scene 与音频 context/listener；更新场景实例、灯光并生成世界文字 |
+| `WorldPresentation` | 读取主线程的 `WorldSnapshot` 和只读大陆和对话目录，拥有地形/角色/武器 GPU 资源、字体、持久 Scene 与音频 context/listener；更新场景实例、灯光并生成世界文字 |
 | `PlayerView` | 拥有视角模式、记忆观察角和相机；准备视角输入，读取角色快照与模型挂点更新相机 |
 | `GameUi` | 菜单、调试面板、保存反馈及屏幕文字；返回命名保存、读档请求和音量变化，由会话执行 |
 | `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldPresentation` 的音频 context |

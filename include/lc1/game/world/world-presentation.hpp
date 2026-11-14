@@ -15,6 +15,8 @@
 
 namespace lc1 {
 
+class DialogCatalog;
+
 struct WorldPresentationInput {
     bool cycle_lighting = false;
     bool toggle_showcase_motion = false;
@@ -35,7 +37,7 @@ class WorldPresentation {
   public:
     WorldPresentation(Device const &device, std::filesystem::path const &asset_root,
                       Continent const &continent, WorldSnapshot const &world, OutputSettings output,
-                      PlayerId observer);
+                      PlayerId observer, DialogCatalog const &dialogs);
 
     WorldPresentation(WorldPresentation const &) = delete;
     WorldPresentation &operator=(WorldPresentation const &) = delete;

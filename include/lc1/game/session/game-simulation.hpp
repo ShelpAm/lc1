@@ -18,7 +18,7 @@ struct InputStamp {
 };
 
 // Owns the world and its fixed-rate worker. Main-thread access uses value messages only,
-// except for the immutable continent, which lives until the joined worker is destroyed.
+// except for the immutable continent and dialog catalog, which outlive the joined worker.
 class GameSimulation {
   public:
     static constexpr std::uint32_t tick_rate = 60;
@@ -54,6 +54,7 @@ class GameSimulation {
     WorldSnapshot presentation_snapshot() const;
     std::future<SerializedWorld> checkpoint();
     Continent const &continent() const;
+    DialogCatalog const &dialog_catalog() const;
 
   private:
     InputStamp submit(PlayerId id, PlayerControls input);
