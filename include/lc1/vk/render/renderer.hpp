@@ -96,9 +96,11 @@ class Renderer {
     void prepare_materials(FrameResources &resources, std::span<DrawItem const> draws);
     void record_hdr(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent,
                     std::span<DrawItem const> draws, scene::FpsCamera const &camera,
-                    TextFrameInput const &text, std::span<scene::Particle const> particles);
+                    TextFrameInput const &text, std::span<scene::Particle const> particles,
+                    std::optional<scene::DistanceFog> const &fog);
     void record_particles(CommandBuffer &commands, scene::FpsCamera const &camera,
-                          std::span<scene::Particle const> particles);
+                          std::span<scene::Particle const> particles,
+                          std::optional<scene::DistanceFog> const &fog);
     void record_bloom(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent);
     void record_screen_text(CommandBuffer &commands, FrameResources &resources,
                             RenderTarget const &target, TextFrameInput const &text);

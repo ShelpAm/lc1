@@ -51,6 +51,13 @@ struct DiffuseGi {
     bool emissive_lighting = false;
 };
 
+// Distance haze in linear HDR space. Geometry inside start remains unchanged.
+struct DistanceFog {
+    glm::vec3 radiance{0.24F, 0.28F, 0.31F};
+    float start = 1500;
+    float end = 3500;
+};
+
 struct SceneLight {
     Light parameters;
     bool enabled = true;
@@ -64,6 +71,9 @@ class Scene {
   public:
     void set_diffuse_gi(std::optional<DiffuseGi> settings);
     std::optional<DiffuseGi> const &diffuse_gi() const;
+
+    void set_fog(std::optional<DistanceFog> settings);
+    std::optional<DistanceFog> const &fog() const;
 
     SceneLight *add_light(Light light);
     void remove_light(SceneLight const *light);
@@ -85,6 +95,7 @@ class Scene {
   private:
     std::vector<Particle> particles_;
     std::optional<DiffuseGi> diffuse_gi_;
+    std::optional<DistanceFog> fog_;
     std::unordered_map<SceneLight const *, std::unique_ptr<SceneLight>> lights_;
     std::unordered_map<SceneModel const *, std::unique_ptr<SceneModel>> models_;
 };

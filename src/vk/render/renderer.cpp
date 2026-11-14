@@ -216,6 +216,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         .lights = std::move(lights),
         .draws = std::move(draws),
         .diffuse_gi = input.diffuse_gi(),
+        .fog = input.fog(),
         .particles =
             std::vector<scene::Particle>{input.particles().begin(), input.particles().end()},
     });
@@ -237,7 +238,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         {"hdr.color"},
         [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
             record_hdr(commands, resources, extent, scene->draws, scene->camera, text,
-                       scene->particles);
+                       scene->particles, scene->fog);
         });
     if (output.bloom_strength > 0)
         graph.add_pass("Bloom", {"hdr.color"}, {"bloom.color"},
@@ -312,7 +313,8 @@ void Renderer::prepare_materials(FrameResources &resources, std::span<DrawItem c
 
 void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
                           std::span<DrawItem const> draws, scene::FpsCamera const &camera,
-                          TextFrameInput const &text, std::span<scene::Particle const> particles)
+                          TextFrameInput const &text, std::span<scene::Particle const> particles,
+                          std::optional<scene::DistanceFog> const &fog)
 {
     auto &command_buffer = cmd.raii();
     ensure_attachments(resources, extent);
@@ -345,6 +347,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         // must not be 0: VUID-VkRenderingInfo-viewMask-06069
         .layerCount = 1,
     };
+    // Sky and future cloud passes keep their own radiance; surface fog never fills the sky.
     constexpr vk::ClearColorValue clear_color{0.24F, 0.42F, 0.64F, 1.0F};
 
     // Preserve the dependency on prior shader reads when this frame slot is reused.
@@ -443,7 +446,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         text_pass_.draw_world(cmd, resources, *text.font, text.world,
                               camera.view_projection_matrix());
 
-    record_particles(cmd, camera, particles);
+    record_particles(cmd, camera, particles, fog);
     command_buffer.endRendering();
     resources.hdr_image->transition_layout(
         command_buffer, vk::ImageLayout::eColorAttachmentOptimal,

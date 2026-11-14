@@ -148,6 +148,9 @@ Continent::Continent(ContinentData data) : data_(std::move(data))
         if (!finite(block.min) || !finite(block.max) ||
             glm::any(glm::greaterThanEqual(block.min, block.max)))
             fail("invalid continent block");
+        if (block.shape < BlockShape::Box || block.shape > BlockShape::CylinderZ ||
+            (block.shape != BlockShape::Box && block.walkable_top))
+            fail("invalid continent block shape or walkable shaped block");
     }
     for (auto const &place : data_.locations) {
         if (!valid(place.bounds) || glm::any(glm::lessThan(place.bounds.min, bounds().min)) ||

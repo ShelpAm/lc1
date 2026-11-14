@@ -176,6 +176,8 @@ class WorldPresentation {
     scene::SceneLight *sun_ = nullptr; // Scene-owned, valid until scene_ is destroyed.
     audio::AudioContext audio_context_;
     audio::Listener audio_listener_{audio_context_};
+    // Sources retain decoded buffers; they are destroyed before their context.
+    std::vector<audio::Source> village_sounds_;
 };
 
 } // namespace lc1

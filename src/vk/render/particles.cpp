@@ -6,7 +6,8 @@
 
 namespace lc1 {
 void Renderer::record_particles(CommandBuffer &commands, scene::FpsCamera const &camera,
-                                std::span<scene::Particle const> particles)
+                                std::span<scene::Particle const> particles,
+                                std::optional<scene::DistanceFog> const &fog)
 {
     if (particles.empty())
         return;
@@ -31,10 +32,16 @@ void Renderer::record_particles(CommandBuffer &commands, scene::FpsCamera const 
     particle_shaders_.bind_to_command_buffer(commands);
     set_graphics_state(commands.raii(), particle_state_);
     for (auto const *particle : ordered) {
+        auto radiance = particle->radiance;
+        if (fog) {
+            float const amount = glm::smoothstep(
+                fog->start, fog->end, glm::distance(camera.position(), particle->position));
+            radiance = glm::mix(radiance, fog->radiance, amount);
+        }
         PushData const data{
             camera.view_projection_matrix(),
             {particle->position, particle->size.x},
-            {particle->radiance, particle->opacity},
+            {radiance, particle->opacity},
             {camera.right(), particle->spark ? -particle->size.y : particle->size.y},
             {camera.up(), particle->rotation}};
         commands.push_data(std::span{&data, 1});

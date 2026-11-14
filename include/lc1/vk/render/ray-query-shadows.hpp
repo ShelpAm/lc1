@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/scene/scene.hpp"
 #include "lc1/vk/render/draw-item.hpp"
 
 #include "lc1/vk/render/graphics-shaders.hpp"
@@ -50,7 +51,8 @@ class RayQueryShadows {
   private:
     void prepare_frame(CommandBuffer &cmd, FrameResources &resources, vk::Extent2D extent,
                        scene::FpsCamera const &camera, std::span<scene::Light const> lights,
-                       std::span<DrawItem const> draws);
+                       std::span<DrawItem const> draws,
+                       std::optional<scene::DistanceFog> const &fog);
     void finish_frame(scene::FpsCamera const &camera, std::span<scene::Light const> lights,
                       std::span<DrawItem const> draws);
     void ensure_attachments(FrameResources &resources, vk::Extent2D extent) const;
