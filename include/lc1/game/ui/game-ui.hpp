@@ -12,6 +12,7 @@
 
 namespace lc1 {
 class MusicBrowser;
+struct FogSettings;
 struct GameLocation;
 
 struct GameUiInfo {
@@ -26,10 +27,13 @@ struct GameUiInfo {
     double time_of_day;
     float time_rate;
     int grass_density;
+    float debug_flight_speed = 1;
     bool showcase_animated;
     std::string_view interaction_target;
     // Live renderer configuration; null when the caller does not render clouds.
     CloudSettings *clouds = nullptr;
+    FogSettings *fog = nullptr;
+    std::uint64_t character_preview_texture = 0;
 };
 
 struct GameUiActions {
@@ -41,8 +45,17 @@ struct GameUiActions {
     std::optional<float> volume;
     std::optional<float> time_rate;
     std::optional<int> grass_density;
+    std::optional<float> debug_flight_speed;
     std::optional<EquipmentRequest> equipment;
     std::optional<CharacterId> control_target;
+    std::optional<ProportionsRequest> proportions;
+};
+
+struct CharacterPreviewRequest {
+    CharacterId character;
+    float yaw;
+    float zoom;
+    std::optional<std::uint32_t> resource;
 };
 
 class GameUi {
@@ -50,6 +63,7 @@ class GameUi {
     GameUiActions update(GameUiInfo const &info, MusicBrowser &music);
 
     bool gameplay_enabled() const;
+    std::optional<CharacterPreviewRequest> character_preview() const;
 
     void open_save(std::string_view name);
 
@@ -86,6 +100,11 @@ class GameUi {
     std::optional<std::uint32_t> selected_party_;
     std::optional<CharacterId> selected_character_;
     std::optional<std::uint32_t> selected_resource_;
+    std::array<char, 64> inventory_search_{};
+    std::optional<CharacterPreviewRequest> character_preview_;
+    float preview_yaw_ = -20;
+    float preview_zoom_ = 1;
+    bool preview_item_ = false;
     int inventory_category_ = 0;
     int selected_slot_ = -1;
     float slot_position_ = 0;

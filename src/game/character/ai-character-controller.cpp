@@ -169,8 +169,8 @@ CharacterIntent AiCharacterController::companion_update(float delta_seconds,
         return intent;
 
     auto const heading = direction / distance;
-    // Facing the leader is a character intent, not a controller-side pose change. Keep it
-    // even on a zero-time step; the movement below is limited to the remaining gap.
+    // Facing the leader is a character intent; Character advances the turn with elapsed time.
+    // The movement below is limited to the remaining gap.
     intent.body_direction = heading;
     if (delta_seconds <= 0.0F)
         return intent;

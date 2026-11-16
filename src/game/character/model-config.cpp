@@ -128,7 +128,8 @@ bool ModelConfig::operator==(ModelConfig const &other) const
            move_animation.value() == other.move_animation.value() &&
            run_animation.value() == other.run_animation.value() &&
            attack_animation.value() == other.attack_animation.value() &&
-           death_animation.value() == other.death_animation.value();
+           death_animation.value() == other.death_animation.value() &&
+           crouch_animation.value() == other.crouch_animation.value();
 }
 
 float configured_animation_duration(ModelConfig const &config, std::string const &name,

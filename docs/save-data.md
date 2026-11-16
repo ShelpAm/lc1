@@ -133,6 +133,7 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 | `run_animation` | 加速跑时的循环动画名称，未配置时沿用移动动画 |
 | `attack_animation` | 角色自身的攻击片段名称，默认不播放，与武器动画独立 |
 | `death_animation` | 死亡时单次播放并停留末帧；未配置时保留程序倒地表现 |
+| `crouch_animation` | 站立到蹲姿的片段；按模拟下蹲进度采样，站起时反向采样 |
 | `action_animation` | 玩家 F2 / 武器左键单次动画名称，默认不播放 |
 
 `transform` 包含 `translation`、`rotation_degrees`、`scale`，均为三元素数组，默认分别为
@@ -157,6 +158,30 @@ Save 只负责 YAML 记录、文件读写及引用校验；GameWorld 负责运�
 
 Save 在入口校验配置数值、显式节点和动画，不加载外部素材。实际装配时再校验文件中的网格索引、
 所选动画和挂点是否存在；失败不发布模型借用。运行对象与快照都保留完整配置，checkpoint 会原样保存。
+
+### 角色移动速度
+
+`characters.yaml` 每个角色可选 `base_walk_speed`（基础行走速度）和 `run_speed_bonus`
+（奔跑额外速度），单位米/秒，默认均为 `4.5`；须为有限且非负数。
+例如与 `level` 同级写入 `base_walk_speed: 8`、`run_speed_bonus: 6`。
+最终步速仍包含敏捷加成，公式见[角色](character.md#构造和移动)。
+装配时由 `Character` 校验，checkpoint 保留这两项；旧存档省略时沿用原速度。
+
+### 角色跳跃高度
+
+`characters.yaml` 每个角色可选 `jump_height`，与 `level` 同级，单位米，默认 `0.5`。
+例如 `jump_height: 2` 表示脚底相对起跳支撑面最高上升 2 米；碰到头顶障碍时会提前停止上升。
+数值必须有限且非负，由物理组件构造时校验；装配后用于计算起跳速度，checkpoint 保留该值。
+旧存档省略时保持原跳跃高度，重力和最大运动步长仍使用程序默认值。
+
+### 角色体型
+
+角色还可配置 `body`，字段为米制的 `half_width`、`height`、`eye_height`、`step_height` 和
+`ground_snap_distance`。省略整个字段时沿用默认人体参数；提供时需写全五项。
+装配时由 `Character` 校验身体参数，快照和 checkpoint 保留该体型。模型的 `transform.scale`
+仍须按素材单位独立配置，与碰撞尺寸匹配。当前种子角色 10 是 12 米高的成年泳装旅者，
+复用本地 Remiel 素材，位于村南道路西侧 `(-18, 72)` 空地；仅驻足，不沿村内窄路巡逻。
+旧 checkpoint 不自动添加新角色；加载初始槽位才能看到新增种子。
 
 ### 会话 `session.yaml`
 
@@ -225,7 +250,7 @@ checkpoint 版本 1–4 保留读取迁移，旧 `player` 角色编号迁为玩�
 | `x`、`y`、`z` | 脚底世界坐标，米 |
 | `body_yaw` | 身体朝向，度 |
 | `look_yaw`、`look_pitch` | 相对身体的观察角，度 |
-| `patrol` | 是否恢复示例 NPC 的巡逻控制器；只有 `session.example` 可启用，伴随控制器不算巡逻 |
+| `patrol` | 是否恢复 NPC 的场景巡逻控制器；玩家不可启用，世界装配检查该角色有对应路线，伴随控制器不算巡逻 |
 | `companion_order` | `None` 保持原型控制行为，`Follow`/`Wait` 恢复为对应模式的 `AiCharacterController` |
 | `bag_capacity` | 背包重量上限，单位克 |
 | `bag` | `{keyid, quantity}` 列表，记录资源编号和数量；空背包必须写 `[]` |
@@ -312,3 +337,9 @@ version 3 必须显式包含大陆字段。种子安装会覆盖运行树的 `co
 旧近战槽优先迁入唯一主手，仅有远程槽时迁入远程物品；两个旧槽都有物品时，第二件退回背包，
 仍须通过容量校验。旧物品定义不在目录时明确拒绝，不猜测其基础属性。
 `flashlight_on` 是新增的状态字段，旧记录缺省为 false；当前写出格式为版本 6。
+`crouch_amount` 保存 0～1 的下蹲进度，旧记录缺省为 0；装配时先恢复当前碰撞高度再检查出生空间。
+角色记录的 `body` 始终保存站立尺寸，避免蹲姿保存后永久缩小身体。
+
+角色配置可选 `proportions: {scale: 1, leg_height_scale: 1}`；缺省均为 1。
+`body` 始终保存原始站立体型，不能将已缩放的碰撞体写回。运行时调整与范围见
+[巨大娘比例调整](character.md#巨大娘比例调整)。

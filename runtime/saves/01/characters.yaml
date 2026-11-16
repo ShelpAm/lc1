@@ -134,3 +134,149 @@
       base_color_texture: textures/winterblessed-hwei/base-color.png
       metallic: 0
       roughness: 0.8
+- keyid: 6
+  name: 集市摊贩
+  sex: true
+  age: 38
+  party: 4
+  level: 1
+  equipment: []
+  main_hand: 0
+  model:
+    path: models/remiel-swimsuit/remiel.glb
+    transform:
+      scale: [0.0863, 0.0863, 0.0863]
+      rotation_degrees: [0, 180, 0]
+    eyes: 頭
+    eyes_offset:
+      translation: [0, 0.765727, 0.257496]
+      rotation_degrees: [0, 180, 0]
+    first_person_hidden_nodes: [頭]
+    weapon_mount: 右手首
+    idle_animation: Idle
+    move_animation: Walk
+    run_animation: Run
+    action_animation: Wave
+    crouch_animation: Crouch
+    material:
+      base_color_texture: textures/remiel-swimsuit/base-color.png
+      metallic: 0
+      roughness: 0.8
+- keyid: 7
+  name: 作坊学徒
+  sex: false
+  age: 21
+  party: 4
+  level: 1
+  equipment: []
+  main_hand: 0
+  model:
+    path: models/western-yone/西部魔影_炽天使_永恩.glb
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0.00003824915, 0.0661896513, -0.09662374575]
+    weapon_mount: R_Hand
+    idle_animation: Skin55_idle1.SKINS_Yone_Skin55.anm
+    move_animation: Yone_Walk01.SKINS_Yone_Skin55.anm
+    run_animation: Run_Fast
+    attack_animation: Attack01.SKINS_Yone_Skin55.anm
+    death_animation: Death
+    action_animation: Joke_Loop.SKINS_Yone_Skin58.anm
+    material:
+      base_color: [0.7, 0.6, 0.5, 1]
+      base_color_texture: textures/western-yone/base-color.png
+      metallic: 0
+      roughness: 0.8
+- keyid: 8
+  name: 村中行人
+  sex: true
+  age: 32
+  party: 4
+  level: 1
+  equipment: []
+  main_hand: 0
+  model:
+    path: models/yone/封魔剑魂.glb
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0.00003824915, 0.0661896513, -0.09662374575]
+    weapon_mount: R_Hand
+    idle_animation: Idle1_Base
+    move_animation: Run_Base
+    run_animation: Run_Fast
+    attack_animation: Attack1
+    death_animation: Death
+    action_animation: Joke_Loop
+    material:
+      base_color: [0.6, 0.75, 0.6, 1]
+      base_color_texture: textures/yone/base-color.png
+      metallic: 0
+      roughness: 0.8
+- keyid: 10
+  name: 巨人旅者·蕾米
+  sex: true
+  age: 28
+  party: 5
+  level: 1
+  base_walk_speed: 54.5
+  run_speed_bonus: 54.5
+  jump_height: 50.5
+  equipment: []
+  main_hand: 0
+  body:
+    half_width: 2
+    height: 120
+    eye_height: 110
+    step_height: 0.35
+    ground_snap_distance: 0.35
+  model:
+    path: models/remiel-swimsuit/remiel.glb
+    transform:
+      scale: [50.7533, 50.7533, 50.7533]
+      rotation_degrees: [0, 180, 0]
+    eyes: 頭
+    eyes_offset:
+      translation: [0, 0.765727, 0.257496]
+      rotation_degrees: [0, 180, 0]
+    first_person_hidden_nodes: [頭]
+    weapon_mount: 右手首
+    idle_animation: Idle
+    move_animation: Walk
+    run_animation: Run
+    action_animation: Wave
+    crouch_animation: Crouch
+    material:
+      base_color_texture: textures/remiel-swimsuit/base-color.png
+      metallic: 0.2
+      roughness: 0.8
+- keyid: 9
+  name: 敲钟人
+  sex: true
+  age: 54
+  party: 4
+  level: 1
+  equipment: []
+  main_hand: 0
+  model:
+    path: models/winterblessed-hwei/北极星使者_彗.glb
+    transform:
+      rotation_degrees: [0, 180, 0]
+    eyes: Head
+    eyes_offset:
+      translation: [0, 0.0742561955, -0.04809295155]
+    weapon_mount: R_Hand
+    idle_animation: Idle1_Base
+    move_animation: RunSlow
+    run_animation: RunFast
+    attack_animation: Attack1_A
+    death_animation: Death
+    action_animation: Joke
+    material:
+      base_color: [0.65, 0.65, 0.8, 1]
+      base_color_texture: textures/winterblessed-hwei/base-color.png
+      metallic: 0
+      roughness: 0.8

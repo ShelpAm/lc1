@@ -2,6 +2,7 @@
 
 #include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/character-pose.hpp"
+#include "lc1/game/character/character-proportions.hpp"
 #include "lc1/game/character/combat.hpp"
 #include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/model-config.hpp"
@@ -24,6 +25,7 @@ struct CharacterSnapshot {
     std::string faction;
     CharacterPose pose;
     ModelConfig model;
+    CharacterProportions proportions;
     std::optional<ModelConfig> weapon_model;
     std::uint64_t attack_sequence;
     std::uint64_t nod_sequence;
@@ -34,6 +36,7 @@ struct CharacterSnapshot {
     float attack_progress = 1;
     bool running = false;
     bool moving = false;
+    float crouch_amount = 0;
     float reaction_time = combat::death_duration;
     // Full world speech; each observer decides whether to show it overhead or in the HUD.
     std::string speech;

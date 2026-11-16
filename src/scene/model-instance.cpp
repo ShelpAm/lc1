@@ -124,10 +124,16 @@ std::vector<Vertex> ModelInstance::skin_vertices(SkinnedMesh const &mesh) const
         vertex.position = glm::vec3{transform * glm::vec4{vertex.position, 1}};
         // Inverse transpose of the blended linear map also handles scaled joints.
         auto const linear = glm::mat3{transform};
-        float const determinant = glm::determinant(linear);
+        // Cofactor columns serve both determinant and inverse-transpose normal direction.
+        // Normalization cancels division by |det|; retain its sign for reflected joints.
+        glm::mat3 const cofactors{glm::cross(linear[1], linear[2]),
+                                  glm::cross(linear[2], linear[0]),
+                                  glm::cross(linear[0], linear[1])};
+        float const determinant = glm::dot(linear[0], cofactors[0]);
         if (!std::isfinite(determinant) || determinant == 0)
             fail("skin pose produces a singular vertex transform");
-        vertex.normal = glm::normalize(glm::transpose(glm::inverse(linear)) * vertex.normal);
+        vertex.normal =
+            glm::normalize((cofactors * vertex.normal) * (determinant < 0 ? -1.0F : 1.0F));
         if (vertex.tangent.w != 0) {
             auto tangent = linear * glm::vec3{vertex.tangent};
             tangent = glm::normalize(tangent - vertex.normal * glm::dot(vertex.normal, tangent));

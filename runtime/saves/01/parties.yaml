@@ -1,3 +1,5 @@
 - {"keyid":1,"faction":1,"leader":1,"members":[3],"captives":[2]}
 - {"keyid":2,"faction":1,"leader":4,"members":[],"captives":[]}
 - {"keyid":3,"faction":4,"leader":5,"members":[],"captives":[]}
+- {"keyid":4,"faction":1,"leader":6,"members":[7,8,9],"captives":[]}
+- {"keyid":5,"faction":1,"leader":10,"members":[],"captives":[]}

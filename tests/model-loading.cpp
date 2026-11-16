@@ -332,6 +332,38 @@ void skinning(Fixture &fixture)
         pose.node_world_matrix(mesh_node, glm::mat4{1}) * glm::vec4{local[2].position, 1};
     check(std::abs(world.z - deformed[2].position.z) < 1e-5F,
           "mesh placement is not applied twice");
+    // Compare the optimized normal direction with the inverse-transpose definition,
+    // including unequal joint scales, shear from blending, and reflected handedness.
+    for (float reflection : {1.0F, -1.0F}) {
+        lc1::scene::ModelInstance scaled{model.definition()};
+        auto joint_transform = scaled.local_transforms()[joint_node];
+        joint_transform.scale = {reflection * 1.7F, 0.6F, 2.3F};
+        joint_transform.rotation = glm::angleAxis(0.7F, glm::normalize(glm::vec3{1, 2, 3}));
+        scaled.set_local_transform(joint_node, joint_transform);
+        auto test_mesh = binding;
+        for (auto &vertex : test_mesh.vertices) {
+            vertex.normal = glm::normalize(glm::vec3{1, 2, 3});
+            vertex.tangent = {glm::normalize(glm::vec3{2, -1, 0}), 1};
+        }
+        auto const result = scaled.skin_vertices(test_mesh);
+        auto const matrices = scaled.model_matrices();
+        for (std::size_t i = 0; i < result.size(); ++i) {
+            glm::mat4 blended{0};
+            for (int j = 0; j < 4; ++j)
+                blended += glm::inverse(matrices[binding.node]) *
+                           matrices[binding.skin.joints[binding.influences[i].joints[j]]] *
+                           binding.skin.inverse_bind_matrices[binding.influences[i].joints[j]] *
+                           binding.influences[i].weights[j];
+            auto const linear = glm::mat3{blended};
+            auto const expected =
+                glm::normalize(glm::transpose(glm::inverse(linear)) * test_mesh.vertices[i].normal);
+            check(glm::length(result[i].normal - expected) < 1e-5F,
+                  "scaled and reflected skin normals match inverse transpose");
+            check(result[i].tangent.w == (glm::determinant(linear) < 0 ? -1.0F : 1.0F) &&
+                      std::abs(glm::dot(result[i].normal, glm::vec3{result[i].tangent})) < 1e-5F,
+                  "skinned tangents preserve handedness and orthogonality");
+        }
+    }
     auto invalid = source;
     invalid.skins[0].joints = {99, 2};
     rejects([&] { lc1::scene::Model::load_from_file(fixture.write(invalid)); });

@@ -28,6 +28,7 @@ struct WorldSetup {
     Continent continent;
     std::optional<PatrolSetup> example_patrol;
     std::vector<SerializedResourceStack> initial_player_resources;
+    std::map<std::uint32_t, PatrolSetup> npc_patrols;
 };
 
 struct WorldPlayer {

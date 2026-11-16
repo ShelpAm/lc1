@@ -23,10 +23,14 @@ class CharacterMotion {
     CharacterMotion(WorldCollision const &collision, CharacterBody const &body, glm::vec3 &position,
                     CharacterMotionSettings settings = {});
 
+    void set_debug_flying(bool enabled);
+    bool debug_flying() const;
     void request_jump();
     bool on_ground() const;
 
-    // Desired velocity is horizontal, in metres per second, resolved by gameplay rules.
+    float jump_height() const { return settings_.jump_height; }
+
+    // Desired velocity is horizontal normally, or 3D during debug flight, in metres per second.
     // Consumes all finite, nonnegative time; a queued jump is consumed only once.
     void update(float delta_seconds, WorldCollision const &collision, CharacterBody const &body,
                 glm::vec3 &position, glm::vec3 desired_velocity);
@@ -40,6 +44,7 @@ class CharacterMotion {
                           CharacterBody const &body, glm::vec3 &position);
 
     CharacterMotionSettings settings_;
+    bool debug_flying_ = false;
     bool on_ground_ = false;
     float vertical_velocity_ = 0.0F;
     bool jump_requested_ = false;

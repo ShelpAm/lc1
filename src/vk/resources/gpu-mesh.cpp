@@ -3,6 +3,16 @@
 
 namespace lc1 {
 
+void GpuMesh::update_bounds(std::span<Vertex const> vertices)
+{
+    bounds_ = {glm::vec3{std::numeric_limits<float>::max()},
+               glm::vec3{std::numeric_limits<float>::lowest()}};
+    for (auto const &vertex : vertices) {
+        bounds_[0] = glm::min(bounds_[0], vertex.position);
+        bounds_[1] = glm::max(bounds_[1], vertex.position);
+    }
+}
+
 GpuMesh::GpuMesh(Device const &device, std::size_t vertex_count,
                  std::span<std::uint32_t const> indices)
     : vertices_{device, vertex_count * sizeof(Vertex),
@@ -58,6 +68,7 @@ void GpuMesh::build_acceleration_structure(Device const &device)
 void GpuMesh::update_vertices(Device const &device, vk::raii::CommandBuffer const &commands,
                               std::span<Vertex const> vertices)
 {
+    update_bounds(vertices);
     // Order the previous use of this slot's vertex/index buffers, BLAS and scratch.
     vk::MemoryBarrier2 const before_update{
         .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,

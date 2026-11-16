@@ -10,5 +10,6 @@ struct OutputSettings {
     float exposure = 1.0F;
     float bloom_strength = 0.0F;
     OutputEncoding encoding = OutputEncoding::Linear;
+    bool transparent_background = false;
 };
 } // namespace lc1

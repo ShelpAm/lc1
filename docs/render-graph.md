@@ -98,3 +98,15 @@ Application 直接传入 `WorldPresentation::scene()` 与玩家相机；注册�
 运行命令与 Conan 环境见 [ray-query 阴影](ray-query-shadows.md)。
 
 历史实机结果见 [2026-10-09 验证记录](history/render-graph-validation-2026-10-09.md)。
+
+## 人物面板离屏预览
+
+Application 在世界图之前按需调用独立 Renderer 的 `record()`，将所选角色和当前装备绘入固定尺寸 UNORM 目标。
+预览不启用云、DDGI 或 Bloom，使用两盏固定摄影棚灯光。预览输出按主窗口的编码约定写入 UNORM 纹理，避免 ImGui 采样时重复 sRGB 解码。它与世界分别使用当前帧槽内的资源，
+图片随后转换为 `SHADER_READ_ONLY_OPTIMAL`，由 ImGui overlay 采样。下一次写入前的屏障覆盖上一帧的片元采样；
+后台共用同一 graphics queue。图片和 ImGui 描述符由 Application 管理，GPU 结束后才能销毁。
+界面、姿态和资产借用约定见[人物面板](code-layout.md#角色与背包界面)。
+
+预览开启 `OutputSettings::transparent_background`：HDR 背景清为 alpha 0，实体表面仍输出 alpha 1，
+色调映射保留 HDR alpha。预览关闭云、Bloom 和文字，背景为零辐射；ImGui 用 straight alpha
+将人物或物品直接混合到外层面板。普通游戏输出保持默认不透明清屏。

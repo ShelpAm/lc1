@@ -297,6 +297,16 @@ void control_transfer_requests_are_consumed_once()
     check(settled->players.at(lc1::PlayerId{1}).character_id == third &&
               settled->players.at(lc1::PlayerId{1}).character_id != original,
           "successive control transfers do not replay an earlier request");
+    connection.submit({.crouch = true});
+    auto const crouched = wait_for(simulation, [&](auto const &state) {
+        return state.player(lc1::PlayerId{1}).crouch_amount == 1;
+    });
+    check(crouched->player(lc1::PlayerId{1}).keyid == third.value &&
+              crouched->character(second).crouch_amount == 0,
+          "held crouch follows the current player binding after control transfer");
+    connection.submit({});
+    wait_for(simulation,
+             [&](auto const &state) { return state.player(lc1::PlayerId{1}).crouch_amount == 0; });
 }
 
 void equipment_and_tool_messages()

@@ -5,6 +5,7 @@
 #include "lc1/vk/presentation/swapchain-policy.hpp"
 #include "lc1/vk/render/render-graph.hpp"
 
+#include <bit>
 #include <imgui.h>
 #include <imgui_freetype.h>
 #include <imgui_impl_glfw.h>
@@ -200,14 +201,16 @@ Application::Application(ApplicationConfig config)
       renderer_{device_,
                 {surface_format_.format},
                 std::min(device_.max_sample_count(), vk::SampleCountFlagBits::e4)},
+      preview_renderer_{device_, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1},
       simulation_(std::make_unique<GameSimulation>(
           Save{config_.save_root}, config_.dialog_root / "catalog.yaml", config_.asset_root)),
       game_(std::make_unique<GameSession>(device_, config_.asset_root, *simulation_,
                                           config_.save_root,
                                           output_settings(surface_format_.format), &window_,
                                           config_.local_player, renderer_.cloud_settings())),
-      frame_loop_(std::make_unique<FrameLoop<FrameResources>>(device_, [this] {
-          return renderer_.make_frame_resources(game_->world_presentation().object_capacity());
+      frame_loop_(std::make_unique<FrameLoop<ApplicationFrame>>(device_, [this] {
+          return ApplicationFrame{
+              renderer_.make_frame_resources(game_->world_presentation().object_capacity()), {}};
       }))
 {
     spdlog::info("[world] WASD: walk, wheel: zoom, Shift: run, Y: camera lock, Space: "
@@ -273,6 +276,15 @@ void Application::init_imgui_vulkan(std::uint32_t min_image_count)
     };
     if (!ImGui_ImplVulkan_Init(&init_info))
         fail("the imgui Vulkan backend could not initialize");
+    if (!preview_image_)
+        preview_image_.emplace(device_, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{512, 768}, 1,
+                               vk::SampleCountFlagBits::e1,
+                               vk::ImageUsageFlagBits::eColorAttachment |
+                                   vk::ImageUsageFlagBits::eSampled,
+                               vk::ImageAspectFlagBits::eColor);
+    // ImGui stores an opaque Vulkan descriptor handle in its 64-bit texture identifier.
+    preview_texture_ = std::bit_cast<std::uint64_t>(ImGui_ImplVulkan_AddTexture(
+        *preview_image_->view(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     imgui_image_count_ = static_cast<std::uint32_t>(swapchain_->images().size());
 }
 
@@ -360,8 +372,9 @@ void Application::load_game(std::filesystem::path const &directory)
             std::make_unique<GameSession>(device_, config_.asset_root, *simulation, directory,
                                           game_->world_presentation().output(), &window_,
                                           config_.local_player, renderer_.cloud_settings());
-        auto frames = std::make_unique<FrameLoop<FrameResources>>(device_, [&] {
-            return renderer_.make_frame_resources(next->world_presentation().object_capacity());
+        auto frames = std::make_unique<FrameLoop<ApplicationFrame>>(device_, [&] {
+            return ApplicationFrame{
+                renderer_.make_frame_resources(next->world_presentation().object_capacity()), {}};
         });
         auto const extent = window_.framebuffer_extent();
         if (extent.height != 0)
@@ -391,9 +404,10 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
 {
     Stopwatch stopwatch;
     // Construct once; FrameLoop invokes the callback synchronously and never retains it.
-    FrameLoop<FrameResources>::RecordCallback const record = [this](CommandBuffer &command_buffer,
-                                                                    FrameResources &resources,
-                                                                    RenderTarget const &target) {
+    FrameLoop<ApplicationFrame>::RecordCallback const record = [this](CommandBuffer &command_buffer,
+                                                                      ApplicationFrame &frame,
+                                                                      RenderTarget const &target) {
+        auto &resources = frame.world;
         auto const &presentation = game_->world_presentation();
         auto const &camera = game_->player_view().camera();
         // Text items own their strings and remain alive until graph.execute() returns.
@@ -404,6 +418,46 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
                 game_->ui().screen_labels(game_->world(), game_->player_id(), presentation.font(),
                                           window_.framebuffer_extent(), presentation.location()),
         };
+        if (auto const request = game_->ui().character_preview()) {
+            auto preview =
+                request->resource
+                    ? presentation.item_preview(*request->resource, request->yaw, request->zoom)
+                    : presentation.character_preview(request->character, request->yaw,
+                                                     request->zoom);
+            auto &scene = preview.scene;
+            auto const count = static_cast<std::uint32_t>(scene.draw_count());
+            if (!frame.preview || count > frame.preview_capacity) {
+                frame.preview.reset();
+                frame.preview.emplace(preview_renderer_.make_frame_resources(count));
+                frame.preview_capacity = count;
+            }
+            preview_image_->transition_layout(
+                command_buffer.raii(),
+                preview_initialized_ ? vk::ImageLayout::eShaderReadOnlyOptimal
+                                     : vk::ImageLayout::eUndefined,
+                vk::ImageLayout::eColorAttachmentOptimal,
+                preview_initialized_ ? vk::PipelineStageFlagBits2::eFragmentShader
+                                     : vk::PipelineStageFlagBits2::eNone,
+                preview_initialized_ ? vk::AccessFlagBits2::eShaderSampledRead
+                                     : vk::AccessFlagBits2::eNone,
+                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                vk::AccessFlagBits2::eColorAttachmentWrite);
+            preview_renderer_.record(command_buffer, *frame.preview,
+                                     {&preview_image_->view(), preview_image_->extent()}, scene,
+                                     preview.camera,
+                                     {.exposure = 1.2F,
+                                      .bloom_strength = 0,
+                                      .encoding = output_settings(surface_format_.format).encoding,
+                                      .transparent_background = true});
+            preview_image_->transition_layout(command_buffer.raii(),
+                                              vk::ImageLayout::eColorAttachmentOptimal,
+                                              vk::ImageLayout::eShaderReadOnlyOptimal,
+                                              vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                              vk::AccessFlagBits2::eColorAttachmentWrite,
+                                              vk::PipelineStageFlagBits2::eFragmentShader,
+                                              vk::AccessFlagBits2::eShaderSampledRead);
+            preview_initialized_ = true;
+        }
         RenderGraph graph;
         renderer_.add_passes(graph, resources, target, presentation.scene(), camera,
                              presentation.output(), text);
@@ -463,7 +517,7 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
         ImGui::NewFrame();
 
         auto const delta_seconds = stopwatch.tick();
-        game_->update(delta_seconds, window_.input());
+        game_->update(delta_seconds, window_.input(), preview_texture_);
         if (game_->quit_requested())
             break;
 

@@ -87,6 +87,7 @@ struct ModelConfig {
     rfl::DefaultVal<std::string> run_animation;
     rfl::DefaultVal<std::string> attack_animation;
     rfl::DefaultVal<std::string> death_animation;
+    rfl::DefaultVal<std::string> crouch_animation;
 
     bool operator==(ModelConfig const &other) const;
 };

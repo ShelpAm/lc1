@@ -5,6 +5,7 @@
 #include "lc1/game/character/character-controller.hpp"
 #include "lc1/game/character/character-id.hpp"
 #include "lc1/game/character/character-intent.hpp"
+#include "lc1/game/character/character-proportions.hpp"
 #include "lc1/game/character/combat.hpp"
 #include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/weapon.hpp"
@@ -54,6 +55,8 @@ struct CharacterConfig {
 
     float attack_animation_duration = 0; // Resolved from CPU animation data during world assembly.
     float health_lost = 0;
+    float base_walk_speed = 4.5F;
+    float run_speed_bonus = 4.5F;
 
     float max_health() const { return 1.0F * static_cast<float>(level) + 100.F; }
 
@@ -63,9 +66,9 @@ struct CharacterConfig {
 
     float agility() const { return 0.1F * static_cast<float>(level); }
 
-    float walk_speed() const { return 4.5F + glm::log(1.0F + agility()); }
+    float walk_speed() const { return base_walk_speed + glm::log(1.0F + agility()); }
 
-    float run_speed() const { return walk_speed() + 4.5F; }
+    float run_speed() const { return walk_speed() + run_speed_bonus; }
 };
 
 // One upright, ground-level character, independent of input devices and cameras.
@@ -73,7 +76,8 @@ struct CharacterConfig {
 class Character {
   public:
     Character(Continent const &continent, scene::Transform transform, CharacterConfig config,
-              CharacterBody body = {}, CharacterMotionSettings motion_settings = {});
+              CharacterBody body = {}, CharacterMotionSettings motion_settings = {},
+              float crouch_amount = 0, CharacterProportions proportions = {});
 
     Character(Character const &) = delete;
     Character &operator=(Character const &) = delete;
@@ -88,6 +92,12 @@ class Character {
     std::uint64_t nod_sequence() const;
 
     CharacterBody const &body() const;
+    CharacterBody standing_body() const;
+    CharacterBody collision_body() const;
+    CharacterProportions proportions() const;
+    // Returns false without changing proportions when the resized body cannot fit.
+    bool set_proportions(Continent const &continent, CharacterProportions proportions);
+    float crouch_amount() const;
 
     float half_width() const;
 
@@ -123,6 +133,8 @@ class Character {
     void request_jump();
 
     bool on_ground() const;
+    float jump_height() const;
+    bool debug_flying() const;
 
     float attack_progress() const { return attack_elapsed_ / combat::swing_duration; }
 
@@ -178,7 +190,9 @@ class Character {
   private:
     // Resolves the requested actions before physics. Called only by update().
     void apply_intent(float delta_seconds, CharacterIntent const &intent);
-    glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement);
+    void turn_toward(glm::vec3 direction, float delta_seconds);
+    glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement,
+                               float delta_seconds);
 
     friend class MeleeWeapon;
     friend class Flashlight;
@@ -193,6 +207,8 @@ class Character {
 
     CharacterConfig config_;
     CharacterBody body_;
+    CharacterProportions proportions_;
+    float crouch_amount_ = 0;
     game::Bag bag_;
 
     bool flashlight_on_ = false;

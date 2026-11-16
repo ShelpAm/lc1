@@ -1,5 +1,6 @@
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
+#include "lc1/scene/model-instance.hpp"
 
 #include <array>
 #include <cmath>
@@ -39,6 +40,97 @@ scene::Model revolved_model(std::span<glm::vec2 const> profile, glm::vec3 color)
     return scene::Model{std::move(vertices), std::move(indices)};
 }
 } // namespace
+
+void apply_remiel_leg_height(scene::ModelInstance &pose, float scale)
+{
+    auto const waist = pose.model().find_node("腰");
+    auto const lower = pose.model().find_node("下半身");
+    if (!waist || !lower)
+        return;
+    auto const matrices = pose.model_matrices();
+    auto waist_transform = pose.local_transforms()[*waist];
+    auto lower_transform = pose.local_transforms()[*lower];
+    auto const parent = pose.model().nodes()[*waist].parent_index;
+    auto const parent_matrix = parent ? matrices[*parent] : glm::mat4{1};
+    // Stretch the lower body around the feet and translate its waist/upper body by
+    // the same extension. Inverse parent converts world-up to the imported rig space.
+    auto const extension = matrices[*lower][3].y * (scale - 1);
+    waist_transform.translation +=
+        glm::vec3{glm::inverse(parent_matrix) * glm::vec4{0, extension, 0, 0}};
+    lower_transform.scale.y *= scale;
+    pose.set_local_transform(*waist, waist_transform);
+    pose.set_local_transform(*lower, lower_transform);
+}
+
+scene::Model make_inventory_model(std::uint32_t resource)
+{
+    if (resource == 1) {
+        std::array const profile{glm::vec2{0, -0.035F},    glm::vec2{0.38F, -0.035F},
+                                 glm::vec2{0.4F, -0.02F},  glm::vec2{0.4F, 0.02F},
+                                 glm::vec2{0.38F, 0.035F}, glm::vec2{0, 0.035F}};
+        return revolved_model(profile, {0.8F, 0.5F, 0.12F});
+    }
+    if (resource == 2) {
+        std::array const profile{glm::vec2{0, -0.5F},      glm::vec2{0.13F, -0.5F},
+                                 glm::vec2{0.16F, -0.45F}, glm::vec2{0.16F, 0.45F},
+                                 glm::vec2{0.13F, 0.5F},   glm::vec2{0, 0.5F}};
+        return revolved_model(profile, {0.32F, 0.16F, 0.055F});
+    }
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    auto box = [&](glm::vec3 low, glm::vec3 high, glm::vec3 color,
+                   glm::mat4 transform = glm::mat4{1}) {
+        std::array<glm::vec3, 8> points;
+        for (unsigned i = 0; i < 8; ++i)
+            points[i] =
+                glm::vec3{transform * glm::vec4{(i & 1) ? high.x : low.x, (i & 2) ? high.y : low.y,
+                                                (i & 4) ? high.z : low.z, 1}};
+        for (auto const face : std::array{std::array{0U, 2U, 3U, 1U}, std::array{4U, 5U, 7U, 6U},
+                                          std::array{0U, 4U, 6U, 2U}, std::array{1U, 3U, 7U, 5U},
+                                          std::array{0U, 1U, 5U, 4U}, std::array{2U, 6U, 7U, 3U}}) {
+            auto const base = static_cast<std::uint32_t>(vertices.size());
+            auto const normal = glm::normalize(
+                glm::cross(points[face[1]] - points[face[0]], points[face[2]] - points[face[0]]));
+            for (auto const index : face)
+                vertices.push_back({.position = points[index],
+                                    .normal = normal,
+                                    .color = color,
+                                    .uv = {0.5F, 0.5F}});
+            for (auto index : {0U, 1U, 2U, 0U, 2U, 3U})
+                indices.push_back(base + index);
+        }
+    };
+    if (resource == 3)
+        box({-0.4F, -0.12F, -0.2F}, {0.4F, 0.12F, 0.2F}, {0.32F, 0.36F, 0.4F});
+    else if (resource == 5) {
+        box({-0.28F, -0.38F, -0.12F}, {0.28F, 0.28F, 0.12F}, {0.35F, 0.4F, 0.45F});
+        for (float side : {-1.0F, 1.0F}) {
+            auto const offset = glm::translate(glm::mat4{1}, glm::vec3{side * 0.29F, 0.22F, 0});
+            box({-0.13F, -0.1F, -0.17F}, {0.13F, 0.1F, 0.17F}, {0.45F, 0.5F, 0.55F}, offset);
+        }
+        box({-0.28F, -0.25F, -0.14F}, {0.28F, -0.19F, 0.14F}, {0.22F, 0.1F, 0.04F});
+    }
+    else if (resource == 6) {
+        for (float x : {-0.16F, 0.16F}) {
+            box({x - 0.1F, -0.3F, -0.12F}, {x + 0.1F, 0.3F, 0.12F}, {0.22F, 0.1F, 0.035F});
+            box({x - 0.1F, -0.3F, -0.3F}, {x + 0.1F, -0.12F, 0.12F}, {0.28F, 0.14F, 0.05F});
+        }
+    }
+    else if (resource == 1004) {
+        for (int i = 0; i < 16; ++i) {
+            float const angle = -1.3F + (static_cast<float>(i) + 0.5F) * 2.6F / 16;
+            auto transform = glm::translate(
+                glm::mat4{1}, glm::vec3{0.5F * std::cos(angle), 0.5F * std::sin(angle), 0});
+            transform = glm::rotate(transform, angle, glm::vec3{0, 0, 1});
+            box({-0.025F, -0.045F, -0.025F}, {0.025F, 0.045F, 0.025F}, {0.3F, 0.15F, 0.05F},
+                transform);
+        }
+        box({0.13F, -0.48F, -0.004F}, {0.14F, 0.48F, 0.004F}, {0.8F, 0.75F, 0.6F});
+    }
+    else
+        fail("no inventory model for resource {}", resource);
+    return scene::Model{std::move(vertices), std::move(indices)};
+}
 
 scene::Model make_torch_model()
 {

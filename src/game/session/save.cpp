@@ -431,7 +431,12 @@ SerializedCharacterConfig serialize_character(Character const &character)
                                      .level = config.level,
                                      .equipment = {},
                                      .main_hand = config.main_hand ? config.main_hand->keyid() : 0,
-                                     .model = config.model};
+                                     .model = config.model,
+                                     .body = character.body(),
+                                     .proportions = character.proportions(),
+                                     .base_walk_speed = config.base_walk_speed,
+                                     .run_speed_bonus = config.run_speed_bonus,
+                                     .jump_height = character.jump_height()};
     for (auto const &[slot, equipment] : config.equipment)
         record.equipment.emplace(slot, equipment->keyid());
     return record;
@@ -455,7 +460,8 @@ SerializedCharacterState serialize_character_state(Character const &character)
         .companion_order = order,
         .bag_capacity = character.bag().max_weight(),
         .health_lost = character.config().health_lost,
-        .flashlight_on = character.flashlight_on()};
+        .flashlight_on = character.flashlight_on(),
+        .crouch_amount = character.crouch_amount()};
     for (auto const &[keyid, quantity] : character.bag().quantities())
         record.bag.push_back({keyid, quantity});
     std::ranges::sort(record.bag, {}, &SerializedResourceStack::keyid);
@@ -648,8 +654,8 @@ void Save::validate_references() const
             !std::isfinite(state.look_pitch) || std::abs(state.look_yaw) > 85.0F ||
             std::abs(state.look_pitch) > 89.0F)
             fail("character {} has invalid saved pose", id);
-        if (state.patrol && id != session_.example)
-            fail("character {} is not the patrol example", id);
+        if (state.patrol && controlled_characters.contains(id))
+            fail("player character {} cannot patrol", id);
         if (state.companion_order != CompanionOrder::None &&
             state.companion_order != CompanionOrder::Follow &&
             state.companion_order != CompanionOrder::Wait)

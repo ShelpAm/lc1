@@ -251,6 +251,55 @@ std::optional<float> segment_box_fraction(glm::vec3 from, glm::vec3 to, glm::vec
     return enter;
 }
 
+float WorldCollision::camera_fraction(glm::vec3 from, glm::vec3 to, float radius) const
+{
+    if (!finite(from) || !finite(to) || !std::isfinite(radius) || radius <= 0)
+        fail("invalid camera sweep");
+    float fraction = 1;
+    for (auto const &block : continent_->blocks()) {
+        if (!block.solid)
+            continue;
+        if (auto hit = segment_box_fraction(from, to, block.min - glm::vec3{radius},
+                                            block.max + glm::vec3{radius}))
+            fraction = std::min(fraction, *hit);
+    }
+    // Bound each short sweep by a box. Bilinear terrain reaches its maximum at
+    // the corners of each clipped cell, so even thin ridges cannot be skipped.
+    auto const steps = std::max(1, static_cast<int>(std::ceil(glm::distance(from, to) / 0.05F)));
+    auto const area = continent_->bounds();
+    auto const tile = continent_->tile_size();
+    for (int step = 0; step < steps; ++step) {
+        float const begin = static_cast<float>(step) / static_cast<float>(steps);
+        if (begin >= fraction)
+            break;
+        float const end =
+            std::min(fraction, static_cast<float>(step + 1) / static_cast<float>(steps));
+        auto const a = glm::mix(from, to, begin);
+        auto const b = glm::mix(from, to, end);
+        auto const low =
+            glm::max(area.min, glm::min(glm::vec2{a.x, a.z}, glm::vec2{b.x, b.z}) - radius);
+        auto const high =
+            glm::min(area.max, glm::max(glm::vec2{a.x, a.z}, glm::vec2{b.x, b.z}) + radius);
+        if (glm::any(glm::greaterThan(low, high)))
+            continue;
+        auto const first = glm::ivec2{glm::floor((low - area.min) / tile)};
+        auto const last = glm::min(glm::ivec2{glm::floor((high - area.min) / tile)},
+                                   glm::ivec2{continent_->columns() - 1, continent_->rows() - 1});
+        for (int z = first.y; z <= last.y; ++z) {
+            for (int x = first.x; x <= last.x; ++x) {
+                auto const cell_low = glm::max(low, area.min + glm::vec2{x, z} * tile);
+                auto const cell_high = glm::min(high, area.min + glm::vec2{x + 1, z + 1} * tile);
+                for (float px : {cell_low.x, cell_high.x})
+                    for (float pz : {cell_low.y, cell_high.y})
+                        if (continent_->terrain_sample({px, pz})->height >=
+                            std::min(a.y, b.y) - radius)
+                            return begin;
+            }
+        }
+    }
+    return fraction;
+}
+
 bool WorldCollision::segment_blocked(glm::vec3 from, glm::vec3 to, float radius) const
 {
     for (auto const &block : continent_->blocks())

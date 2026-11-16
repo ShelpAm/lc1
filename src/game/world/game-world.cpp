@@ -35,9 +35,10 @@ void GameWorld::load(Save const &save)
 {
     if (save.continent() != setup_.continent.identity())
         fail("cannot load a different continent into an existing world");
-    if (save.has_example() && !save.states().empty() && save.states().at(save.example()).patrol &&
-        !setup_.example_patrol)
-        fail("saved patrol requires a scenario route");
+    for (auto const &[id, state] : save.states())
+        if (state.patrol && !(id == save.example() && setup_.example_patrol) &&
+            !setup_.npc_patrols.contains(id))
+            fail("saved patrol for character {} requires a scenario route", id);
     // Release participant and roster borrows before destroying their owners.
     dialogs_.reset();
     controllers_.clear();
@@ -68,28 +69,36 @@ void GameWorld::load(Save const &save)
                     fail("invalid initial player resource {}", stack.keyid);
             }
     }
-    if (save.has_example()) {
+    if (save.has_example())
         example_ = character_by_id(save.example(), "AI example");
-        if (example_->controller() == nullptr && setup_.example_patrol &&
-            (save.states().empty() || save.states().at(save.example()).patrol)) {
-            auto waypoints = setup_.example_patrol->route;
+    for (auto const &[id, character] : characters_) {
+        auto const found = setup_.npc_patrols.find(id);
+        auto const *patrol = character.get() == example_ && setup_.example_patrol
+                                 ? &*setup_.example_patrol
+                             : found != setup_.npc_patrols.end() ? &found->second
+                                                                 : nullptr;
+        if (!character->controller() && patrol &&
+            (save.states().empty() || save.states().at(id).patrol)) {
+            auto waypoints = patrol->route;
             if (waypoints.empty())
-                fail("example patrol needs a nonempty route");
-            if (setup_.example_patrol->resume_nearest) {
+                fail("scenario patrol needs a nonempty route");
+            if (patrol->resume_nearest) {
                 // Resume from the closest authored point, retaining the controller's target
                 // index 1.
                 auto const nearest =
                     std::ranges::min_element(waypoints, {}, [&](Waypoint const &point) {
-                        return glm::distance(point.position, example_->position());
+                        return glm::distance(point.position, character->position());
                     });
                 auto const index = static_cast<std::size_t>(nearest - waypoints.begin());
                 std::ranges::rotate(waypoints, waypoints.begin() + (index + waypoints.size() - 1) %
                                                                        waypoints.size());
             }
             auto &controller = controllers_.emplace_back(std::make_unique<AiCharacterController>(
-                dialogs_, [this](CharacterId id) -> Character & { return character(id); },
-                controlled, std::move(waypoints), setup_.example_patrol->arrival_radius));
-            example_->set_controller(controller.get());
+                dialogs_, [this](CharacterId id) -> Character & { return this->character(id); },
+                character.get() == example_ ? std::span<Character *const>{controlled}
+                                            : std::span<Character *const>{},
+                std::move(waypoints), patrol->arrival_radius));
+            character->set_controller(controller.get());
         }
     }
 
@@ -177,6 +186,8 @@ void GameWorld::build_world(Save const &save)
             .model = record.model.value(),
             .attack_animation_duration = configured_animation_duration(
                 record.model.value(), record.model.value().attack_animation.value(), asset_root_),
+            .base_walk_speed = record.base_walk_speed.value(),
+            .run_speed_bonus = record.run_speed_bonus.value(),
         };
         for (auto const &slot : record.equipment)
             config.equipment[slot.first] = equipments_.at(slot.second).get();
@@ -198,6 +209,11 @@ void GameWorld::build_world(Save const &save)
         if (save.states().empty() && record.keyid == save.example() && setup_.example_patrol &&
             setup_.example_patrol->spawn)
             actual.position = *setup_.example_patrol->spawn;
+        if (save.states().empty()) {
+            auto const patrol = setup_.npc_patrols.find(record.keyid);
+            if (patrol != setup_.npc_patrols.end() && patrol->second.spawn)
+                actual.position = *patrol->second.spawn;
+        }
         auto const state = save.states().find(record.keyid);
         if (state != save.states().end()) {
             auto const &pose = state->second;
@@ -205,7 +221,11 @@ void GameWorld::build_world(Save const &save)
             actual.rotation.y = pose.body_yaw;
             config.health_lost = pose.health_lost.value();
         }
-        auto character = std::make_unique<Character>(setup_.continent, actual, std::move(config));
+        auto character = std::make_unique<Character>(
+            setup_.continent, actual, std::move(config), record.body.value(),
+            CharacterMotionSettings{.jump_height = record.jump_height.value()},
+            state != save.states().end() ? state->second.crouch_amount.value() : 0.0F,
+            record.proportions.value());
         if (state != save.states().end()) {
             character->set_look_angles(state->second.look_yaw, state->second.look_pitch);
             character->set_flashlight_on(state->second.flashlight_on.value());
@@ -364,6 +384,13 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
     for (auto &[_, player] : players_) {
         auto &actor = *player.character;
         auto &input = player.controls;
+        if (input.proportions) {
+            auto const request = *input.proportions;
+            if (auto target = characters_.find(request.character.value);
+                target != characters_.end())
+                target->second->set_proportions(setup_.continent, request.proportions);
+            input.proportions.reset();
+        }
         if (input.equipment) {
             auto const request = *input.equipment;
             auto const target = characters_.find(request.character.value);
@@ -412,6 +439,7 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
         }
         dialog_players.push_back(
             {&actor, input.view.keyboard_enabled && actor.accepts_ambient_requests()});
+        input.toggle_debug_flight = false;
         input.jump = false;
         input.swing_weapon = false;
         input.nod = false;
@@ -455,7 +483,7 @@ bool GameWorld::transfer_control(PlayerId id, CharacterId target)
     if (next == player.character)
         return true;
     auto *controller = player.character->controller();
-    player.character->set_controller(next->controller());
+    player.character->set_controller(nullptr);
     next->set_controller(controller);
     player.character = next;
     player.controls = {};

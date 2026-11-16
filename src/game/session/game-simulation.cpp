@@ -67,10 +67,13 @@ InputStamp GameSimulation::submit(PlayerId id, PlayerControls input)
     // accumulate mouse motion, and retain edges across a subsequent release/UI-gated frame.
     if (slot.pending) {
         auto const &previous = *slot.pending;
+        input.toggle_debug_flight ^= previous.toggle_debug_flight;
         input.jump |= previous.jump;
         input.swing_weapon |= previous.swing_weapon;
         input.nod |= previous.nod;
         input.interact |= previous.interact;
+        if (!input.proportions)
+            input.proportions = previous.proportions;
         if (!input.equipment)
             input.equipment = previous.equipment;
         if (input.response_index < 0)

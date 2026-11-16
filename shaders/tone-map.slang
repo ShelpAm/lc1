@@ -22,7 +22,8 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     ConstantBuffer<ToneMapData> settings = ResourceDescriptorHeap[pass_data.tone_map];
     Texture2D<float4> hdr_color = ResourceDescriptorHeap[pass_data.hdr_image];
 
-    float3 value = max(hdr_color.Load(int3(int2(position.xy), 0)).rgb, float3(0));
+    float4 hdr = hdr_color.Load(int3(int2(position.xy), 0));
+    float3 value = max(hdr.rgb, float3(0));
     if (settings.output.z > 0) {
         Texture2D<float4> bloom = ResourceDescriptorHeap[pass_data.bloom_image];
         SamplerState filter = SamplerDescriptorHeap[pass_data.bloom_sampler];
@@ -34,5 +35,5 @@ float4 fragMain(float4 position : SV_Position) : SV_Target
     float3 mapped = 1.0 - 1.0 / (1.0 + value * settings.output.x);
     if (settings.output.y > 0.5)
         mapped = linear_to_srgb(mapped);
-    return float4(mapped, 1.0);
+    return float4(mapped, hdr.a);
 }
