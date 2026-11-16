@@ -249,9 +249,9 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
         "HDR lighting",
         {"shadow.frame", "shadow.filtered_visibility", "material.frame", "ddgi.irradiance"},
         {"hdr.color"},
-        [this, &resources, extent = target.extent, scene, text](CommandBuffer &commands) {
+        [this, &resources, extent = target.extent, scene, text, output](CommandBuffer &commands) {
             record_hdr(commands, resources, extent, scene->draws, scene->camera, scene->sky_color,
-                       text, scene->particles, scene->fog);
+                       text, scene->particles, scene->fog, output.transparent_background);
         });
     // Clouds stand between the lit scene and the output chain: Bloom and tone mapping
     // both read the composited HDR image, so the layer's radiance is bloomed and tone
@@ -334,7 +334,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
                           std::span<DrawItem const> draws, scene::FpsCamera const &camera,
                           glm::vec3 sky_color, TextFrameInput const &text,
                           std::span<scene::Particle const> particles,
-                          std::optional<scene::DistanceFog> const &fog)
+                          std::optional<scene::DistanceFog> const &fog, bool transparent_background)
 {
     auto &command_buffer = cmd.raii();
     ensure_attachments(resources, extent);
@@ -368,8 +368,8 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         .layerCount = 1,
     };
     // The scene's sky is the background every uncovered pixel keeps.
-    vk::ClearColorValue const clear_color{
-        std::array<float, 4>{sky_color.x, sky_color.y, sky_color.z, 1.0F}};
+    vk::ClearColorValue const clear_color{std::array<float, 4>{
+        sky_color.x, sky_color.y, sky_color.z, transparent_background ? 0.0F : 1.0F}};
 
     // Preserve the dependency on prior shader reads when this frame slot is reused.
     resources.hdr_image->transition_layout(
@@ -470,7 +470,7 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
         text_pass_.draw_world(cmd, resources, *text.font, text.world,
                               camera.view_projection_matrix());
 
-    record_particles(cmd, camera, particles, fog);
+    record_particles(cmd, resources, camera, particles, fog);
     command_buffer.endRendering();
     resources.hdr_image->transition_layout(
         command_buffer, vk::ImageLayout::eColorAttachmentOptimal,

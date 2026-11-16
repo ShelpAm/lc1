@@ -19,6 +19,9 @@ class WorldCollision {
     // Solid authored blocks occlude a blade; non-solid decoration does not.
     bool segment_blocked(glm::vec3 from, glm::vec3 to, float radius) const;
 
+    // Swept camera clearance box against solid blocks and the terrain height field.
+    float camera_fraction(glm::vec3 from, glm::vec3 to, float radius) const;
+
     std::optional<float> ground_height(glm::vec2 position) const;
 
     // Highest walkable surface at XZ that is not above `feet.y`, and no farther than

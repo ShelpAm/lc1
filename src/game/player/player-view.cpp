@@ -1,6 +1,7 @@
 #include "lc1/game/player/player-view.hpp"
 
 #include "lc1/game/character/character.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -75,7 +76,8 @@ void PlayerView::update_view_mode(GameInputRouter const &input, bool keyboard_en
     if (keyboard_enabled && input.pressed(GameAction::ToggleCameraView))
         toggle(player);
 
-    recenter_ = oblique_ && keyboard_enabled && input.held(GameAction::RecenterCamera);
+    recenter_ = oblique_ && !player.debug_flying && keyboard_enabled &&
+                input.held(GameAction::RecenterCamera);
     if (oblique_ && keyboard_enabled && input.pressed(GameAction::ToggleCameraLock)) {
         map_camera_.toggle_lock();
         spdlog::info("[camera] {}", map_camera_.locked() ? "locked to player" : "free camera");
@@ -127,10 +129,16 @@ void PlayerView::update_camera(float delta_seconds, CharacterPose const &player,
     if (third_person_) {
         auto const yaw = glm::radians(follow_angles_.x);
         glm::vec3 const heading{-std::sin(yaw), 0.0F, -std::cos(yaw)};
-        auto const target = player.eye_position();
-        camera_.set_position(target - heading * 4.0F + glm::vec3{0, 2.0F, 0});
-        camera_.look_at(target + heading * 2.0F +
-                        glm::vec3{0, std::tan(glm::radians(follow_angles_.y)) * 2.0F, 0});
+        auto const target = player.position() + glm::vec3{0, player.body.height * 0.5F, 0};
+        auto const pitch = glm::radians(std::clamp(25.0F - follow_angles_.y, -35.0F, 85.0F));
+        auto const offset =
+            -heading * (10.F * std::cos(pitch)) + glm::vec3{0, 10.F * std::sin(pitch), 0};
+        auto const fraction =
+            player.debug_flying
+                ? 1.0F
+                : WorldCollision{*continent_}.camera_fraction(target, target + offset, 0.25F);
+        camera_.set_position(target + offset * fraction);
+        camera_.look_at(target);
         return;
     }
     if (!oblique_) {
@@ -138,10 +146,15 @@ void PlayerView::update_camera(float delta_seconds, CharacterPose const &player,
         auto position = player.eye_position();
         if (eye_transform) {
             position = glm::vec3{(*eye_transform)[3]};
-            // The mount already includes body yaw; apply gameplay look in body-local space.
-            auto const local_look =
-                glm::inverse(glm::mat3{player.transform().model_matrix()}) * direction;
-            direction = glm::normalize(glm::mat3{*eye_transform} * local_look);
+            // Imported bone up/right axes can be flipped or stretched. Derive only
+            // the mount's forward orientation; mouse angles use world-up semantics.
+            auto const forward = glm::normalize(-glm::vec3{(*eye_transform)[2]});
+            auto const yaw = std::atan2(-forward.x, -forward.z) + glm::radians(player.look_yaw());
+            auto const pitch = glm::radians(std::clamp(
+                glm::degrees(std::asin(std::clamp(forward.y, -1.0F, 1.0F))) + player.look_pitch(),
+                -89.0F, 89.0F));
+            direction = glm::vec3{-std::sin(yaw) * std::cos(pitch), std::sin(pitch),
+                                  -std::cos(yaw) * std::cos(pitch)};
         }
         follow_first_person(position, direction);
         return;

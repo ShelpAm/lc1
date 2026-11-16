@@ -7,6 +7,7 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/character/model-config.hpp"
 #include "lc1/game/continent/continent.hpp"
+#include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/model-instance.hpp"
 
 #include <algorithm>
@@ -35,7 +36,7 @@ bool near(glm::vec3 left, glm::vec3 right)
     return glm::length(left - right) < 0.001F;
 }
 
-lc1::Continent make_world()
+lc1::Continent make_world(std::vector<lc1::ContinentBlock> blocks = {})
 {
     return lc1::Continent{{
         .origin = {-128.0F, -128.0F},
@@ -43,7 +44,7 @@ lc1::Continent make_world()
         .tiles = std::vector(2, std::vector<lc1::TileData>(2)),
         .spawn = {0.0F, 0.0F, 0.0F},
         .patches = {},
-        .blocks = {},
+        .blocks = std::move(blocks),
         .regions = {{lc1::RegionId{1}, "Plain", lc1::RegionType::Plain}},
         .locations = {},
         .roads = {},
@@ -275,6 +276,34 @@ void long_frame_camera_pan()
           "camera pan consumes the full elapsed time");
 }
 
+void first_person_pitch_axes()
+{
+    auto const world = make_world();
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    lc1::PlayerView view{world, player.position()};
+    view.toggle(player);
+    for (auto const scale : {glm::vec3{1}, glm::vec3{2, 9, 0.5F}}) {
+        for (auto const roll : {0.0F, 180.0F}) {
+            auto const mount = glm::translate(glm::mat4{1}, player.eye_position()) *
+                               glm::rotate(glm::mat4{1}, glm::radians(roll), glm::vec3{0, 0, 1}) *
+                               glm::scale(glm::mat4{1}, scale);
+            for (auto const pitch : {-30.0F, 0.0F, 30.0F}) {
+                player.set_look_angles(0, pitch);
+                view.update_camera(0, player, mount);
+                check(near(glm::degrees(std::asin(view.camera().forward().y)), pitch) &&
+                          near(view.camera().heading(), glm::vec3{0, 0, -1}),
+                      "flipped bone up and nonuniform scale cannot invert or distort mouse pitch");
+            }
+        }
+    }
+    player.set_look_angles(0, 80);
+    auto const pitched_mount = glm::rotate(glm::mat4{1}, glm::radians(30.0F), glm::vec3{1, 0, 0});
+    view.update_camera(0, player, pitched_mount);
+    check(near(glm::degrees(std::asin(view.camera().forward().y)), 89) &&
+              near(view.camera().heading(), glm::vec3{0, 0, -1}),
+          "mount pitch plus mouse pitch clamps before crossing the pole and flipping yaw");
+}
+
 void animated_eye_mount()
 {
     auto const world = make_world();
@@ -316,10 +345,11 @@ void animated_eye_mount()
     view.update_camera(0, player, eye_transform());
     check(near(view.camera().position(), eye_position()),
           "mount queries use the current character position and yaw");
-    auto const local_look =
-        glm::inverse(glm::mat3{player.transform().model_matrix()}) * player.look_direction();
-    check(near(view.camera().forward(), glm::normalize(glm::mat3{eye_transform()} * local_look)),
-          "mount rotation composes with mouse look without applying body yaw twice");
+    auto const mount_forward = glm::normalize(-glm::vec3{eye_transform()[2]});
+    auto const camera_pitch = glm::degrees(std::asin(view.camera().forward().y));
+    check(near(camera_pitch - glm::degrees(std::asin(mount_forward.y)), 20) &&
+              glm::dot(view.camera().heading(), player.heading()) > 0.9999F,
+          "mouse pitch adds twenty degrees upward without applying body yaw twice");
     lc1::ModelConfig config;
     config.eyes_offset.value().translation = std::array<float, 3>{0.1F, 0.2F, -0.3F};
     config.eyes_offset.value().rotation_degrees = std::array<float, 3>{0, 180, 0};
@@ -330,10 +360,12 @@ void animated_eye_mount()
     check(near(view.camera().position(),
                glm::vec3{eye_transform() * glm::vec4{0.1F, 0.2F, -0.3F, 1}}),
           "eye offsets use the animated node axes and current character world transform");
-    check(near(view.camera().forward(),
-               glm::normalize(glm::mat3{eye_transform()} *
-                              glm::vec3{-local_look.x, local_look.y, -local_look.z})),
-          "local eye rotation corrects the mount axes before mouse look is applied");
+    auto const corrected_forward = glm::normalize(-glm::vec3{mounted_eye[2]});
+    check(near(glm::degrees(std::asin(view.camera().forward().y)) -
+                   glm::degrees(std::asin(corrected_forward.y)),
+               20) &&
+              glm::dot(view.camera().heading(), -player.heading()) > 0.9999F,
+          "eye axis correction changes the base direction without reversing mouse pitch");
     view.update_camera(0, player);
     check(near(view.camera().position(), player.eye_position()),
           "callers without a mount retain the gameplay eye fallback");
@@ -365,17 +397,60 @@ void third_person_follow()
     for (float yaw : {0.0F, 90.0F, 180.0F}) {
         player.set_body_yaw(yaw);
         view.update_camera(0, player);
-        auto const offset = view.camera().position() - player.eye_position();
+        auto const center = player.position() + glm::vec3{0, player.body().height * 0.5F, 0};
+        auto const offset = view.camera().position() - center;
+        check(glm::dot(glm::normalize(center - view.camera().position()), view.camera().forward()) >
+                  0.9999F,
+              "third person aims at the character center");
         check(offset.y > 0, "third person stays above the player");
         check(offset.z > 0, "body rotation does not rotate the follow camera");
         for (auto key : {lc1::Key::S, lc1::Key::A, lc1::Key::D}) {
-            update_view(0.1F, view, world, player, {key});
+            update_view(0.4F, view, world, player, {key});
             check(glm::dot(player.heading(), view.camera().heading()) < 0.01F,
                   "non-forward movement turns the body away from camera forward");
         }
     }
     view.toggle(player);
     check(view.oblique(), "third person cycles back to oblique");
+}
+
+void third_person_collision()
+{
+    auto const world = make_world({
+        {{-3, 0, 2}, {3, 5, 2.01F}},
+        {{-3, 0, 1}, {3, 5, 1.01F}, lc1::ContinentSurface::Foliage, false},
+    });
+    lc1::Character player{world, {.position = world.spawn()}, {}};
+    lc1::PlayerView view{world, player.position()};
+    view.toggle(player);
+    view.toggle(player);
+    auto const center = player.position() + glm::vec3{0, player.body().height * 0.5F, 0};
+    check(near(view.camera().position().z, 1.75F),
+          "thin wall shortens the camera arm with near-plane clearance");
+    check(glm::dot(glm::normalize(center - view.camera().position()), view.camera().forward()) >
+              0.9999F,
+          "obstructed camera keeps the character centered");
+    check(view.camera().position().z > 1.01F, "non-solid decoration does not obstruct the camera");
+    auto flying = lc1::CharacterPose{player};
+    flying.debug_flying = true;
+    view.update_camera(0, flying);
+    check(near(glm::distance(view.camera().position(), center), 10.0F),
+          "debug flight also bypasses third-person camera collision");
+    auto moved = lc1::CharacterPose{player};
+    moved.world_transform.position.x = 10;
+    view.update_camera(0, moved);
+    auto const moved_center = moved.position() + glm::vec3{0, moved.body.height * 0.5F, 0};
+    check(near(glm::distance(view.camera().position(), moved_center), 10.0F),
+          "camera restores its full arm when the obstruction clears");
+    lc1::WorldCollision collision{world};
+    auto const ground_hit = collision.camera_fraction({0, 1, 0}, {0, -1, 0}, 0.25F);
+    check(ground_hit > 0.32F && ground_hit <= 0.375F,
+          "downward camera sweep stops above terrain with clearance");
+    auto const roof_world = make_world({{{-3, 2, -3}, {3, 2.01F, 3}}});
+    check(near(lc1::WorldCollision{roof_world}.camera_fraction({0, 1, 0}, {0, 4, 0}, 0.25F), 0.25F),
+          "camera sweep stops below a thin ceiling");
+    check(near(collision.camera_fraction({0, 1, 0}, {0, 1, 4}, 0.25F), 0.4375F),
+          "nearest solid obstacle wins over decoration and the far endpoint");
 }
 
 void weapon_mouse_binding()
@@ -415,10 +490,12 @@ int main()
         disabled_input_preserves_pose();
         independent_capture_gates();
         pointer_pan_and_recenter_priority();
+        first_person_pitch_axes();
         animated_eye_mount();
         long_frame_camera_pan();
         weapon_mouse_binding();
         third_person_follow();
+        third_person_collision();
     }
     catch (std::exception const &error) {
         std::cerr << error.what() << '\n';

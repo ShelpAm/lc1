@@ -31,7 +31,8 @@ class GameSession {
 
     // Resolves actions once, submits value input and presents the latest completed tick.
     // Applies cursor capture directly through the borrowed Window after UI actions.
-    void update(float delta_seconds, InputState const &input_state);
+    void update(float delta_seconds, InputState const &input_state,
+                std::uint64_t character_preview_texture = 0);
 
     // Called when no drawable frame exists, so stale held controls cannot keep moving.
     void release_controls();
@@ -85,6 +86,8 @@ class GameSession {
     std::optional<std::filesystem::path> load_request_;
     std::optional<std::filesystem::path> save_request_;
 
+    float debug_flight_speed_ = 1;
+    bool crouch_toggled_ = false;
     bool quit_requested_ = false;
 };
 

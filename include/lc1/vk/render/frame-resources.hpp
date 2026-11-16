@@ -148,6 +148,8 @@ struct FrameResources {
 
     HeapIndex sampler_index(std::optional<HeapIndex> &slot, vk::SamplerCreateInfo const &info);
 
+    // Sorted particle instances, owned by this frame slot until its fence completes.
+    std::optional<GpuBuffer> particle_instances;
     // Text geometry for this slot. Host-visible and rebuilt by the text pass
     // during recording; the two passes need separate buffers because the GPU
     // reads them only after the whole frame has been recorded.

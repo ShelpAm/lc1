@@ -20,6 +20,9 @@
 
 namespace lc1 {
 namespace {
+constexpr float daylight_intensity = 1.2F;
+constexpr float overcast_daylight_intensity = 0.6F;
+
 constexpr std::array lighting_names{"All",  "Directional", "Point",
                                     "Spot", "Sphere",      "Emission Only"};
 
@@ -52,6 +55,48 @@ std::u32string font_codepoints(WorldSnapshot const &world, DialogCatalog const &
     return codepoints;
 }
 
+CharacterPreview make_preview(std::vector<scene::SceneModel> models, float zoom)
+{
+    CharacterPreview result;
+    auto &preview = result.scene;
+    glm::vec3 low{std::numeric_limits<float>::max()};
+    glm::vec3 high{std::numeric_limits<float>::lowest()};
+    preview.set_sky(scene::Sky{.color = {0, 0, 0}});
+    preview.add_light({.direction = glm::normalize(glm::vec3{0.5F, -0.6F, 1}),
+                       .color = {1, 0.9F, 0.76F},
+                       .intensity = 3});
+    preview.add_light({.direction = glm::normalize(glm::vec3{-1, -0.2F, -0.5F}),
+                       .color = {0.6F, 0.75F, 1},
+                       .intensity = 1.5F});
+    for (auto &model : models) {
+        model.view_visible = true;
+        model.use_view_indices = false;
+        model.view_hidden_nodes.clear();
+        for (auto const &instance : model.pose.mesh_instances(model.world_transform)) {
+            auto const &bounds = model.model->meshes()[instance.mesh].bounds();
+            for (int corner = 0; corner < 8; ++corner) {
+                glm::vec3 const point{bounds[(corner & 1) != 0].x, bounds[(corner & 2) != 0].y,
+                                      bounds[(corner & 4) != 0].z};
+                auto const world = glm::vec3{instance.model_matrix * glm::vec4{point, 1}};
+                low = glm::min(low, world);
+                high = glm::max(high, world);
+            }
+        }
+        preview.add_model(std::move(model));
+    }
+    auto const center = (low + high) * 0.5F;
+    auto const half = (high - low) * 0.5F;
+    constexpr float aspect = 512.0F / 768.0F;
+    constexpr float half_fov = glm::radians(45.0F * 0.5F);
+    float const distance =
+        (std::max(half.y, half.x / aspect) / std::tan(half_fov) + half.z) * 1.12F / zoom;
+    result.camera.set_aspect_ratio(aspect);
+    result.camera.set_fov_y(45.0F);
+    result.camera.set_position(center + glm::vec3{0, 0, -distance});
+    result.camera.look_at(center);
+    return result;
+}
+
 } // namespace
 
 WorldPresentation::ModelResources::ModelResources(Device const &device,
@@ -77,6 +122,13 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                                  : glm::vec3{0})},
       helmet_model_(device, make_helmet_model()), output_(output)
 {
+    fog_settings_.enabled = continent.location(village::smithy) != nullptr;
+    for (auto const id : {1U, 2U, 3U, 5U, 6U, 1004U}) {
+        auto item = std::make_unique<PreviewItem>(device, make_inventory_model(id));
+        item->material.parameters.metallic_factor = id == 1 || id == 3 || id == 5 ? 0.8F : 0.0F;
+        item->material.parameters.roughness_factor = id == 1 ? 0.3F : 0.7F;
+        preview_items_.emplace(id, std::move(item));
+    }
     output_.bloom_strength = 0.12F;
     character_models_.reserve(world.characters.size());
     auto const resources_for = [&](ModelConfig const &config,
@@ -226,11 +278,12 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .move_animation = move_animation,
                                      .run_animation = run_animation,
                                      .body_attack_animation = body_attack_animation,
-                                     .death_animation = death_animation});
+                                     .death_animation = death_animation,
+                                     .crouch_animation = find_animation(*config.crouch_animation)});
     }
 
     scene::DirectionalLight const sun{
-        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.45F},
+        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = daylight_intensity},
         .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
     scene::SphereLight const lamp{.base = {.color = glm::vec3{1.0F, 0.5F, 0.5F}, .intensity = 128},
                                   .position = continent_->spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
@@ -312,7 +365,8 @@ void WorldPresentation::update_instances()
             state.pose.transform().model_matrix() *
             (state.dead && models.death_animation
                  ? glm::mat4{1}
-                 : character_reaction_transform(state.dead, state.reaction_time, state.pose.body));
+                 : character_reaction_transform(state.dead, state.reaction_time, state.pose.body)) *
+            glm::scale(glm::mat4{1}, glm::vec3{state.proportions.scale});
         auto const observer = first_person_ && state.keyid == world_->player(observer_).keyid;
         models.character->use_view_indices = observer;
         models.helmet->view_visible = !observer;
@@ -427,7 +481,9 @@ void WorldPresentation::update_lighting()
             : 0.0F;
     sun_->parameters.color =
         glm::mix(glm::vec3{1, 0.95F, 0.9F}, glm::vec3{0.7F, 0.8F, 1}, village_weather);
-    sun_->parameters.intensity = glm::mix(0.45F, 0.09F, village_weather) * std::max(altitude, 0.0F);
+    sun_->parameters.intensity =
+        glm::mix(daylight_intensity, overcast_daylight_intensity, village_weather) *
+        std::max(altitude, 0.0F);
     sun_->enabled = sun_->enabled && altitude > 0.0F;
     // The visible sky follows the same sun the cloud layer is lit by: daylight blue
     // towards noon, a warm band while the sun crosses the horizon, and near-black at
@@ -439,18 +495,19 @@ void WorldPresentation::update_lighting()
     glm::vec3 const warm{0.60F, 0.30F, 0.15F};
     glm::vec3 const night_sky{0.010F, 0.014F, 0.030F};
     scene_.set_sky(scene::Sky{.color = night_sky + daylight * rise + warm * (0.55F * twilight)});
-    scene_.set_fog(continent_->location(village::smithy)
+    scene_.set_fog(fog_settings_.enabled
                        ? std::optional{scene::DistanceFog{
                              .radiance = glm::vec3{0.24F, 0.28F, 0.31F} * std::max(altitude, 0.0F),
-                             .start = 60,
-                             .end = 320}}
+                             .start = fog_settings_.start,
+                             .end = fog_settings_.end}}
                        : std::nullopt);
     scene_.set_diffuse_gi(scene::DiffuseGi{
         .center = world_->player(observer_).pose.position() + glm::vec3{0, 6, 0},
-        .sky_radiance = sun_->enabled ? glm::mix(glm::vec3{0.08F, 0.105F, 0.14F},
-                                                 glm::vec3{0.13F, 0.16F, 0.21F}, village_weather) *
-                                            altitude
-                                      : glm::vec3{0},
+        .sky_radiance = sun_->enabled
+                            ? glm::mix(glm::vec3{0.02F, 0.02625F, 0.035F},
+                                       glm::vec3{0.01625F, 0.02F, 0.02625F}, village_weather) *
+                                  altitude
+                            : glm::vec3{0},
     });
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
@@ -528,6 +585,11 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         showcase_time_ += delta_seconds;
     flame_time_ += delta_seconds;
     showcase_.update(showcase_time_);
+    for (auto &models : character_models_) {
+        for (auto const &[node, transform] : models.proportion_pose)
+            models.character->pose.set_local_transform(node, transform);
+        models.proportion_pose.clear();
+    }
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
         auto const &state = world_->characters[i];
@@ -580,7 +642,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         auto &pose = models.character->pose;
         auto const playback = pose.playback();
         bool const action_playing =
-            playback && !playback->looping &&
+            playback && !playback->looping && playback->animation != models.crouch_animation &&
             (playback->animation != models.body_attack_animation || state.attack_progress < 1) &&
             playback->time < pose.model().animations()[playback->animation].duration();
         auto const locomotion = state.moving
@@ -596,6 +658,13 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
         auto const &state = world_->characters[i];
+        if (!state.dead && models.crouch_animation && state.crouch_amount > 0) {
+            auto &pose = models.character->pose;
+            pose.play_animation(*models.crouch_animation, false);
+            pose.update_animation(state.crouch_amount *
+                                  pose.model().animations()[*models.crouch_animation].duration());
+            continue;
+        }
         if (!state.dead && models.body_attack_animation && state.attack_progress < 1) {
             auto &pose = models.character->pose;
             pose.play_animation(*models.body_attack_animation, false);
@@ -610,14 +679,83 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
                                   pose.model().animations()[*models.attack_animation].duration());
         }
     }
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto &models = character_models_[i];
+        auto const scale = world_->characters[i].proportions.leg_height_scale;
+        if (scale == 1)
+            continue;
+        auto &pose = models.character->pose;
+        for (auto const name : {"腰", "下半身"})
+            if (auto node = pose.model().find_node(name))
+                models.proportion_pose.emplace_back(*node, pose.local_transforms()[*node]);
+        apply_remiel_leg_height(pose, scale);
+    }
     update_instances();
     update_lighting();
     update_particles(delta_seconds);
 }
 
+CharacterPreview WorldPresentation::character_preview(CharacterId id, float yaw, float zoom) const
+{
+    auto const found = std::ranges::find(character_models_, id.value, &CharacterModels::keyid);
+    if (found == character_models_.end())
+        fail("missing character preview {}", id.value);
+    auto const normalization = glm::rotate(glm::mat4{1}, glm::radians(yaw), glm::vec3{0, 1, 0}) *
+                               glm::inverse(world_->character(id).pose.transform().model_matrix());
+    std::vector<scene::SceneModel> models;
+    for (auto const *source : {found->character, found->helmet, found->weapon}) {
+        if (!source || !source->visible)
+            continue;
+        auto model = *source;
+        model.world_transform = normalization * source->world_transform;
+        models.push_back(std::move(model));
+    }
+    return make_preview(std::move(models), zoom);
+}
+
+CharacterPreview WorldPresentation::item_preview(std::uint32_t resource, float yaw,
+                                                 float zoom) const
+{
+    auto const rotation = glm::rotate(glm::mat4{1}, glm::radians(yaw), glm::vec3{0, 1, 0}) *
+                          glm::rotate(glm::mat4{1}, glm::radians(25.0F), glm::vec3{1, 0, 0});
+    if (resource == game::iron_helmet.keyid)
+        return make_preview({scene::SceneModel{.model = &helmet_model_,
+                                               .material = &helmet_material_,
+                                               .world_transform = rotation}},
+                            zoom);
+    if (auto found = preview_items_.find(resource); found != preview_items_.end())
+        return make_preview({scene::SceneModel{.model = &found->second->model,
+                                               .material = &found->second->material,
+                                               .world_transform = rotation}},
+                            zoom);
+    for (auto const &character : character_models_) {
+        if (auto const found = character.weapons.find(resource); found != character.weapons.end()) {
+            auto model = *found->second.model;
+            model.pose.reset_pose();
+            model.world_transform = rotation;
+            model.visible = true;
+            return make_preview({std::move(model)}, zoom);
+        }
+    }
+    fail("missing item preview {}", resource);
+}
+
 void WorldPresentation::update_particles(float delta_seconds)
 {
     std::vector<scene::Particle> visible;
+    // Independent uniform samples keep position, speed and lifetime uncorrelated.
+    auto const samples = [](std::uint32_t sequence, std::uint32_t seed) {
+        glm::vec4 result;
+        for (int axis = 0; axis < 4; ++axis) {
+            auto hash = sequence * 747796405U + seed * 2891336453U +
+                        static_cast<std::uint32_t>(axis) * 277803737U;
+            hash = ((hash >> ((hash >> 28U) + 4U)) ^ hash) * 277803737U;
+            hash = (hash >> 22U) ^ hash;
+            result[axis] = static_cast<float>(hash & 0xffffffU) / 16777216.0F;
+        }
+        return result;
+    };
+    constexpr float emission_rate = 120000;
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &emitter = character_models_[i];
         auto const &state = world_->characters[i];
@@ -632,7 +770,7 @@ void WorldPresentation::update_particles(float delta_seconds)
         auto const tip = glm::vec3{emitter.weapon->world_transform * glm::vec4{0, 0.46F, 0, 1}};
         if (!emitter.burning) {
             emitter.previous_tip = tip;
-            emitter.emission = 8;
+            emitter.emission = 0;
         }
         for (auto &particle : emitter.particles) {
             auto const acceleration = glm::vec3{0, particle.spark ? -0.6F : 0.7F, 0};
@@ -645,28 +783,29 @@ void WorldPresentation::update_particles(float delta_seconds)
                       [](auto const &particle) { return particle.age >= particle.lifetime; });
         // Spawn only births still relevant after a long frame, rather than a stale backlog.
         auto const interval = std::min(delta_seconds, 1.0F);
-        emitter.emission += interval * 50;
+        emitter.emission += interval * emission_rate;
         auto const count = static_cast<unsigned>(emitter.emission);
         emitter.emission -= static_cast<float>(count);
         for (unsigned birth = 0; birth < count; ++birth) {
             auto const sequence = ++emitter.particle_sequence;
-            // Integer mixing gives repeatable independent variation without shared RNG state.
-            auto hash = sequence * 747796405U + emitter.keyid * 2891336453U;
-            hash = ((hash >> ((hash >> 28U) + 4U)) ^ hash) * 277803737U;
-            hash = (hash >> 22U) ^ hash;
-            float const variation = static_cast<float>(hash & 0xffffU) / 65535.0F;
-            float const angle = static_cast<float>(hash >> 16U) / 65535.0F * glm::two_pi<float>();
-            bool const spark = sequence % 12 == 0;
-            float const lifetime = spark ? 0.8F + variation * 0.7F : 0.38F + variation * 0.25F;
+            auto const random = samples(sequence, emitter.keyid);
+            float const variation = random.z;
+            float const angle = random.x * glm::two_pi<float>();
+            bool const spark = random.w < 0.008F;
+            float const lifetime = spark ? 0.056F + variation * 0.049F : 0.021F + random.w * 0.028F;
             float const age =
-                interval * (static_cast<float>(birth) + 0.5F) / static_cast<float>(count);
+                (static_cast<float>(count - 1 - birth) + emitter.emission) / emission_rate;
             if (age >= lifetime)
                 continue;
-            auto const velocity = glm::vec3{std::cos(angle) * (spark ? 0.25F : 0.08F),
-                                            spark ? 0.9F + variation : 0.45F + variation * 0.35F,
-                                            std::sin(angle) * (spark ? 0.25F : 0.08F)};
+            float const radius = std::sqrt(random.y) * 0.055F;
+            auto const offset = glm::vec3{std::cos(angle) * radius, 0, std::sin(angle) * radius};
+            // The broad birth disk converges toward the plume axis as particles rise.
+            auto const velocity =
+                spark ? glm::vec3{std::cos(angle) * 0.25F, 12.6F + variation * 14.0F,
+                                  std::sin(angle) * 0.25F}
+                      : -offset / lifetime + glm::vec3{0, 6.3F + variation * 4.9F, 0};
             auto const fraction = delta_seconds > 0 ? age / delta_seconds : 0;
-            auto const origin = glm::mix(tip, emitter.previous_tip, fraction);
+            auto const origin = glm::mix(tip, emitter.previous_tip, fraction) + offset;
             auto const acceleration = glm::vec3{0, spark ? -0.6F : 0.7F, 0};
             emitter.particles.push_back(
                 {origin + velocity * age + acceleration * (0.5F * age * age),
@@ -676,16 +815,24 @@ void WorldPresentation::update_particles(float delta_seconds)
         emitter.burning = true;
         for (auto const &particle : emitter.particles) {
             float const life = particle.age / particle.lifetime;
-            float const fade = (1 - life) * (1 - life);
-            auto const width = particle.spark ? 0.012F : 0.19F * (1 - life * 0.7F);
+            float const fade =
+                glm::smoothstep(0.0F, 0.0025F, particle.age) * (1 - life) * (1 - life);
+            auto const width = particle.spark
+                                   ? 0.012F
+                                   : (0.035F + particle.variation * 0.025F) * (1 - life * 0.65F);
             visible.push_back({
-                .position = particle.position,
-                .size = {width,
-                         particle.spark ? 0.04F : width * (1.6F + particle.variation * 0.5F)},
+                .position =
+                    particle.position +
+                    (particle.spark
+                         ? glm::vec3{0}
+                         : glm::vec3{std::sin(particle.age * 17 + particle.variation * 23), 0,
+                                     std::cos(particle.age * 13 + particle.variation * 31)} *
+                               (0.035F * life * (1 - life))),
+                .size = {width, particle.spark ? 0.04F : width},
                 .radiance = particle.spark ? glm::vec3{8, 2.2F, 0.2F}
                                            : glm::mix(glm::vec3{12, 5.5F, 0.5F},
                                                       glm::vec3{4, 0.25F, 0.015F}, life),
-                .opacity = particle.spark ? fade : fade * 0.65F,
+                .opacity = particle.spark ? fade : fade * 0.85F,
                 .rotation = particle.spark
                                 ? particle.variation * 3
                                 : std::sin(flame_time_ * 5 + particle.variation * 8) * 0.16F,
@@ -694,17 +841,29 @@ void WorldPresentation::update_particles(float delta_seconds)
         }
     }
     if (continent_->location(village::smithy)) {
-        // Continuous furnace tongues use the same transparent particle pass as torches.
-        for (int i = 0; i < 24; ++i) {
-            float const phase = glm::fract(flame_time_ * 0.8F + static_cast<float>(i) / 24.0F);
-            float const angle = static_cast<float>(i) * 2.39996F;
+        // Reconstruct live births on a fixed clock; each birth gets independent variation.
+        constexpr float furnace_rate = 1800;
+        auto const clock = flame_time_ * furnace_rate;
+        auto const latest = static_cast<std::uint32_t>(std::floor(clock));
+        for (std::uint32_t i = 0; i < 1800; ++i) {
+            auto const random = samples(latest - i, 0xfaceU);
+            float const age = (static_cast<float>(i) + glm::fract(clock)) / furnace_rate;
+            float const lifetime = 0.315F + random.w * 0.385F;
+            if (age >= lifetime)
+                continue;
+            float const life = age / lifetime;
+            float const angle = random.x * glm::two_pi<float>();
+            float const radius = std::sqrt(random.y) * (1 - life);
+            float const sway = std::sin(age * 12 + random.z * 23) * life * (1 - life);
+            float const width = (0.055F + random.z * 0.035F) * (1 - life * 0.7F);
             visible.push_back({
-                .position = village::hearth + glm::vec3{std::cos(angle) * 0.5F, phase * 0.85F,
-                                                        std::sin(angle) * 0.65F},
-                .size = {0.22F * (1 - phase * 0.5F), 0.45F * (1 - phase * 0.7F)},
-                .radiance = glm::mix(glm::vec3{10, 3.5F, 0.2F}, glm::vec3{3, 0.15F, 0.01F}, phase),
-                .opacity = (1 - phase) * 0.65F,
-                .rotation = std::sin(flame_time_ * 3 + angle) * 0.2F,
+                .position = village::hearth +
+                            glm::vec3{std::cos(angle) * radius * 0.5F + sway * 0.15F,
+                                      age * (0.91F + random.z * 0.77F) + 0.35F * age * age,
+                                      std::sin(angle) * radius * 0.65F + sway * 0.12F},
+                .size = {width, width},
+                .radiance = glm::mix(glm::vec3{12, 5.5F, 0.5F}, glm::vec3{4, 0.25F, 0.015F}, life),
+                .opacity = glm::smoothstep(0.0F, 0.025F, age) * (1 - life) * (1 - life) * 0.85F,
                 .spark = false,
             });
         }
@@ -816,6 +975,11 @@ void WorldPresentation::set_grass_density(int density)
     grass_density_ = density;
     for (auto const &[model, level] : grass_models_)
         model->visible = level <= density;
+}
+
+FogSettings &WorldPresentation::fog_settings()
+{
+    return fog_settings_;
 }
 
 } // namespace lc1

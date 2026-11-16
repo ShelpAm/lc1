@@ -40,6 +40,10 @@ WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot con
             from.body_yaw() + std::remainder(to.body_yaw() - from.body_yaw(), 360.0F) * alpha;
         pose.relative_look_yaw = glm::mix(from.look_yaw(), to.look_yaw(), alpha);
         pose.relative_look_pitch = glm::mix(from.look_pitch(), to.look_pitch(), alpha);
+        pose.body.height = glm::mix(from.body.height, to.body.height, alpha);
+        pose.body.eye_height = glm::mix(from.body.eye_height, to.body.eye_height, alpha);
+        result.characters[i].crouch_amount = glm::mix(previous.characters[i].crouch_amount,
+                                                      current.characters[i].crouch_amount, alpha);
     }
     return result;
 }
@@ -66,6 +70,7 @@ WorldSnapshot capture_world(GameWorld const &world)
              .faction = world.faction(character->faction()).name(),
              .pose = *character,
              .model = character->config().model,
+             .proportions = character->proportions(),
              .weapon_model = std::move(weapon_model),
              .attack_sequence = character->attack_sequence(),
              .nod_sequence = character->nod_sequence(),
@@ -76,6 +81,7 @@ WorldSnapshot capture_world(GameWorld const &world)
              .attack_progress = character->attack_progress(),
              .running = character->running(),
              .moving = character->moving(),
+             .crouch_amount = character->crouch_amount(),
              .reaction_time = character->reaction_time(),
              .speech = std::move(speech),
              .dialog_partner =

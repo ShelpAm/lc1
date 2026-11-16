@@ -248,6 +248,10 @@ cd build/linux-x86_64/Debug
 ./lc1_pbr_tests
 ```
 
+`./lc1_pbr_tests --inventory` checks every catalog item for visible 3D geometry and transparent background, then renders
+the character/item preview through the real ImGui Vulkan backend
+and writes `artifacts/inventory.ppm` for layout review. It requires the normal validation-enabled GPU environment.
+
 Other explicit GPU targets are `lc1_temporal_shadow_tests`, `lc1_shadow_path_tests`,
 `lc1_descriptor_heap_tests`, and `lc1_descriptor_heap_bulk_tests`. See the
 [descriptor heap test guide](docs/descriptor-heap-test.md) (Chinese) for its procedures.

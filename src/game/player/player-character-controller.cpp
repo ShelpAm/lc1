@@ -84,6 +84,13 @@ PlayerControls PlayerCharacterController::read_input(GameInputRouter const &inpu
                                     static_cast<float>(input.held(GameAction::MoveBackward))}
                     : glm::vec2{},
             .sprint = frame.keyboard_enabled && input.held(GameAction::Sprint),
+            .crouch = frame.keyboard_enabled && input.held(GameAction::Crouch),
+            .toggle_debug_flight =
+                frame.keyboard_enabled && input.pressed(GameAction::ToggleDebugFlight),
+            .flight_vertical = frame.keyboard_enabled
+                                   ? static_cast<float>(input.held(GameAction::Jump)) -
+                                         static_cast<float>(input.held(GameAction::Crouch))
+                                   : 0,
             .jump = frame.keyboard_enabled && input.pressed(GameAction::Jump),
             .swing_weapon = frame.mouse_enabled && input.pressed(GameAction::SwingWeapon),
             .nod = frame.keyboard_enabled && input.pressed(GameAction::Nod),
@@ -111,6 +118,10 @@ CharacterIntent PlayerCharacterController::decide(float)
             intent.look = glm::vec2{};
     }
     intent.sprint = input_->sprint;
+    intent.crouch = input_->crouch;
+    intent.toggle_debug_flight = input_->toggle_debug_flight;
+    intent.debug_flight_speed = input_->debug_flight_speed;
+    intent.flight_vertical = input_->flight_vertical;
     intent.jump = input_->jump;
     intent.swing_weapon = input_->swing_weapon;
     intent.nod = input_->nod;

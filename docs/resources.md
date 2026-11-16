@@ -167,7 +167,8 @@ GLB/glTF 支持一个顶点最多四个关节的线性混合蒙皮。加载器�
 `Model` 保存经过校验的 `SkinnedMesh`：网格节点、关节调色板、逆绑定矩阵、绑定顶点、索引和权重。
 `GpuModel` 对蒙皮资产额外保留这些 CPU 数据；刚性资产继续在上传后释放 CPU 几何。
 `ModelInstance` 使用独立的节点动画姿态，在 CPU 计算
-`inverse(mesh_node) × joint_node × inverse_bind`，按权重混合顶点变换；法线使用混合线性变换的逆转置，
+`inverse(mesh_node) × joint_node × inverse_bind`，按权重混合顶点变换。
+法线方向由混合线性变换的余因子矩阵与行列式符号计算，归一化后等价于逆转置，复用余因子避免再次求逆。
 切线重新正交化并保留镜像手性。零缩放和奇异变换继续明确失败，不降低现有可逆变换约束。
 
 Scene 的 DrawItem 保存本帧变形顶点的不可变快照。Renderer 在各个 FrameResources 中独立拥有
@@ -193,6 +194,19 @@ yyx 使用 `models/yone/封魔剑魂.glb`。`python scripts/prepare-yone.py yone
 `source.glb` 提取两张内嵌贴图，分别缩放至 1024×1024 后合成为 `textures/winterblessed-hwei/base-color.png`。
 子网格共享 UV accessor，按各子网格索引引用的顶点仅改写一次 UV，映射至对应图集区域；模型保留原始动画，种子存档的
 3 号角色使用 `Idle1_Base`、`RunSlow`、`RunFast`、`Attack1_A`、`Death` 和 `Joke`。
+
+集市摊贩（`runtime/saves/01` 的 6 号 NPC）使用本地导入的蕾米埃尔泳装模型。
+`python scripts/prepare-remiel.py /path/to/蕾米埃尔-泳装` 通过 Assimp CLI 和 Pillow 生成
+`models/remiel-swimsuit/remiel.glb` 与 `textures/remiel-swimsuit/base-color.png`，并保留原始 `RM.txt`。
+PMX 的骨架和四权重蒙皮保留，额外球面 UV、重合的透明高光叠层与半透明眼影不进入当前不透明 PBR 变体；
+底色拼为一张带边缘留白的图集。模型按约 1.8 米身高配置，眼睛挂点使用 `頭`。
+源文件没有动画；准备脚本在原骨架上烘焙 `Idle`（呼吸与轻微翼摆）、`Walk`、`Run` 和 `Wave` 四段 FK 动画。
+走跑驱动有蒙皮权重的 `足D`／`ひざD`／`足首D` 链，不依赖未导出的 MMD IK 和继承约束。
+另外烘焙 `Crouch` 和 `StandUp`：屈髋、屈膝并按腿长降低骨盆，脚踝补偿倾角。
+6 号摊贩与 10 号巨大娘使用这些片段；表现层按已有移动状态选走跑，F2 动作播放挥手，结束回到待机。
+Ctrl 下蹲使用 `Crouch` 按模拟进度正反向采样，`StandUp` 保留为可单独查看的站起片段。
+不支持 MMD 刚体、实时 IK、表情或翅膀机械自转；当前步态为手工参数烘焙，没有脚掌锁地或地形适配。
+原说明禁止二次配布和商用，生成素材仅供本地使用，不随代码发布；已有 checkpoint 的外观不自动迁移。
 
 CPU 导入测试覆盖权重混合、逆绑定矩阵、网格局部空间、独立实例和非法绑定；
 可额外执行 `lc1_model_loading_tests <rumble.glb>` 逐段采样真实资源。
@@ -220,3 +234,6 @@ GPU 目标 `lc1_pbr_tests` 增加共享网格的多节点动画回读，检查�
 不复制网格或延长 CPU 几何寿命。上传屏障同时覆盖片元阶段的物理地址读取。
 16 位索引缓冲分配到四字节边界，shader 以 32 位字读取并取半字，避免要求额外的 shaderInt16 feature；
 三角形索引和光栅绘制数量不变。地址和借用的有效期与对应 mesh 一致，必须活到提交完成。
+
+`GpuMesh` 上传静态顶点、更新帧槽蒙皮顶点时同时保留局部空间包围盒，不保留整份静态 CPU 顶点。
+人物面板用各网格包围盒与当前节点变换计算人物及装备的整体范围，自动取景；预览资产仍借用原有 GPU 模型。

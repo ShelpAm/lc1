@@ -56,6 +56,43 @@ WorldSetup world_setup(ContinentIdentity const &identity)
                         {.position = spawn + glm::vec3{1.58F, 0, 4.03F}, .wait_seconds = 2.92F},
                         {.position = spawn + glm::vec3{-2.96F, 0, -3.41F}, .wait_seconds = 1.61F}};
     }
+    if (identity.id == "present") {
+        // Out-and-back paths follow the authored road bends; staggered stops keep
+        // villagers from moving as one synchronized group.
+        setup.npc_patrols = {
+            {10,
+             {.route = {{{-18, 0, 72}, 10}},
+              .spawn = glm::vec3{-18, 0, 72},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
+            {6,
+             {.route = {{{0, 0, 112}, 3}, {{5, 0, 119}, 0}, {{10, 0, 125}, 8}, {{5, 0, 119}, 0}},
+              .spawn = glm::vec3{0, 0, 112},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
+            {7,
+             {.route = {{{-13, 0, 110}, 6}, {{-5, 0, 115}, 2}, {{0, 0, 112}, 4}, {{-5, 0, 115}, 0}},
+              .spawn = glm::vec3{-13, 0, 110},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
+            {8,
+             {.route = {{{10, 0, 125}, 5}, {{12, 0, 145}, 2}, {{6, 0, 161}, 7}, {{12, 0, 145}, 0}},
+              .spawn = glm::vec3{10, 0, 125},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
+            {9,
+             {.route = {{{-8, 0, 183}, 9}, {{-8, 0, 174}, 0}, {{6, 0, 161}, 4}, {{-8, 0, 174}, 0}},
+              .spawn = glm::vec3{-8, 0, 183},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
+        };
+        for (auto &[id, patrol] : setup.npc_patrols) {
+            for (auto &point : patrol.route)
+                point.position.y =
+                    *setup.continent.ground_height({point.position.x, point.position.z});
+            patrol.spawn->y = *setup.continent.ground_height({patrol.spawn->x, patrol.spawn->z});
+        }
+    }
     return setup;
 }
 } // namespace lc1::demo

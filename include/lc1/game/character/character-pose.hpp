@@ -12,6 +12,7 @@ struct CharacterPose {
     CharacterBody body;
     float relative_look_yaw = 0;
     float relative_look_pitch = 0;
+    bool debug_flying = false;
 
     CharacterPose() = default;
     CharacterPose(Character const &character);

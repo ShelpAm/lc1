@@ -64,11 +64,22 @@ class Application {
     vk::SurfaceFormatKHR const surface_format_;
     std::optional<Swapchain> swapchain_;
     Renderer renderer_;
+    Renderer preview_renderer_;
+    std::optional<GpuImage> preview_image_;
+    std::uint64_t preview_texture_ = 0;
+    bool preview_initialized_ = false;
+
+    struct ApplicationFrame {
+        FrameResources world;
+        std::optional<FrameResources> preview;
+        std::uint32_t preview_capacity = 0;
+    };
+
     // The frame factory sizes GPU resources from the session's current draw count.
     // Keep the session alive until all frame resources have been destroyed.
     std::unique_ptr<GameSimulation> simulation_;
     std::unique_ptr<GameSession> game_;
-    std::unique_ptr<FrameLoop<FrameResources>> frame_loop_;
+    std::unique_ptr<FrameLoop<ApplicationFrame>> frame_loop_;
     bool recreate_requested_ = false;
     std::uint32_t imgui_image_count_ = 0;
 };

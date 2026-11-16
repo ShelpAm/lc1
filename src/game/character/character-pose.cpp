@@ -5,8 +5,9 @@
 
 namespace lc1 {
 CharacterPose::CharacterPose(Character const &character)
-    : world_transform(character.transform()), body(character.body()),
-      relative_look_yaw(character.look_yaw()), relative_look_pitch(character.look_pitch())
+    : world_transform(character.transform()), body(character.collision_body()),
+      relative_look_yaw(character.look_yaw()), relative_look_pitch(character.look_pitch()),
+      debug_flying(character.debug_flying())
 {
 }
 

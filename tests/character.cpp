@@ -3,6 +3,7 @@
 #include "character-lookup.hpp"
 #include "lc1/game/actions.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
+#include "lc1/game/character/character-model.hpp"
 #include "lc1/game/continent/continent.hpp"
 #include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/party/faction.hpp"
@@ -77,6 +78,52 @@ lc1::ContinentData make_world_data()
 lc1::Continent make_world()
 {
     return lc1::Continent{make_world_data()};
+}
+
+void crouching()
+{
+    auto data = make_world_data();
+    data.blocks.push_back({{1, 1.55F, -1}, {4, 1.7F, 1}});
+    lc1::Continent world{std::move(data)};
+    lc1::Character character{world, {.position = {0, 0, 0}}, {.keyid = 44}};
+    lc1::InputState devices;
+    lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    devices.on_key(lc1::Key::LeftControl, true);
+    input.update(devices);
+    auto controls = lc1::PlayerCharacterController::read_input(input, {.keyboard_enabled = true});
+    lc1::PlayerCharacterController controller{controls};
+    character.set_controller(&controller);
+    character.update(0.2F, world);
+    check(near(character.crouch_amount(), 0.5F) && character.height() < 1.8F &&
+              character.eye_position().y < 1.65F,
+          "held Ctrl starts a gradual crouch and lowers the eyes");
+    controls.crouch = false;
+    character.update(0.1F, world);
+    check(near(character.crouch_amount(), 0.25F),
+          "release reverses a partial crouch without jumping to its endpoint");
+    controls.crouch = true;
+    character.update(0.4F, world);
+    check(near(character.height(), 1.44F) && near(character.body().height, 1.8F),
+          "crouching changes collision height while retaining the standing definition");
+    controls.jump = true;
+    controls.sprint = true;
+    character.update(0.1F, world);
+    check(character.on_ground() && !character.running(),
+          "crouching prevents jumping and sprinting");
+    controls = {};
+    controls.crouch = true;
+    character.move(world, {2, 0, 0});
+    controls.crouch = false;
+    for (int tick = 0; tick < 60; ++tick)
+        character.update(1.0F / 60, world);
+    check(character.crouch_amount() > 0 && character.height() <= 1.55F,
+          "releasing Ctrl cannot stand through a low ceiling");
+    character.move(world, {-2, 0, 0});
+    character.update(0.4F, world);
+    check(near(character.crouch_amount(), 0) && near(character.height(), 1.8F),
+          "leaving the ceiling allows the character to finish standing");
+    controls = lc1::PlayerCharacterController::read_input(input, {.keyboard_enabled = false});
+    check(!controls.crouch, "UI keyboard capture gates held Ctrl");
 }
 
 void blacksmith_forging()
@@ -682,17 +729,28 @@ void pose_and_movement()
     walker.walk(0.1F, world, {0, 0, -1}, true);
     check(near(walker.position().y, 0), "running cannot make the ground character fly");
 
-    lc1::Character configured{world, {.position = {0, 0, 0}}, {.level = 10}, {.eye_height = 1.2F}};
+    lc1::Character configured{world,
+                              {.position = {0, 0, 0}},
+                              {.level = 10, .base_walk_speed = 8, .run_speed_bonus = 6},
+                              {.eye_height = 1.2F}};
     configured.walk(0.1F, world, {0, 0, -0.5F}, false);
-    float const expected_walk_speed = 4.5F + std::log(2.0F);
+    float const expected_walk_speed = 8.0F + std::log(2.0F);
     check(near(configured.position(), {0, 0, -expected_walk_speed * 0.05F}) &&
               near(configured.eye_position().y, 1.2F),
-          "walking speed derives from agility while body controls eye height");
+          "configured base walking speed retains agility and body eye height");
     auto const walking_position = configured.position();
     configured.walk(0.1F, world, {0, 0, -1}, true);
     check(near(configured.position(),
-               walking_position + glm::vec3{0, 0, -(expected_walk_speed + 4.5F) * 0.1F}),
-          "running adds its speed bonus to agility-derived walking speed");
+               walking_position + glm::vec3{0, 0, -(expected_walk_speed + 6.0F) * 0.1F}),
+          "running adds the configured bonus to walking speed");
+
+    for (float invalid :
+         {-1.0F, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+        rejects([&] { lc1::Character bad{world, {}, {.base_walk_speed = invalid}}; },
+                "invalid base walking speed is rejected");
+        rejects([&] { lc1::Character bad{world, {}, {.run_speed_bonus = invalid}}; },
+                "invalid running bonus is rejected");
+    }
 
     auto const before = character.position();
     rejects([&] { character.move(world, {0, 1, 0}); }, "ground move rejects vertical displacement");
@@ -847,6 +905,7 @@ void motion_configuration()
     auto const world = make_world();
     lc1::Character character{
         world, {}, {}, {}, {.gravity = 4.0F, .jump_height = 2.0F, .max_step_seconds = 1.0}};
+    check(near(character.jump_height(), 2.0F), "character exposes its configured jump height");
     apply_character_intent(character, 1.0F, world, {.jump = true});
     check(near(character.position().y, 2.0F) && !character.on_ground(),
           "configured gravity and jump height determine the apex");
@@ -914,9 +973,20 @@ void player_controllers()
     auto const before = character.position();
     apply(lc1::PlayerCharacterController::third_person({0, 1}, {0, -2, -4}));
     check(near(character.position(), before + glm::vec3{0, 0, -0.45F}) &&
-              near(character.body_heading(), {0, 0, -1}),
-          "switching controllers moves the same character using the new camera basis");
+              near(character.body_yaw(), -36.0F),
+          "third-person movement turns gradually while moving in the camera basis");
     check(near(character.look_pitch(), 0), "third-person movement restores a level look target");
+    for (int i = 0; i < 3; ++i)
+        apply(lc1::PlayerCharacterController::third_person({0, 1}, {0, 0, -1}));
+    check(near(character.body_yaw(), 0), "turn reaches its target without overshoot");
+    character.set_body_yaw(179);
+    apply(lc1::PlayerCharacterController::third_person({0, 1}, {0.017452F, 0, 0.999848F}));
+    check(near(character.body_yaw(), -179), "turn crosses the yaw seam by the short arc");
+    character.set_body_yaw(0);
+    apply({.body_direction = glm::vec3{1, 0, 0}});
+    check(near(character.body_yaw(), -54), "AI facing requests use the same gradual turn");
+    apply_character_intent(character, 0, world, {.body_direction = glm::vec3{-1, 0, 0}});
+    check(near(character.body_yaw(), -54), "zero elapsed time does not turn the body");
     auto const stopped = character.position();
     apply(lc1::PlayerCharacterController::first_person(character, {}, {}));
     apply(lc1::PlayerCharacterController::third_person({}, {0, 0, -1}));
@@ -1123,12 +1193,140 @@ void model_node_transforms()
             "invalid model indices are rejected");
 }
 
+void debug_flight()
+{
+    auto data = make_world_data();
+    data.blocks.push_back({{-10, 2, -10}, {10, 2.05F, 10}});
+    lc1::Continent world{std::move(data)};
+    lc1::Character character{world, {.position = {0, 0, 0}}, {}};
+    lc1::InputState devices;
+    lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    lc1::PlayerControls controls;
+    lc1::PlayerCharacterController controller{controls};
+    character.set_controller(&controller);
+    devices.on_key(lc1::Key::P, true);
+    devices.on_key(lc1::Key::Space, true);
+    input.update(devices);
+    controls = lc1::PlayerCharacterController::read_input(input, {.keyboard_enabled = true});
+    character.update(1, world);
+    check(character.debug_flying() && !character.on_ground() && character.position().y > 4,
+          "P enables flight and held Space ascends through a solid ceiling instead of jumping");
+    devices.begin_frame();
+    input.update(devices);
+    controls = lc1::PlayerCharacterController::read_input(input, {.keyboard_enabled = true});
+    auto const height = character.position().y;
+    character.update(1, world);
+    check(character.debug_flying() && near(character.position().y, height * 2),
+          "holding P does not toggle repeatedly and holding Space keeps ascending");
+    controls = {};
+    character.update(1, world);
+    auto const hover = character.position();
+    character.update(1, world);
+    check(character.position() == hover,
+          "released or UI-gated flight input hovers without gravity");
+    controls.view.keyboard_enabled = true;
+    controls.movement = {1, 0};
+    controls.flight_vertical = -1;
+    character.update(2, world);
+    check(character.position().x > 5.1F && near(character.position().y, 0),
+          "debug flight crosses walls and descends through ceilings without a collision volume");
+    for (auto const multiplier : {0.1F, 1.0F, 100.0F}) {
+        controls = {};
+        controls.view.keyboard_enabled = true;
+        controls.movement = {1, 0};
+        controls.flight_vertical = 1;
+        controls.debug_flight_speed = multiplier;
+        auto const before = character.position();
+        character.update(0.01F, world);
+        auto const displacement = character.position() - before;
+        auto const expected = character.config().walk_speed() * multiplier * 0.01F;
+        check(near(displacement.x, expected) && near(displacement.y, expected),
+              "debug flight multiplier scales both horizontal travel and ascent at both limits");
+    }
+    controls = {.flight_vertical = 1};
+    character.update(1, world);
+    auto const airborne = character.position().y;
+    controls = {.toggle_debug_flight = true};
+    character.update(0, world);
+    check(!character.debug_flying(), "P toggles flight off");
+    controls = {};
+    character.update(0.1F, world);
+    check(character.position().y < airborne,
+          "leaving flight resumes gravity with fresh motion state");
+}
+
+void leg_height_proportions()
+{
+    lc1::scene::ModelDefinition model{
+        0,
+        {{.name = "Import", .transform = {.scale = {2, 2, 2}}},
+         {.name = "腰", .parent_index = 0, .transform = {.translation = {0, 10, 0}}},
+         {.name = "下半身", .parent_index = 1},
+         {.name = "Foot", .parent_index = 2, .transform = {.translation = {0, -10, 0}}},
+         {.name = "Head", .parent_index = 1, .transform = {.translation = {0, 5, 0}}}}};
+    lc1::scene::ModelInstance pose{model};
+    lc1::scene::ModelInstance const other{model};
+    lc1::apply_remiel_leg_height(pose, 2);
+    auto const matrices = pose.model_matrices();
+    check(near(glm::vec3{matrices[3][3]}, {0, 0, 0}) &&
+              near(glm::vec3{matrices[1][3]}, {0, 40, 0}) &&
+              near(glm::vec3{matrices[4][3]}, {0, 50, 0}),
+          "leg height stretches around the feet and raises the upper body in imported coordinates");
+    check(near(glm::length(glm::vec3{matrices[4][1]}), 2) &&
+              near(glm::length(glm::vec3{matrices[2][0]}), 2) &&
+              near(other.local_transforms()[1].translation.y, 10),
+          "leg height preserves torso proportions, lower-body width and other model instances");
+    auto const world = make_world();
+    lc1::Character character{world, {.position = world.spawn()}, {}};
+    rejects([&] { character.set_proportions(world, {.scale = 0}); }, "zero body scale is rejected");
+    rejects(
+        [&] {
+            character.set_proportions(
+                world, {.leg_height_scale = std::numeric_limits<float>::quiet_NaN()});
+        },
+        "nonfinite leg scale is rejected");
+    check(character.proportions() == lc1::CharacterProportions{},
+          "invalid proportions leave the character unchanged");
+
+    check(character.set_proportions(world, {.scale = 2, .leg_height_scale = 1.5F}),
+          "resizing succeeds when the complete body fits");
+    auto const accepted = character.proportions();
+    auto const feet = character.position();
+    check(!character.set_proportions(world, {.scale = 20}), "growth into a nearby wall is refused");
+    check(character.proportions() == accepted && character.position() == feet,
+          "blocked growth preserves both proportions and feet");
+    character.update(1.0F / 60, world);
+    character.move(world, {0.1F, 0, 0});
+    check(character.set_proportions(world, {.scale = 0.5F}), "shrinking remains possible");
+
+    lc1::Character edge{world, {.position = {15.5F, 0, 0}}, {}};
+    check(!edge.set_proportions(world, {.scale = 2}),
+          "growth beyond the continent boundary is refused");
+    edge.update(1.0F / 60, world);
+
+    auto data = make_world_data();
+    data.blocks.push_back({{-2, 2, -2}, {2, 2.2F, 2}});
+    lc1::Continent covered{std::move(data)};
+    lc1::Character under_roof{covered, {.position = {0, 0, 0}}, {}};
+    check(!under_roof.set_proportions(covered, {.leg_height_scale = 2}),
+          "leg growth into a ceiling is refused");
+    under_roof.update(1.0F / 60, covered);
+
+    lc1::Character crouched{covered, {.position = {0, 0, 0}}, {}, {}, {}, 1};
+    check(crouched.set_proportions(covered, {.scale = 1.2F}),
+          "resizing uses the current crouched collision height");
+    crouched.update(1.0F / 60, covered);
+}
+
 } // namespace
 
 int main()
 {
     try {
+        debug_flight();
+        leg_height_proportions();
         blacksmith_forging();
+        crouching();
         dialog_script_validation();
         recruitment_dialog();
         companion_orders();

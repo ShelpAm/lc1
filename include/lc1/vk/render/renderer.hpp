@@ -105,8 +105,9 @@ class Renderer {
                     std::span<DrawItem const> draws, scene::FpsCamera const &camera,
                     glm::vec3 sky_color, TextFrameInput const &text,
                     std::span<scene::Particle const> particles,
-                    std::optional<scene::DistanceFog> const &fog);
-    void record_particles(CommandBuffer &commands, scene::FpsCamera const &camera,
+                    std::optional<scene::DistanceFog> const &fog, bool transparent_background);
+    void record_particles(CommandBuffer &commands, FrameResources &resources,
+                          scene::FpsCamera const &camera,
                           std::span<scene::Particle const> particles,
                           std::optional<scene::DistanceFog> const &fog);
     void record_bloom(CommandBuffer &commands, FrameResources &resources, vk::Extent2D extent);

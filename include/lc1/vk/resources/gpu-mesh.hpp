@@ -7,6 +7,8 @@
 #include "lc1/vk/resources/gpu-buffer.hpp"
 #include "lc1/vk/resources/one-time-submit.hpp"
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <optional>
 
 #include <spdlog/spdlog.h>
@@ -48,6 +50,9 @@ class GpuMesh {
                          std::span<Vertex const> vertices);
     bool has_tangents() const;
 
+    // Local-space bounds of the uploaded vertices, retained without CPU geometry.
+    std::array<glm::vec3, 2> const &bounds() const { return bounds_; }
+
     std::uint32_t triangle_count() const { return index_count_ / 3; }
 
     vk::DeviceAddress acceleration_structure_address() const;
@@ -56,6 +61,8 @@ class GpuMesh {
     std::uint32_t index_stride() const;
 
   private:
+    void update_bounds(std::span<Vertex const> vertices);
+    std::array<glm::vec3, 2> bounds_{};
     vk::AccelerationStructureGeometryKHR acceleration_geometry() const;
     void build_acceleration_structure(Device const &device);
 
@@ -86,6 +93,7 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
       index_type_(vk::IndexTypeValue<T>::value),
       has_tangents_(!vertices.empty() && std::ranges::all_of(vertices, valid_tangent_frame))
 {
+    update_bounds(vertices);
     // Only needed until the copy has finished; one_time_submit waits for that,
     // so it can die at the end of this constructor.
     GpuBuffer staging_vertices{device, vertices.size_bytes(),

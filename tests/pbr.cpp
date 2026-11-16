@@ -1,12 +1,20 @@
 #include "character-input.hpp"
+#include "lc1/game/ui/game-ui.hpp"
+#include "lc1/game/ui/music-browser.hpp"
 #include "lc1/image.hpp"
 #include "render-device.hpp"
+#include <bit>
+#include <functional>
+#include <imgui.h>
+#include <imgui_freetype.h>
+#include <imgui_impl_vulkan.h>
 
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/physics/world-collision.hpp"
+#include "lc1/game/resources/catalog.hpp"
 #include "lc1/game/session/save.hpp"
 #include "lc1/game/world/game-world.hpp"
 #include "lc1/game/world/world-presentation.hpp"
@@ -76,11 +84,13 @@ struct Capture {
     glm::vec3 center() const { return hdr[(extent.height / 2) * extent.width + extent.width / 2]; }
 };
 
-Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
-                lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
-                vk::Extent2D extent = {.width = 65, .height = 65},
-                lc1::OutputSettings settings = {}, vk::Format format = vk::Format::eR8G8B8A8Unorm,
-                lc1::TextFrameInput text = {}, double *gpu_ms = nullptr)
+Capture
+capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameResources &frame,
+        lc1::scene::FpsCamera &camera, lc1::scene::Scene const &scene,
+        vk::Extent2D extent = {.width = 65, .height = 65}, lc1::OutputSettings settings = {},
+        vk::Format format = vk::Format::eR8G8B8A8Unorm, lc1::TextFrameInput text = {},
+        double *gpu_ms = nullptr,
+        std::function<void(lc1::CommandBuffer &, lc1::GpuImage const &)> const &overlay = {})
 {
     std::optional<vk::raii::QueryPool> timing;
     if (gpu_ms)
@@ -114,6 +124,8 @@ Capture capture(lc1::Device const &device, lc1::Renderer &renderer, lc1::FrameRe
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, **timing, 0);
         }
         renderer.record(wrapped, frame, {&output.view(), extent}, scene, camera, settings, text);
+        if (overlay)
+            overlay(wrapped, output);
         if (timing)
             commands.writeTimestamp2(vk::PipelineStageFlagBits2::eBottomOfPipe, **timing, 1);
         output.transition_layout(commands, vk::ImageLayout::eColorAttachmentOptimal,
@@ -868,6 +880,178 @@ void model_animation_test(lc1::Device const &device)
     near(render(instance).center().r, 2, "restarting animation restores rendered geometry");
 }
 
+void save_capture(Capture const &result, char const *path)
+{
+    std::ofstream image{path, std::ios::binary};
+    image << "P6\n" << result.extent.width << ' ' << result.extent.height << "\n255\n";
+    for (std::size_t i = 0; i < result.output.size(); i += 4)
+        for (int channel = 0; channel < 3; ++channel)
+            image.put(static_cast<char>(result.output[i + channel]));
+    check(image.good(), "failed to save model capture");
+}
+
+void giantess_test(lc1::Device const &device)
+{
+    lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
+                         "runtime/saves/01"};
+    lc1::GameWorld world{data, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    lc1::WorldPresentation presentation{device,
+                                        "runtime/assets",
+                                        world.continent(),
+                                        state,
+                                        {.exposure = 4, .encoding = lc1::OutputEncoding::Srgb},
+                                        lc1::PlayerId{1},
+                                        world.dialogs().catalog()};
+    presentation.update(0, {});
+    auto const &giant = world.character(lc1::CharacterId{10});
+    auto &giant_state = *std::ranges::find(state.characters, 10U, &lc1::CharacterSnapshot::keyid);
+    auto const &display = presentation.character_model(giant.id().value);
+    check(!display.model->skins().empty(), "giantess retains the imported skin and skeleton");
+    auto selected_clip = [&]() -> std::string_view {
+        auto const playback = display.pose.playback();
+        check(playback.has_value(), "giantess has active animation playback");
+        return display.pose.model().animations()[playback->animation].name;
+    };
+    check(selected_clip() == "Idle", "stationary giantess breathes in idle");
+    giant_state.moving = true;
+    presentation.update(0, {});
+    check(selected_clip() == "Walk", "moving snapshot selects the walk cycle");
+    giant_state.running = true;
+    presentation.update(0, {});
+    check(selected_clip() == "Run", "running snapshot selects the run cycle");
+    giant_state.moving = false;
+    giant_state.running = false;
+    ++giant_state.nod_sequence;
+    presentation.update(0, {});
+    check(selected_clip() == "Wave", "action snapshot selects the greeting");
+    presentation.update(3, {});
+    presentation.update(0, {});
+    check(selected_clip() == "Idle", "finished greeting returns to idle");
+    giant_state.crouch_amount = 0.5F;
+    presentation.update(0, {});
+    check(selected_clip() == "Crouch", "partial crouch selects the baked pose");
+    auto const halfway = display.pose.playback()->time;
+    giant_state.crouch_amount = 0.25F;
+    presentation.update(0, {});
+    check(display.pose.playback()->time < halfway, "release reverses the crouch pose smoothly");
+    giant_state.crouch_amount = 1;
+    presentation.update(0, {});
+    check(selected_clip() == "Crouch", "held Ctrl keeps the full crouch pose");
+    giant_state.crouch_amount = 0;
+    presentation.update(0, {});
+    check(selected_clip() == "Idle", "standing resumes idle without replaying crouch");
+
+    {
+        auto const giant = lc1::CharacterId{10};
+        auto &giant_character = world.character(giant);
+        giant_character.set_proportions(world.continent(),
+                                        {.scale = 1.5F, .leg_height_scale = 1.75F});
+        state = lc1::capture_world(world);
+        presentation.update(0, {});
+        auto const &giant_model = presentation.character_model(giant.value);
+        auto const waist = *giant_model.pose.model().find_node("腰");
+        auto const head = *giant_model.pose.model().find_node("頭");
+        auto const matrices = giant_model.pose.model_matrices();
+        auto const waist_height = matrices[waist][3].y;
+        auto const head_height = matrices[head][3].y;
+        for (int frame = 0; frame < 5; ++frame)
+            presentation.update(0, {});
+        auto const repeated = giant_model.pose.model_matrices();
+        check(std::abs(repeated[waist][3].y - waist_height) < 0.01F &&
+                  std::abs(repeated[head][3].y - head_height) < 0.01F,
+              "live leg proportions do not accumulate across render frames");
+        check(std::abs(glm::length(glm::vec3{giant_model.world_transform[0]}) - 1.5F) < 0.0001F,
+              "full body scale reaches the production character instance");
+        giant_character.set_proportions(world.continent(), {});
+        state = lc1::capture_world(world);
+        presentation.update(0, {});
+        check(giant_model.pose.model_matrices()[head][3].y < head_height,
+              "resetting leg proportions restores the original animated rig");
+    }
+
+    // Review the animation at source scale, independent of user-tuned giant size
+    // and distance fog. Production presentation above verifies gameplay selection.
+    lc1::scene::Scene isolated;
+    auto *model = isolated.add_model(
+        {.model = display.model,
+         .material = display.material,
+         .world_transform = glm::scale(
+             glm::mat4{1},
+             glm::vec3{1.0F / giant.config().model.transform.value().scale.value()[0]})});
+    isolated.add_light(lc1::scene::to_light(
+        lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 3},
+                                     .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(isolated.draw_count()));
+    lc1::scene::FpsCamera camera;
+    camera.set_zfar(150);
+    camera.set_fov_y(50);
+    camera.set_aspect_ratio(4.0F / 3.0F);
+    camera.set_position({22, 12, -40});
+    camera.look_at({0, 10, 0});
+    std::filesystem::create_directories("artifacts");
+    for (auto const *name : {"Idle", "Walk", "Run", "Wave", "Crouch", "StandUp"}) {
+        auto const clip = *model->pose.model().find_animatinon(name);
+        model->pose.play_animation(clip, false);
+        isolated.update_animations(0);
+        auto const start = capture(device, renderer, frame, camera, isolated,
+                                   {.width = 960, .height = 720}, presentation.output());
+        isolated.update_animations(model->pose.model().animations()[clip].duration() *
+                                   (std::string_view{name} == "Crouch" ? 1.0F : 0.25F));
+        auto const animated = capture(device, renderer, frame, camera, isolated,
+                                      {.width = 960, .height = 720}, presentation.output());
+        std::size_t changed = 0;
+        for (std::size_t pixel = 0; pixel < animated.output.size(); pixel += 4)
+            if (animated.output[pixel] != start.output[pixel] ||
+                animated.output[pixel + 1] != start.output[pixel + 1] ||
+                animated.output[pixel + 2] != start.output[pixel + 2])
+                ++changed;
+        check(changed > 100, std::format("{} visibly deforms the skinned character", name));
+        save_capture(start, std::format("artifacts/giantess-{}-start.ppm", name).c_str());
+        save_capture(animated, std::format("artifacts/giantess-{}.ppm", name).c_str());
+    }
+    model->pose.play_animation(*model->pose.model().find_animatinon("Idle"));
+    isolated.update_animations(0);
+    auto const original = capture(device, renderer, frame, camera, isolated,
+                                  {.width = 960, .height = 720}, presentation.output());
+    lc1::apply_remiel_leg_height(model->pose, 1.75F);
+    model->world_transform *= glm::scale(glm::mat4{1}, glm::vec3{1.25F});
+    auto const stretched = capture(device, renderer, frame, camera, isolated,
+                                   {.width = 960, .height = 720}, presentation.output());
+    check(original.output != stretched.output,
+          "live proportions visibly resize the skinned character");
+    save_capture(original, "artifacts/giantess-proportions-original.ppm");
+    save_capture(stretched, "artifacts/giantess-proportions-stretched.ppm");
+    auto giant_preview = presentation.character_preview(lc1::CharacterId{10}, -20);
+    auto player_preview = presentation.character_preview(lc1::CharacterId{1}, -20);
+    auto const capacity = static_cast<std::uint32_t>(
+        std::max(giant_preview.scene.draw_count(), player_preview.scene.draw_count()));
+    std::array preview_frames{renderer.make_frame_resources(capacity),
+                              renderer.make_frame_resources(capacity)};
+    for (int cycle = 0; cycle < 3; ++cycle) {
+        for (auto const target : {lc1::CharacterId{10}, lc1::CharacterId{1}}) {
+            check(world.transfer_control(lc1::PlayerId{1}, target),
+                  "preview regression transfers control");
+            state = lc1::capture_world(world);
+            presentation.update(0, {.first_person = true});
+            auto portrait = presentation.character_preview(target, -20);
+            for (auto &slot : preview_frames) {
+                double milliseconds = 0;
+                auto const image = capture(device, renderer, slot, portrait.camera, portrait.scene,
+                                           {.width = 512, .height = 768},
+                                           {.exposure = 1.2F,
+                                            .encoding = lc1::OutputEncoding::Srgb,
+                                            .transparent_background = true},
+                                           vk::Format::eR8G8B8A8Srgb, {}, &milliseconds);
+                std::cout << "Preview switch character " << target.value << ": " << milliseconds
+                          << " ms\n";
+                check(image.output[3] == 0, "switched portrait retains transparent background");
+            }
+        }
+    }
+}
+
 void player_models_test(lc1::Device const &device)
 {
     lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
@@ -925,17 +1109,9 @@ void player_models_test(lc1::Device const &device)
             ++changed;
     check(changed > 100, "imported weapon swing must visibly change rendered coverage");
     std::filesystem::create_directories("artifacts");
-    auto save = [](Capture const &result, char const *path) {
-        std::ofstream image{path, std::ios::binary};
-        image << "P6\n" << result.extent.width << ' ' << result.extent.height << "\n255\n";
-        for (std::size_t i = 0; i < result.output.size(); i += 4)
-            for (int channel = 0; channel < 3; ++channel)
-                image.put(static_cast<char>(result.output[i + channel]));
-        check(image.good(), "failed to save player model capture");
-    };
-    save(rest, "artifacts/player-weapon-rest.ppm");
-    save(running, "artifacts/player-rumble-run.ppm");
-    save(swing, "artifacts/player-weapon-swing.ppm");
+    save_capture(rest, "artifacts/player-weapon-rest.ppm");
+    save_capture(running, "artifacts/player-rumble-run.ppm");
+    save_capture(swing, "artifacts/player-weapon-swing.ppm");
 
     // Exercise production YAML -> world snapshot -> presentation-owned models.
     lc1::GameWorld initial{data, "runtime/dialogs/catalog.yaml"};
@@ -1113,8 +1289,9 @@ void player_models_test(lc1::Device const &device)
                     armed.output[pixel + 2] != unarmed.output[pixel + 2])
                     ++changed;
             check(changed > 100, "each NPC weapon visibly changes its rendered image");
-            save(armed,
-                 std::format("artifacts/character-{}-weapon.ppm", bearer->config().keyid).c_str());
+            save_capture(
+                armed,
+                std::format("artifacts/character-{}-weapon.ppm", bearer->config().keyid).c_str());
         }
         auto &victim = world.character(lc1::CharacterId{2});
         victim.set_controller(nullptr);
@@ -1135,13 +1312,13 @@ void player_models_test(lc1::Device const &device)
                            {.width = 800, .height = 600});
         };
         auto const standing = capture_victim();
-        save(standing, "artifacts/combat-standing.ppm");
+        save_capture(standing, "artifacts/combat-standing.ppm");
         victim.take_damage(10);
         victim.update(0.15F, world.continent());
         state = lc1::capture_world(world);
         presentation.update(0, {});
         auto const recoil = capture_victim();
-        save(recoil, "artifacts/combat-hit.ppm");
+        save_capture(recoil, "artifacts/combat-hit.ppm");
         std::size_t reaction_pixels = 0;
         for (std::size_t pixel = 0; pixel < recoil.output.size(); pixel += 4)
             if (recoil.output[pixel] != standing.output[pixel] ||
@@ -1153,12 +1330,12 @@ void player_models_test(lc1::Device const &device)
         victim.update(0.3F, world.continent());
         state = lc1::capture_world(world);
         presentation.update(0, {});
-        save(capture_victim(), "artifacts/combat-falling.ppm");
+        save_capture(capture_victim(), "artifacts/combat-falling.ppm");
         victim.update(0.3F, world.continent());
         state = lc1::capture_world(world);
         presentation.update(0, {});
         auto const corpse = capture_victim();
-        save(corpse, "artifacts/combat-dead.ppm");
+        save_capture(corpse, "artifacts/combat-dead.ppm");
         reaction_pixels = 0;
         for (std::size_t pixel = 0; pixel < corpse.output.size(); pixel += 4)
             if (corpse.output[pixel] != standing.output[pixel] ||
@@ -1242,6 +1419,224 @@ void particle_render_test(lc1::Device const &device, vk::SampleCountFlagBits sam
     device.wait_idle();
 }
 
+void inventory_preview_test(lc1::Device const &device, lc1::VulkanLoader const &loader,
+                            lc1::Instance const &instance)
+{
+    lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    lc1::WorldPresentation presentation{device, "runtime/assets", world.continent(),        state,
+                                        {},     lc1::PlayerId{1}, world.dialogs().catalog()};
+    presentation.update(0.1F, {.first_person = true});
+    auto const id = state.players.at(lc1::PlayerId{1}).character_id;
+    auto preview = presentation.character_preview(id, -20);
+    auto &preview_scene = preview.scene;
+    check(std::ranges::none_of(preview_scene.draws(),
+                               [](auto const &draw) { return draw.view_index_count.has_value(); }),
+          "inventory restores the head and helmet hidden in first person");
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    std::array frames{
+        renderer.make_frame_resources(static_cast<std::uint32_t>(preview_scene.draw_count())),
+        renderer.make_frame_resources(static_cast<std::uint32_t>(preview_scene.draw_count()))};
+    lc1::GpuImage portrait{device,
+                           vk::Format::eR8G8B8A8Unorm,
+                           vk::Extent2D{512, 768},
+                           1,
+                           vk::SampleCountFlagBits::e1,
+                           vk::ImageUsageFlagBits::eColorAttachment |
+                               vk::ImageUsageFlagBits::eSampled,
+                           vk::ImageAspectFlagBits::eColor};
+    lc1::Renderer portrait_renderer{
+        device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto portrait_frame = portrait_renderer.make_frame_resources(
+        static_cast<std::uint32_t>(preview_scene.draw_count()));
+    auto camera = preview.camera;
+    lc1::one_time_submit(device, [&](lc1::CommandBuffer &commands) {
+        portrait.transition_layout(commands.raii(), vk::ImageLayout::eUndefined,
+                                   vk::ImageLayout::eColorAttachmentOptimal,
+                                   vk::PipelineStageFlagBits2::eNone, {},
+                                   vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                   vk::AccessFlagBits2::eColorAttachmentWrite);
+        portrait_renderer.record(commands, portrait_frame, {&portrait.view(), portrait.extent()},
+                                 preview_scene, camera,
+                                 {.exposure = 1.2F,
+                                  .encoding = lc1::OutputEncoding::Srgb,
+                                  .transparent_background = true});
+        portrait.transition_layout(commands.raii(), vk::ImageLayout::eColorAttachmentOptimal,
+                                   vk::ImageLayout::eShaderReadOnlyOptimal,
+                                   vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                   vk::AccessFlagBits2::eColorAttachmentWrite,
+                                   vk::PipelineStageFlagBits2::eFragmentShader,
+                                   vk::AccessFlagBits2::eShaderSampledRead);
+    });
+
+    for (auto const *resource : lc1::game::resources) {
+        auto item = presentation.item_preview(resource->keyid, -20);
+        auto item_frame =
+            renderer.make_frame_resources(static_cast<std::uint32_t>(item.scene.draw_count()));
+        auto const image = capture(device, renderer, item_frame, item.camera, item.scene,
+                                   {.width = 128, .height = 192},
+                                   {.exposure = 1.2F,
+                                    .encoding = lc1::OutputEncoding::Srgb,
+                                    .transparent_background = true});
+        check(image.output[3] == 0, "item preview background is transparent");
+        bool visible = false;
+        for (std::size_t pixel = 3; pixel < image.output.size(); pixel += 4)
+            visible |= image.output[pixel] == 255;
+        check(visible, "every catalog item has visible 3D geometry");
+    }
+
+    struct ImGuiLifetime {
+        ImGuiLifetime() { ImGui::CreateContext(); }
+
+        ~ImGuiLifetime()
+        {
+            if (ImGui::GetIO().BackendRendererUserData)
+                ImGui_ImplVulkan_Shutdown();
+            ImGui::DestroyContext();
+        }
+    } imgui;
+
+    struct Functions {
+        PFN_vkGetInstanceProcAddr get;
+        VkInstance instance;
+    } functions{loader.raii().getDispatcher()->vkGetInstanceProcAddr, instance.handle()};
+
+    check(ImGui_ImplVulkan_LoadFunctions(
+              vk::ApiVersion14,
+              [](char const *name, void *data) -> PFN_vkVoidFunction {
+                  auto const &functions = *static_cast<Functions const *>(data);
+                  return functions.get(functions.instance, name);
+              },
+              &functions),
+          "load inventory UI Vulkan functions");
+    VkFormat const format = VK_FORMAT_R8G8B8A8_UNORM;
+    ImGui_ImplVulkan_InitInfo backend{};
+    backend.ApiVersion = vk::ApiVersion14;
+    backend.Instance = instance.handle();
+    backend.PhysicalDevice = *device.raii_physical();
+    backend.Device = *device.raii();
+    backend.QueueFamily = device.queue_family();
+    backend.Queue = *device.raii_queue();
+    backend.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
+    backend.MinImageCount = backend.ImageCount = 2;
+    backend.UseDynamicRendering = true;
+    backend.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    backend.PipelineInfoMain.PipelineRenderingCreateInfo = {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        nullptr,
+        0,
+        1,
+        &format,
+        VK_FORMAT_UNDEFINED,
+        VK_FORMAT_UNDEFINED};
+    check(ImGui_ImplVulkan_Init(&backend), "initialize inventory UI renderer");
+    auto const texture = std::bit_cast<std::uint64_t>(
+        ImGui_ImplVulkan_AddTexture(*portrait.view(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+    lc1::GameUi ui;
+    presentation.set_volume(0);
+    lc1::MusicBrowser music{presentation.audio_context()};
+    ui.start_game();
+    ui.toggle_player_info();
+    auto &io = ImGui::GetIO();
+    io.Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
+    check(io.Fonts->AddFontFromFileTTF("runtime/assets/fonts/SourceHanSansCN-Regular.otf", 13.0F) !=
+              nullptr,
+          "inventory uses the same Chinese-capable font as the application");
+    io.IniFilename = nullptr;
+    io.DisplaySize = {1280, 900};
+    io.DeltaTime = 1.0F / 30.0F;
+    lc1::scene::Scene backdrop;
+    backdrop.set_sky(lc1::scene::Sky{.color = {0.01F, 0.015F, 0.02F}});
+    std::filesystem::create_directories("artifacts");
+    for (int frame = 0; frame < 24; ++frame) {
+        if (frame == 1) {
+            io.AddMousePosEvent(180, 740);
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        }
+        if (frame == 2) {
+            io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+            io.AddMousePosEvent(1000, 850);
+        }
+        ImGui_ImplVulkan_NewFrame();
+        ImGui::NewFrame();
+        ui.update({.world = state,
+                   .player = id,
+                   .player_parties = {&state.parties.front()},
+                   .saves = {},
+                   .current_save = "01",
+                   .extent = {1280, 900},
+                   .lighting_name = "Studio",
+                   .exposure = 1,
+                   .time_of_day = 12,
+                   .time_rate = 1,
+                   .grass_density = 4,
+                   .showcase_animated = false,
+                   .interaction_target = {},
+                   .character_preview_texture = texture},
+                  music);
+        auto const request = *ui.character_preview();
+        auto current =
+            request.resource
+                ? presentation.item_preview(*request.resource, request.yaw, request.zoom)
+                : presentation.character_preview(request.character, request.yaw, request.zoom);
+        lc1::one_time_submit(device, [&](lc1::CommandBuffer &commands) {
+            portrait.transition_layout(commands.raii(), vk::ImageLayout::eShaderReadOnlyOptimal,
+                                       vk::ImageLayout::eColorAttachmentOptimal,
+                                       vk::PipelineStageFlagBits2::eFragmentShader,
+                                       vk::AccessFlagBits2::eShaderSampledRead,
+                                       vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                       vk::AccessFlagBits2::eColorAttachmentWrite);
+            portrait_renderer.record(commands, portrait_frame,
+                                     {&portrait.view(), portrait.extent()}, current.scene,
+                                     current.camera,
+                                     {.exposure = 1.2F,
+                                      .encoding = lc1::OutputEncoding::Srgb,
+                                      .transparent_background = true});
+            portrait.transition_layout(commands.raii(), vk::ImageLayout::eColorAttachmentOptimal,
+                                       vk::ImageLayout::eShaderReadOnlyOptimal,
+                                       vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                                       vk::AccessFlagBits2::eColorAttachmentWrite,
+                                       vk::PipelineStageFlagBits2::eFragmentShader,
+                                       vk::AccessFlagBits2::eShaderSampledRead);
+        });
+        ImGui::Render();
+        check(ui.character_preview().has_value(),
+              "open inventory requests a real character preview");
+        auto const image = capture(
+            device, renderer, frames[frame % 2], camera, backdrop, {.width = 1280, .height = 900},
+            {}, vk::Format::eR8G8B8A8Unorm, {}, nullptr,
+            [&](lc1::CommandBuffer &commands, lc1::GpuImage const &target) {
+                vk::MemoryBarrier2 const barrier{
+                    .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                    .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+                    .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                    .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead |
+                                     vk::AccessFlagBits2::eColorAttachmentWrite};
+                commands.raii().pipelineBarrier2(vk::DependencyInfo{}.setMemoryBarriers(barrier));
+                vk::RenderingAttachmentInfo const color{
+                    .imageView = *target.view(),
+                    .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                    .loadOp = vk::AttachmentLoadOp::eLoad,
+                    .storeOp = vk::AttachmentStoreOp::eStore};
+                vk::RenderingInfo rendering{.renderArea = {{0, 0}, target.extent()},
+                                            .layerCount = 1};
+                rendering.setColorAttachments(color);
+                commands.raii().beginRendering(rendering);
+                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *commands.raii());
+                commands.raii().endRendering();
+            });
+        if (frame == 23) {
+            std::ofstream file{"artifacts/inventory.ppm", std::ios::binary};
+            file << "P6\n1280 900\n255\n";
+            for (std::size_t pixel = 0; pixel < image.output.size(); pixel += 4)
+                for (int channel = 0; channel < 3; ++channel)
+                    file.put(static_cast<char>(image.output[pixel + channel]));
+            check(file.good(), "inventory screenshot saved");
+        }
+    }
+    device.wait_idle();
+}
+
 void first_person_test(lc1::Device const &device)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
@@ -1320,8 +1715,8 @@ void torch_test(lc1::Device const &device)
     presentation.update(0, {});
     check(presentation.object_capacity() == capacity &&
               presentation.scene().draws().size() == unlit_draws &&
-              presentation.scene().particles().size() > ambient_particles,
-          "torch emits particles without growing mesh frame capacity");
+              presentation.scene().particles().size() == ambient_particles,
+          "equipping a torch preserves mesh capacity and waits for elapsed emission time");
     check(presentation.scene().lights().size() == unlit_lights + 1,
           "equipped torch enables its bearer light");
     auto const lights = presentation.scene().lights();
@@ -1330,6 +1725,8 @@ void torch_test(lc1::Device const &device)
     check(torch_light.color.r > torch_light.color.g && torch_light.color.g > torch_light.color.b,
           "torch emits warm omnidirectional light");
     presentation.update(0.13F, {});
+    check(presentation.scene().particles().size() > ambient_particles,
+          "torch emits small particles as time advances");
     auto const moved_lights = presentation.scene().lights();
     auto const moved = *std::ranges::find_if(
         moved_lights, [](auto const &light) { return light.type == 3 && light.radius == 0.08F; });
@@ -1352,19 +1749,23 @@ void torch_test(lc1::Device const &device)
         for (int channel = 0; channel < 3; ++channel)
             file.put(static_cast<char>(image.output[pixel + channel]));
     check(file.good(), "torch capture saved");
+    auto const burning_particles = presentation.scene().particles().size();
     player.dead = true;
     presentation.update(0, {});
     check(presentation.scene().lights().size() == unlit_lights &&
               presentation.scene().draws().size() == unlit_draws,
           "death extinguishes both flame and light");
-    check(presentation.scene().particles().size() == ambient_particles,
-          "death removes the bearer flame and preserves ambient furnace particles");
+    auto const extinguished_particles = presentation.scene().particles().size();
+    check(extinguished_particles < burning_particles,
+          "death removes the bearer flame at the current furnace time");
     player.dead = false;
     player.main_hand = original;
     presentation.update(0, {});
     check(presentation.scene().lights().size() == unlit_lights &&
               presentation.scene().draws().size() == unlit_draws,
           "switching away from the torch extinguishes it");
+    check(presentation.scene().particles().size() == extinguished_particles,
+          "ambient furnace particles persist unchanged without elapsed time");
     player.main_hand = *world.weapons().at(1005);
     player.flashlight_on = true;
     presentation.update(0, {});
@@ -1668,6 +2069,8 @@ void showcase_test(lc1::Device const &device)
 int main(int argc, char **argv)
 {
     try {
+        bool const inventory_only = argc == 2 && std::string_view{argv[1]} == "--inventory";
+        bool const giantess_only = argc == 2 && std::string_view{argv[1]} == "--giantess";
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
         bool const player_only = argc == 2 && std::string_view{argv[1]} == "--player-models";
         bool const first_person_only = argc == 2 && std::string_view{argv[1]} == "--first-person";
@@ -1677,10 +2080,12 @@ int main(int argc, char **argv)
         bool const village_only = argc == 2 && std::string_view{argv[1]} == "--village";
         bool const showcase_only = argc == 2 && std::string_view{argv[1]} == "--showcase";
         check(argc == 1 || animation_only || player_only || showcase_only || torch_only ||
-                  particles_only || first_person_only || village_only || fog_only,
+                  particles_only || first_person_only || village_only || fog_only ||
+                  inventory_only || giantess_only,
               "usage: lc1_pbr_tests "
-              "[--model-animation|--player-models|--showcase|--torch|--particles|--first-person|--"
-              "village|--fog]");
+              "[--giantess|--model-animation|--player-models|--showcase|--torch|--particles|--"
+              "first-person|--"
+              "village|--fog|--inventory]");
         lc1::VulkanLoader loader;
         lc1::Window window{64, 64, "PBR GPU tests"};
         glfwHideWindow(window.handle());
@@ -1690,6 +2095,17 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (giantess_only) {
+            giantess_test(device);
+            device.wait_idle();
+            std::cout << "Giantess scene GPU capture passed\n";
+            return 0;
+        }
+        if (inventory_only) {
+            inventory_preview_test(device, loader, instance);
+            std::cout << "Inventory preview and UI GPU tests passed\n";
+            return 0;
+        }
         if (fog_only) {
             for (auto samples : {vk::SampleCountFlagBits::e1, vk::SampleCountFlagBits::e4}) {
                 fog_test(device, samples);

@@ -14,6 +14,8 @@ Follow DRY and SOLID principles.
 
 4、能不用 try/catch 就不用，能一个函数写完就别拆。
 
+不要在随时可能改变的地方加validate。
+
 ## Scope and workflow
 
 - C++23, Vulkan 1.4 with vulkan-hpp / `vk::raii`, VMA-Hpp, GLFW and Slang.

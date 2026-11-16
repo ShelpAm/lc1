@@ -38,6 +38,19 @@ CharacterMotion::CharacterMotion(WorldCollision const &collision, CharacterBody 
     }
 }
 
+void CharacterMotion::set_debug_flying(bool enabled)
+{
+    debug_flying_ = enabled;
+    vertical_velocity_ = 0;
+    jump_requested_ = false;
+    on_ground_ = false;
+}
+
+bool CharacterMotion::debug_flying() const
+{
+    return debug_flying_;
+}
+
 void CharacterMotion::request_jump()
 {
     jump_requested_ = true;
@@ -53,8 +66,12 @@ void CharacterMotion::update(float delta_seconds, WorldCollision const &collisio
                              glm::vec3 desired_velocity)
 {
     if (!std::isfinite(delta_seconds) || delta_seconds < 0.0F || !finite(desired_velocity) ||
-        desired_velocity.y != 0.0F)
+        (!debug_flying_ && desired_velocity.y != 0.0F))
         fail("invalid character motion update");
+    if (debug_flying_) {
+        position += desired_velocity * delta_seconds;
+        return;
+    }
     // Zero time preserves pending actions. Gameplay has already applied facing changes.
     double remaining = delta_seconds;
     while (remaining > 0.0) {

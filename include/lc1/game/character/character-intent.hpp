@@ -37,8 +37,12 @@ struct CharacterIntent {
 
     // Requests, not commands: the character drops an impossible jump or applies the
     // movement rules that fit its current state.
+    bool toggle_debug_flight = false;
+    float debug_flight_speed = 1;
+    float flight_vertical = 0; // -1 descends, +1 ascends; only used during debug flight.
     bool jump = false;
     bool sprint = false;
+    bool crouch = false;
     bool swing_weapon = false;
     bool nod = false;
 };

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "lc1/game/character/bag.hpp"
+#include "lc1/game/character/character-body.hpp"
+#include "lc1/game/character/character-proportions.hpp"
 #include "lc1/game/character/equipment.hpp"
 #include "lc1/game/character/weapon.hpp"
 #include "lc1/game/continent/identity.hpp"
@@ -75,6 +77,11 @@ struct SerializedCharacterConfig {
     std::map<EquipmentType, std::uint32_t> equipment;
     std::uint32_t main_hand = 0; // 0 means empty.
     rfl::DefaultVal<ModelConfig> model;
+    rfl::DefaultVal<CharacterBody> body;
+    rfl::DefaultVal<CharacterProportions> proportions;
+    rfl::DefaultVal<float> base_walk_speed{4.5F};
+    rfl::DefaultVal<float> run_speed_bonus{4.5F};
+    rfl::DefaultVal<float> jump_height{0.5F};
 };
 
 struct SerializedResourceStack {
@@ -96,6 +103,7 @@ struct SerializedCharacterState {
     std::vector<SerializedResourceStack> bag = {};
     rfl::DefaultVal<float> health_lost{0.0F};
     rfl::DefaultVal<bool> flashlight_on{false};
+    rfl::DefaultVal<float> crouch_amount{0};
 };
 
 // One complete checkpoint: membership and character records are committed together.
