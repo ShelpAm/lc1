@@ -280,6 +280,10 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      .body_attack_animation = body_attack_animation,
                                      .death_animation = death_animation,
                                      .crouch_animation = find_animation(*config.crouch_animation)});
+        if (config.path.value() == "models/remiel-swimsuit/remiel.glb") {
+            character_models_.back().remiel_motion.emplace(model->pose.model());
+            character_models_.back().prone_animation = find_animation("Prone");
+        }
     }
 
     scene::DirectionalLight const sun{
@@ -589,6 +593,8 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         for (auto const &[node, transform] : models.proportion_pose)
             models.character->pose.set_local_transform(node, transform);
         models.proportion_pose.clear();
+        if (models.remiel_motion)
+            models.remiel_motion->restore(models.character->pose);
     }
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
@@ -658,6 +664,13 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
         auto const &state = world_->characters[i];
+        if (!state.dead && models.prone_animation && state.prone_amount > 0) {
+            auto &pose = models.character->pose;
+            pose.play_animation(*models.prone_animation, false);
+            pose.update_animation(state.prone_amount *
+                                  pose.model().animations()[*models.prone_animation].duration());
+            continue;
+        }
         if (!state.dead && models.crouch_animation && state.crouch_amount > 0) {
             auto &pose = models.character->pose;
             pose.play_animation(*models.crouch_animation, false);
@@ -681,6 +694,17 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
     }
     for (std::size_t i = 0; i < character_models_.size(); ++i) {
         auto &models = character_models_[i];
+        auto const &state = world_->characters[i];
+        if (models.remiel_motion)
+            models.remiel_motion->update(models.character->pose,
+                                         state.pose.transform().model_matrix(), delta_seconds,
+                                         !state.moving && state.crouch_amount == 0 &&
+                                             state.prone_amount == 0 && state.attack_progress >= 1,
+                                         state.dead, state.pointing && state.prone_amount == 0,
+                                         state.point_direction, state.prone_amount);
+    }
+    for (std::size_t i = 0; i < character_models_.size(); ++i) {
+        auto &models = character_models_[i];
         auto const scale = world_->characters[i].proportions.leg_height_scale;
         if (scale == 1)
             continue;
@@ -688,7 +712,7 @@ void WorldPresentation::update(float delta_seconds, WorldPresentationInput const
         for (auto const name : {"腰", "下半身"})
             if (auto node = pose.model().find_node(name))
                 models.proportion_pose.emplace_back(*node, pose.local_transforms()[*node]);
-        apply_remiel_leg_height(pose, scale);
+        apply_remiel_leg_height(pose, scale, world_->characters[i].prone_amount);
     }
     update_instances();
     update_lighting();

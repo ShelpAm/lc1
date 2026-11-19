@@ -42,6 +42,8 @@ WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot con
         pose.relative_look_pitch = glm::mix(from.look_pitch(), to.look_pitch(), alpha);
         pose.body.height = glm::mix(from.body.height, to.body.height, alpha);
         pose.body.eye_height = glm::mix(from.body.eye_height, to.body.eye_height, alpha);
+        result.characters[i].prone_amount = glm::mix(previous.characters[i].prone_amount,
+                                                     current.characters[i].prone_amount, alpha);
         result.characters[i].crouch_amount = glm::mix(previous.characters[i].crouch_amount,
                                                       current.characters[i].crouch_amount, alpha);
     }
@@ -79,9 +81,12 @@ WorldSnapshot capture_world(GameWorld const &world)
              .max_health = character->config().max_health(),
              .dead = character->dead(),
              .attack_progress = character->attack_progress(),
+             .pointing = character->pointing(),
+             .point_direction = character->point_direction(),
              .running = character->running(),
              .moving = character->moving(),
              .crouch_amount = character->crouch_amount(),
+             .prone_amount = character->prone_amount(),
              .reaction_time = character->reaction_time(),
              .speech = std::move(speech),
              .dialog_partner =

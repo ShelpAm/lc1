@@ -85,6 +85,7 @@ PlayerControls PlayerCharacterController::read_input(GameInputRouter const &inpu
                     : glm::vec2{},
             .sprint = frame.keyboard_enabled && input.held(GameAction::Sprint),
             .crouch = frame.keyboard_enabled && input.held(GameAction::Crouch),
+            .toggle_prone = frame.keyboard_enabled && input.pressed(GameAction::ToggleProne),
             .toggle_debug_flight =
                 frame.keyboard_enabled && input.pressed(GameAction::ToggleDebugFlight),
             .flight_vertical = frame.keyboard_enabled
@@ -93,6 +94,7 @@ PlayerControls PlayerCharacterController::read_input(GameInputRouter const &inpu
                                    : 0,
             .jump = frame.keyboard_enabled && input.pressed(GameAction::Jump),
             .swing_weapon = frame.mouse_enabled && input.pressed(GameAction::SwingWeapon),
+            .point = frame.mouse_enabled && input.held(GameAction::Point),
             .nod = frame.keyboard_enabled && input.pressed(GameAction::Nod),
             .interact = frame.keyboard_enabled && input.pressed(GameAction::Interact),
             .response_index = frame.keyboard_enabled ? response_index(input) : -1};
@@ -119,11 +121,17 @@ CharacterIntent PlayerCharacterController::decide(float)
     }
     intent.sprint = input_->sprint;
     intent.crouch = input_->crouch;
+    intent.toggle_prone = input_->toggle_prone && character.config().model.path.value() ==
+                                                      "models/remiel-swimsuit/remiel.glb";
     intent.toggle_debug_flight = input_->toggle_debug_flight;
     intent.debug_flight_speed = input_->debug_flight_speed;
     intent.flight_vertical = input_->flight_vertical;
     intent.jump = input_->jump;
-    intent.swing_weapon = input_->swing_weapon;
+    bool const remiel =
+        character.config().model.path.value() == "models/remiel-swimsuit/remiel.glb";
+    intent.swing_weapon = input_->swing_weapon && !remiel;
+    intent.point = input_->point && remiel;
+    intent.point_direction = input_->point_direction;
     intent.nod = input_->nod;
     return intent;
 }

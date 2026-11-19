@@ -890,6 +890,74 @@ void save_capture(Capture const &result, char const *path)
     check(image.good(), "failed to save model capture");
 }
 
+void xinyuehu_test(lc1::Device const &device)
+{
+    lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
+                         "runtime/saves/01"};
+    lc1::GameWorld world{data, "runtime/dialogs/catalog.yaml"};
+    auto state = lc1::capture_world(world);
+    lc1::WorldPresentation presentation{device,
+                                        "runtime/assets",
+                                        world.continent(),
+                                        state,
+                                        {.exposure = 4, .encoding = lc1::OutputEncoding::Srgb},
+                                        lc1::PlayerId{1},
+                                        world.dialogs().catalog()};
+    presentation.update(0, {});
+    auto &npc = *std::ranges::find(state.characters, 11U, &lc1::CharacterSnapshot::keyid);
+    auto const &display = presentation.character_model(11);
+    check(display.model->skins().size() == 8, "Xinyuehu retains all eight skinned meshes");
+    lc1::scene::Scene isolated;
+    auto const scale =
+        world.character(lc1::CharacterId{11}).config().model.transform.value().scale.value();
+    auto *model = isolated.add_model(
+        {.model = display.model,
+         .material = display.material,
+         .world_transform =
+             glm::scale(glm::mat4{1}, glm::vec3{1 / scale[0], 1 / scale[1], 1 / scale[2]})});
+    isolated.add_light(lc1::scene::to_light(
+        lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 5},
+                                     .direction = glm::normalize(glm::vec3{-1, -1, 1})}));
+    lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
+    auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(isolated.draw_count()));
+    lc1::scene::FpsCamera camera;
+    camera.set_fov_y(45);
+    camera.set_aspect_ratio(4.0F / 3.0F);
+    camera.set_position({2.1F, 1.3F, -3.3F});
+    camera.look_at({0, 0.85F, 0});
+    std::filesystem::create_directories("artifacts");
+    for (auto const *name : {"Idle", "Walk", "Run"}) {
+        npc.moving = std::string_view{name} != "Idle";
+        npc.running = std::string_view{name} == "Run";
+        presentation.update(0, {});
+        auto playback = display.pose.playback();
+        check(playback && display.pose.model().animations()[playback->animation].name == name,
+              "Xinyuehu selects configured locomotion clips");
+        model->pose.play_animation(playback->animation, true);
+        auto const start = isolated.draws();
+        isolated.update_animations(std::string_view{name} == "Idle" ? 1.0F : 0.3F);
+        auto const animated = isolated.draws();
+        glm::vec3 lo{1e9F}, hi{-1e9F};
+        for (auto const &draw : animated)
+            for (auto const &vertex : *draw.skinned_vertices) {
+                auto const p = glm::vec3{draw.model_matrix * glm::vec4{vertex.position, 1}};
+                lo = glm::min(lo, p);
+                hi = glm::max(hi, p);
+            }
+        check(hi.y > 1.5F && hi.y < 2.0F && lo.y > -0.1F,
+              "Xinyuehu source-scale skin stays upright with feet near the ground");
+        bool changed = false;
+        for (std::size_t mesh = 0; mesh < start.size(); ++mesh)
+            for (std::size_t v = 0; v < start[mesh].skinned_vertices->size(); ++v)
+                changed |= glm::length((*start[mesh].skinned_vertices)[v].position -
+                                       (*animated[mesh].skinned_vertices)[v].position) > 0.001F;
+        check(changed, "Xinyuehu skeleton deforms visible geometry");
+        save_capture(capture(device, renderer, frame, camera, isolated,
+                             {.width = 960, .height = 720}, presentation.output()),
+                     std::format("artifacts/xinyuehu-{}.ppm", name).c_str());
+    }
+}
+
 void giantess_test(lc1::Device const &device)
 {
     lc1::Save const data{std::filesystem::path{__FILE__}.parent_path().parent_path() /
@@ -970,6 +1038,48 @@ void giantess_test(lc1::Device const &device)
               "resetting leg proportions restores the original animated rig");
     }
 
+    {
+        auto const original_pose = giant_state.pose;
+        auto const &model = presentation.character_model(10);
+        auto const shoulder = *model.pose.model().find_node("右腕");
+        auto const elbow = *model.pose.model().find_node("右ひじ");
+        auto const wrist = *model.pose.model().find_node("右手首");
+        auto const tip = *model.pose.model().find_node("右人差指先");
+        giant_state.pointing = true;
+        for (float yaw : {0.0F, 90.0F, -135.0F}) {
+            giant_state.pose.world_transform.rotation.y = yaw;
+            for (auto const direction :
+                 {glm::vec3{1, 1, -1}, glm::vec3{-1, -2, 1}, glm::vec3{1, 0, 0}}) {
+                giant_state.point_direction = glm::normalize(direction);
+                presentation.update(0, {});
+                auto const matrices = model.pose.model_matrices();
+                for (auto const &[from, to] :
+                     std::array{std::pair{shoulder, elbow}, std::pair{elbow, wrist},
+                                std::pair{wrist, tip}}) {
+                    auto const segment = glm::normalize(
+                        glm::vec3{model.world_transform * (matrices[to][3] - matrices[from][3])});
+                    check(glm::dot(segment, giant_state.point_direction) > 0.999F,
+                          "production pointing follows camera yaw and pitch independently of body "
+                          "yaw");
+                }
+            }
+        }
+        giant_state.pointing = false;
+        giant_state.pose = original_pose;
+        presentation.update(0, {});
+    }
+
+    {
+        giant_state.prone_amount = 1;
+        presentation.update(0, {});
+        auto const &pose = presentation.character_model(10).pose;
+        check(pose.playback() &&
+                  pose.playback()->animation == *pose.model().find_animatinon("Prone"),
+              "production prone state selects the prone animation");
+        giant_state.prone_amount = 0;
+        presentation.update(0, {});
+    }
+
     // Review the animation at source scale, independent of user-tuned giant size
     // and distance fog. Production presentation above verifies gameplay selection.
     lc1::scene::Scene isolated;
@@ -991,6 +1101,80 @@ void giantess_test(lc1::Device const &device)
     camera.set_position({22, 12, -40});
     camera.look_at({0, 10, 0});
     std::filesystem::create_directories("artifacts");
+    {
+        model->pose.play_animation(*model->pose.model().find_animatinon("Prone"), false);
+        model->pose.update_animation(0.7F);
+        camera.set_position({22, 12, -28});
+        camera.look_at({0, 2, 0});
+        auto const prone = capture(device, renderer, frame, camera, isolated,
+                                   {.width = 960, .height = 720}, presentation.output());
+        save_capture(prone, "artifacts/remiel-prone.ppm");
+        camera.set_position({22, 12, -40});
+        camera.look_at({0, 10, 0});
+    }
+    {
+        auto const clip = *model->pose.model().find_animatinon("Idle");
+        model->pose.play_animation(clip);
+        lc1::RemielMotion motion{model->pose.model()};
+        auto world_transform = model->world_transform;
+        motion.update(model->pose, world_transform, 1.0F / 60, false, false);
+        auto const joint = *model->pose.model().find_node("左胸");
+        auto const rest = model->pose.local_transforms()[joint].translation;
+        auto const still = capture(device, renderer, frame, camera, isolated,
+                                   {.width = 960, .height = 720}, presentation.output());
+        // Move the inertial anchor while holding the render placement fixed, isolating
+        // soft tissue deformation from camera and whole-character movement.
+        world_transform[3].y += 0.06F;
+        motion.restore(model->pose);
+        motion.update(model->pose, world_transform, 1.0F / 60, false, false);
+        check(glm::length(model->pose.local_transforms()[joint].translation - rest) > 0.01F,
+              "real Remiel weighted joint responds to acceleration");
+        auto const displaced = capture(device, renderer, frame, camera, isolated,
+                                       {.width = 960, .height = 720}, presentation.output());
+        std::size_t changed = 0;
+        for (std::size_t pixel = 0; pixel < displaced.output.size(); pixel += 4)
+            if (displaced.output[pixel] != still.output[pixel] ||
+                displaced.output[pixel + 1] != still.output[pixel + 1] ||
+                displaced.output[pixel + 2] != still.output[pixel + 2])
+                ++changed;
+        check(changed > 20, "real Remiel secondary motion reaches rendered skin and shadows");
+        save_capture(displaced, "artifacts/remiel-secondary-motion.ppm");
+        motion.restore(model->pose);
+        motion.update(model->pose, world_transform, 0, false, false, true);
+        auto const finger = *model->pose.model().find_node("右中指２");
+        check(std::abs(model->pose.local_transforms()[finger].rotation.z) > 0.5F,
+              "point gesture independently curls the middle finger");
+        auto const pointed = model->pose.model_matrices();
+        auto const shoulder = *model->pose.model().find_node("右腕");
+        auto const elbow = *model->pose.model().find_node("右ひじ");
+        auto const wrist = *model->pose.model().find_node("右手首");
+        auto const tip = *model->pose.model().find_node("右人差指先");
+        for (auto const &[from, to] : std::array{std::pair{shoulder, elbow},
+                                                 std::pair{elbow, wrist}, std::pair{wrist, tip}}) {
+            auto const direction = glm::normalize(glm::vec3{pointed[to][3] - pointed[from][3]});
+            check(glm::dot(direction, glm::vec3{0, 0, -1}) > 0.999F,
+                  "Remiel arm and index point straight ahead in corrected model space");
+        }
+        auto const pointing = capture(device, renderer, frame, camera, isolated,
+                                      {.width = 960, .height = 720}, presentation.output());
+        save_capture(pointing, "artifacts/remiel-pointing.ppm");
+        motion.restore(model->pose);
+        motion.update(model->pose, world_transform, 0, false, false, false);
+        check(std::abs(model->pose.local_transforms()[finger].rotation.z) < 0.01F,
+              "releasing pointing restores unanimated finger joints");
+
+        // Exercise the actual production layer over locomotion and crouch changes.
+        giant_state.moving = true;
+        for (int frame_index = 0; frame_index < 60; ++frame_index) {
+            giant_state.pose.world_transform.position.x += 0.01F;
+            giant_state.crouch_amount = static_cast<float>(frame_index) / 60;
+            presentation.update(1.0F / 60, {});
+        }
+        check(std::isfinite(presentation.character_model(10).pose.model_matrices()[joint][3].y),
+              "production Remiel layers remain finite through locomotion and crouching");
+        giant_state.moving = false;
+        giant_state.crouch_amount = 0;
+    }
     for (auto const *name : {"Idle", "Walk", "Run", "Wave", "Crouch", "StandUp"}) {
         auto const clip = *model->pose.model().find_animatinon(name);
         model->pose.play_animation(clip, false);
@@ -2069,6 +2253,7 @@ void showcase_test(lc1::Device const &device)
 int main(int argc, char **argv)
 {
     try {
+        bool const xinyuehu_only = argc == 2 && std::string_view{argv[1]} == "--xinyuehu";
         bool const inventory_only = argc == 2 && std::string_view{argv[1]} == "--inventory";
         bool const giantess_only = argc == 2 && std::string_view{argv[1]} == "--giantess";
         bool const animation_only = argc == 2 && std::string_view{argv[1]} == "--model-animation";
@@ -2081,9 +2266,10 @@ int main(int argc, char **argv)
         bool const showcase_only = argc == 2 && std::string_view{argv[1]} == "--showcase";
         check(argc == 1 || animation_only || player_only || showcase_only || torch_only ||
                   particles_only || first_person_only || village_only || fog_only ||
-                  inventory_only || giantess_only,
+                  inventory_only || giantess_only || xinyuehu_only,
               "usage: lc1_pbr_tests "
-              "[--giantess|--model-animation|--player-models|--showcase|--torch|--particles|--"
+              "[--xinyuehu|--giantess|--model-animation|--player-models|--showcase|--torch|--"
+              "particles|--"
               "first-person|--"
               "village|--fog|--inventory]");
         lc1::VulkanLoader loader;
@@ -2095,6 +2281,12 @@ int main(int argc, char **argv)
         instance.setup_debug_messenger();
         lc1::Surface surface{instance, window};
         auto device = lc1::test::make_render_device(instance, *surface.raii());
+        if (xinyuehu_only) {
+            xinyuehu_test(device);
+            device.wait_idle();
+            std::cout << "Xinyuehu NPC GPU capture passed\n";
+            return 0;
+        }
         if (giantess_only) {
             giantess_test(device);
             device.wait_idle();

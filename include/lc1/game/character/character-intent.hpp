@@ -43,7 +43,10 @@ struct CharacterIntent {
     bool jump = false;
     bool sprint = false;
     bool crouch = false;
+    bool toggle_prone = false;
     bool swing_weapon = false;
+    bool point = false;
+    glm::vec3 point_direction{0, 0, -1};
     bool nod = false;
 };
 

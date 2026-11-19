@@ -68,6 +68,7 @@ InputStamp GameSimulation::submit(PlayerId id, PlayerControls input)
     if (slot.pending) {
         auto const &previous = *slot.pending;
         input.toggle_debug_flight ^= previous.toggle_debug_flight;
+        input.toggle_prone ^= previous.toggle_prone;
         input.jump |= previous.jump;
         input.swing_weapon |= previous.swing_weapon;
         input.nod |= previous.nod;
