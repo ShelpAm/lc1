@@ -440,6 +440,7 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
         dialog_players.push_back(
             {&actor, input.view.keyboard_enabled && actor.accepts_ambient_requests()});
         input.toggle_debug_flight = false;
+        input.toggle_prone = false;
         input.jump = false;
         input.swing_weapon = false;
         input.nod = false;

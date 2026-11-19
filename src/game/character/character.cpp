@@ -44,9 +44,10 @@ CharacterBody scaled_body(CharacterBody body, CharacterProportions proportions)
     return body;
 }
 
-CharacterBody crouched_body(CharacterBody body, float amount)
+CharacterBody crouched_body(CharacterBody body, float amount, float prone = 0)
 {
-    float const scale = 1 - 0.2F * glm::smoothstep(0.0F, 1.0F, amount);
+    float const scale = glm::mix(1 - 0.2F * glm::smoothstep(0.0F, 1.0F, amount), 0.22F,
+                                 glm::smoothstep(0.0F, 1.0F, prone));
     body.height *= scale;
     body.eye_height *= scale;
     return body;
@@ -119,8 +120,11 @@ void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
     if (intent.toggle_debug_flight)
         motion_.set_debug_flying(!debug_flying());
 
-    ambient_requests_blocked_ = intent.jump || intent.sprint || intent.crouch ||
-                                crouch_amount_ > 0 || intent.move != glm::vec2{};
+    if (intent.toggle_prone && on_ground() && !debug_flying())
+        prone_ = !prone_;
+
+    ambient_requests_blocked_ = prone_ || prone_amount_ > 0 || intent.jump || intent.sprint ||
+                                intent.crouch || crouch_amount_ > 0 || intent.move != glm::vec2{};
 
     // Pose changes come first so an intent that supplies both orientation and movement
     // applies them in a fixed order: body yaw, body direction, then look target.
@@ -139,7 +143,7 @@ void Character::apply_intent(float delta_seconds, CharacterIntent const &intent)
         config_.main_hand->use(*this);
 
     // Resolve attacks first so attacking and jumping in the same tick cannot bypass the lock.
-    if (!debug_flying() && intent.jump && !intent.crouch &&
+    if (!debug_flying() && !prone_ && intent.jump && !intent.crouch &&
         attack_elapsed_ >= combat::swing_duration)
         request_jump();
 }
@@ -184,24 +188,38 @@ void Character::update(float delta_seconds, Continent const &continent)
     reaction_time_ = std::min(combat::death_duration, reaction_time_ + delta_seconds);
     auto const intent =
         !blocked && controller_ ? controller_->decide(delta_seconds) : CharacterIntent{};
+    pointing_ = intent.point;
+    if (pointing_) {
+        if (!std::isfinite(intent.point_direction.x) || !std::isfinite(intent.point_direction.y) ||
+            !std::isfinite(intent.point_direction.z) || glm::length(intent.point_direction) == 0)
+            fail("point direction must be finite and nonzero");
+        point_direction_ = glm::normalize(intent.point_direction);
+    }
     auto const sequence = attack_sequence_;
     apply_intent(delta_seconds, intent);
     if (!blocked && controller_ && !debug_flying()) {
         auto const next = std::clamp(
             crouch_amount_ + (intent.crouch ? 1 : -1) * delta_seconds / 0.4F, 0.0F, 1.0F);
-        auto const body = crouched_body(standing_body(), next);
-        if (next >= crouch_amount_ ||
-            WorldCollision{continent}.can_stand(position(), body.half_width, body.height))
+        auto const next_prone =
+            std::clamp(prone_amount_ + (prone_ ? 1 : -1) * delta_seconds / 0.7F, 0.0F, 1.0F);
+        auto const body = crouched_body(standing_body(), next, next_prone);
+        if (body.height <= height() ||
+            WorldCollision{continent}.can_stand(position(), body.half_width, body.height)) {
             crouch_amount_ = next;
+            prone_amount_ = next_prone;
+        }
     }
     running_ = attack_elapsed_ >= combat::swing_duration && intent.sprint && crouch_amount_ == 0 &&
-               intent.move != glm::vec2{};
+               prone_amount_ == 0 && intent.move != glm::vec2{};
     if (sequence != attack_sequence_)
         from_yaw = body_yaw();
-    auto velocity = walking_velocity({intent.move.x, 0.0F, intent.move.y},
-                                     intent.sprint && (debug_flying() || crouch_amount_ == 0),
-                                     intent.face_movement, delta_seconds) *
-                    (debug_flying() ? 1.0F : glm::mix(1.0F, 0.5F, crouch_amount_));
+    auto velocity =
+        walking_velocity({intent.move.x, 0.0F, intent.move.y},
+                         intent.sprint &&
+                             (debug_flying() || (crouch_amount_ == 0 && prone_amount_ == 0)),
+                         intent.face_movement, delta_seconds) *
+        (debug_flying() ? 1.0F
+                        : glm::mix(glm::mix(1.0F, 0.5F, crouch_amount_), 0.15F, prone_amount_));
     if (debug_flying()) {
         velocity.y =
             intent.flight_vertical * (intent.sprint ? config_.run_speed() : config_.walk_speed());
@@ -335,7 +353,7 @@ bool Character::set_proportions(Continent const &continent, CharacterProportions
     if (!std::isfinite(proportions.scale) || proportions.scale <= 0 ||
         !std::isfinite(proportions.leg_height_scale) || proportions.leg_height_scale <= 0)
         fail("invalid character proportions");
-    auto const body = crouched_body(scaled_body(body_, proportions), crouch_amount_);
+    auto const body = crouched_body(scaled_body(body_, proportions), crouch_amount_, prone_amount_);
     if (!WorldCollision{continent}.can_stand(position(), body.half_width, body.height))
         return false;
     proportions_ = proportions;
@@ -349,12 +367,17 @@ CharacterBody Character::standing_body() const
 
 CharacterBody Character::collision_body() const
 {
-    return crouched_body(standing_body(), crouch_amount_);
+    return crouched_body(standing_body(), crouch_amount_, prone_amount_);
 }
 
 float Character::crouch_amount() const
 {
     return crouch_amount_;
+}
+
+float Character::prone_amount() const
+{
+    return prone_amount_;
 }
 
 float Character::half_width() const
@@ -394,7 +417,7 @@ float Character::look_pitch() const
 
 void Character::request_jump()
 {
-    if (crouch_amount_ == 0)
+    if (crouch_amount_ == 0 && prone_amount_ == 0 && !prone_)
         motion_.request_jump();
 }
 
@@ -549,6 +572,16 @@ game::Bag &Character::bag()
 std::uint64_t Character::nod_sequence() const
 {
     return nod_sequence_;
+}
+
+glm::vec3 Character::point_direction() const
+{
+    return point_direction_;
+}
+
+bool Character::pointing() const
+{
+    return pointing_;
 }
 
 std::uint64_t Character::attack_sequence() const

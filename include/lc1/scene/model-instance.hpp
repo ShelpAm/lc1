@@ -41,6 +41,10 @@ class ModelInstance {
     // Binding must belong to this instance's shared model, which has validated its indices.
     std::vector<Vertex> skin_vertices(SkinnedMesh const &mesh) const;
 
+    // Reuse matrices computed from this pose for all meshes in one draw snapshot.
+    std::vector<Vertex> skin_vertices(SkinnedMesh const &mesh,
+                                      std::span<glm::mat4 const> matrices) const;
+
     // Computed on demand: no stale matrix cache and no copy of the gameplay world transform.
     std::vector<glm::mat4> model_matrices() const;
     // Query any node, including mesh-less mounts, without retaining the world transform.
@@ -48,6 +52,8 @@ class ModelInstance {
     // One entry per mesh-bearing node, including repeated uses of a shared mesh.
     // The external world transform is composed here, never retained by the instance.
     std::vector<MeshInstance> mesh_instances(glm::mat4 const &world_transform) const;
+    std::vector<MeshInstance> mesh_instances(glm::mat4 const &world_transform,
+                                             std::span<glm::mat4 const> matrices) const;
 
   private:
     ModelDefinition const *model_;

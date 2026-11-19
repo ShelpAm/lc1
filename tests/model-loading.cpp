@@ -345,15 +345,21 @@ void skinning(Fixture &fixture)
             vertex.normal = glm::normalize(glm::vec3{1, 2, 3});
             vertex.tangent = {glm::normalize(glm::vec3{2, -1, 0}), 1};
         }
-        auto const result = scaled.skin_vertices(test_mesh);
+        // Exercise all four lanes as well as the imported one/two-joint weights.
+        test_mesh.influences[0] = {{0, 1, 0, 1}, {0.1F, 0.2F, 0.3F, 0.4F}};
         auto const matrices = scaled.model_matrices();
+        auto const result = scaled.skin_vertices(test_mesh, matrices);
         for (std::size_t i = 0; i < result.size(); ++i) {
             glm::mat4 blended{0};
             for (int j = 0; j < 4; ++j)
                 blended += glm::inverse(matrices[binding.node]) *
-                           matrices[binding.skin.joints[binding.influences[i].joints[j]]] *
-                           binding.skin.inverse_bind_matrices[binding.influences[i].joints[j]] *
-                           binding.influences[i].weights[j];
+                           matrices[binding.skin.joints[test_mesh.influences[i].joints[j]]] *
+                           binding.skin.inverse_bind_matrices[test_mesh.influences[i].joints[j]] *
+                           test_mesh.influences[i].weights[j];
+            auto const expected_position =
+                glm::vec3{blended * glm::vec4{test_mesh.vertices[i].position, 1}};
+            check(glm::length(result[i].position - expected_position) < 1e-5F,
+                  "skin positions match the full weighted matrix");
             auto const linear = glm::mat3{blended};
             auto const expected =
                 glm::normalize(glm::transpose(glm::inverse(linear)) * test_mesh.vertices[i].normal);

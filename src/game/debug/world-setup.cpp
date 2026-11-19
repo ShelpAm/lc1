@@ -60,6 +60,11 @@ WorldSetup world_setup(ContinentIdentity const &identity)
         // Out-and-back paths follow the authored road bends; staggered stops keep
         // villagers from moving as one synchronized group.
         setup.npc_patrols = {
+            {11,
+             {.route = {{{2, 0, 100}, 6}, {{0, 0, 112}, 5}},
+              .spawn = glm::vec3{2, 0, 100},
+              .arrival_radius = 0.35F,
+              .resume_nearest = true}},
             {10,
              {.route = {{{-18, 0, 72}, 10}},
               .spawn = glm::vec3{-18, 0, 72},

@@ -633,12 +633,12 @@ void village_residents()
                               std::filesystem::copy_options::overwrite_existing);
     {
         std::ofstream characters{checkpoint.directory() / "characters.yaml", std::ios::app};
-        for (std::uint32_t id = 6; id <= 9; ++id)
+        for (std::uint32_t const id : {6U, 7U, 8U, 9U, 11U})
             characters << std::format("\n- keyid: {}\n  name: villager {}\n  sex: true\n  age: 30\n"
                                       "  party: 4\n  level: 1\n  equipment: []\n  main_hand: 0\n",
                                       id, id);
         std::ofstream parties{checkpoint.directory() / "parties.yaml", std::ios::app};
-        parties << "\n- {keyid: 4, faction: 1, leader: 6, members: [7, 8, 9], captives: []}\n";
+        parties << "\n- {keyid: 4, faction: 1, leader: 6, members: [7, 8, 9, 11], captives: []}\n";
         characters << "\n- keyid: 10\n  name: Giant traveler\n  sex: true\n  age: 28\n"
                       "  party: 5\n  level: 1\n  equipment: []\n  main_hand: 0\n"
                       "  body: {half_width: 2, height: 12, eye_height: 11, step_height: 0.35, "

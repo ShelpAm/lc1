@@ -117,6 +117,7 @@ void GameSession::update(float delta_seconds, InputState const &input_state,
         eye_transform = world_presentation_.observer_eye_transform();
     player_view_.update_camera(delta_seconds, snapshot_.player(connection_.player_id()).pose,
                                eye_transform);
+    controls.point_direction = player_view_.camera().forward();
     world_presentation_.update_listener(player_view_.camera());
 
     if (keyboard_save_requested) {

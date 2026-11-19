@@ -1255,6 +1255,123 @@ void debug_flight()
           "leaving flight resumes gravity with fresh motion state");
 }
 
+void prone_toggle()
+{
+    auto data = make_world_data();
+    data.blocks.push_back({{1, 0.6F, -1}, {4, 0.8F, 1}});
+    lc1::Continent world{std::move(data)};
+    lc1::CharacterConfig config{.keyid = 44};
+    config.model.path = "models/remiel-swimsuit/remiel.glb";
+    lc1::Character character{world, {.position = {0, 0, 0}}, config};
+    lc1::InputState devices;
+    lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    devices.on_key(lc1::Key::Z, true);
+    input.update(devices);
+    auto controls = lc1::PlayerCharacterController::read_input(input, {.keyboard_enabled = true});
+    check(controls.toggle_prone, "Z requests prone toggle");
+    check(!lc1::PlayerCharacterController::read_input(input, {}).toggle_prone,
+          "keyboard gate blocks prone toggle");
+    lc1::PlayerCharacterController controller{controls};
+    character.set_controller(&controller);
+    character.update(0.35F, world);
+    check(near(character.prone_amount(), 0.5F), "prone transition is gradual");
+    controls = {};
+    character.update(0.35F, world);
+    check(near(character.prone_amount(), 1) && near(character.height(), 1.8F * 0.22F),
+          "prone persists after the input edge and lowers collision height");
+    controls.jump = controls.sprint = true;
+    character.update(0.1F, world);
+    check(character.on_ground() && !character.running(), "prone blocks jumping and sprinting");
+    character.move(world, {2, 0, 0});
+    controls = {};
+    controls.toggle_prone = true;
+    character.update(0.01F, world);
+    controls = {};
+    character.update(1, world);
+    check(character.prone_amount() > 0 && character.height() <= 0.6F,
+          "prone cannot stand through a low ceiling");
+    character.move(world, {-2, 0, 0});
+    controls.crouch = true;
+    character.update(1, world);
+    check(near(character.prone_amount(), 0) && near(character.crouch_amount(), 1),
+          "leaving prone returns to the held crouch stance");
+}
+
+void remiel_point_input()
+{
+    auto const world = make_world();
+    lc1::CharacterConfig config{.keyid = 44};
+    config.model.path = "models/remiel-swimsuit/remiel.glb";
+    lc1::Character character{world, {.position = {0, 0, 0}}, config};
+    lc1::InputState devices;
+    lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
+    devices.on_key(lc1::Key::MouseLeft, true);
+    input.update(devices);
+    auto controls = lc1::PlayerCharacterController::read_input(input, {.mouse_enabled = true});
+    lc1::PlayerCharacterController controller{controls};
+    character.set_controller(&controller);
+    check(controller.decide(0).point && !controller.decide(0).swing_weapon,
+          "Remiel left click requests pointing instead of weapon use");
+    controls.point_direction = glm::normalize(glm::vec3{1, 1, -1});
+    character.update(0, world);
+    check(character.pointing() && near(character.point_direction(), controls.point_direction),
+          "camera direction including pitch reaches character pointing state");
+    controls = lc1::PlayerCharacterController::read_input(input, {.mouse_enabled = false});
+    character.update(0, world);
+    check(!character.pointing(), "mouse capture gate clears held pointing");
+    controls = {};
+    character.update(0, world);
+    check(!character.pointing(), "released input restores the hand");
+}
+
+void remiel_secondary_motion()
+{
+    lc1::scene::ModelDefinition model{
+        0,
+        {{.name = "Root"},
+         {.name = "左胸", .parent_index = 0, .transform = {.translation = {1, 2, 0}}},
+         {.name = "右胸", .parent_index = 0, .transform = {.translation = {-1, 2, 0}}},
+         {.name = "左胸補助", .parent_index = 0},
+         {.name = "右胸補助", .parent_index = 0}}};
+    auto simulate = [&](float dt, float scale) {
+        lc1::scene::ModelInstance pose{model};
+        lc1::RemielMotion motion{model};
+        auto world = glm::scale(glm::mat4{1}, glm::vec3{scale});
+        motion.update(pose, world, dt, false, false);
+        world[3].x = scale * 0.01F;
+        motion.restore(pose);
+        motion.update(pose, world, dt, false, false);
+        auto const displaced = pose.local_transforms()[1].translation.x;
+        check(displaced < 1, "chest initially lags behind body movement");
+        check(pose.local_transforms()[3].translation.x < 0,
+              "weighted auxiliary joint follows the soft tissue");
+        bool overshot = false;
+        for (int i = 0; i < static_cast<int>(5 / dt); ++i) {
+            motion.restore(pose);
+            motion.update(pose, world, dt, false, false);
+            auto const x = pose.local_transforms()[1].translation.x;
+            overshot = overshot || x > 1.0001F;
+            check(std::abs(x - 1) <= 0.7501F, "secondary motion stays within its local bound");
+        }
+        check(overshot && near(pose.local_transforms()[1].translation.x, 1),
+              "underdamped motion rebounds and settles at rest");
+        auto const before = pose.local_transforms()[1].translation;
+        motion.restore(pose);
+        motion.update(pose, world, 0, false, false);
+        check(near(before, pose.local_transforms()[1].translation),
+              "zero delta preserves the pose");
+        world[3].x += scale * 100;
+        motion.restore(pose);
+        motion.update(pose, world, dt, false, false);
+        check(near(pose.local_transforms()[1].translation.x, 1), "teleports reset spring inertia");
+        return displaced;
+    };
+    auto const normal = simulate(1.0F / 60, 1);
+    check(near(normal, simulate(1.0F / 60, 100)), "giant scale preserves relative softness");
+    simulate(1.0F / 30, 1);
+    simulate(1.0F / 144, 1);
+}
+
 void leg_height_proportions()
 {
     lc1::scene::ModelDefinition model{
@@ -1324,6 +1441,9 @@ int main()
 {
     try {
         debug_flight();
+        prone_toggle();
+        remiel_point_input();
+        remiel_secondary_motion();
         leg_height_proportions();
         blacksmith_forging();
         crouching();

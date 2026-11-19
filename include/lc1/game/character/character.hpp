@@ -89,6 +89,10 @@ class Character {
     CharacterId id() const;
 
     std::uint64_t attack_sequence() const;
+
+    bool pointing() const;
+    glm::vec3 point_direction() const;
+
     std::uint64_t nod_sequence() const;
 
     CharacterBody const &body() const;
@@ -98,6 +102,7 @@ class Character {
     // Returns false without changing proportions when the resized body cannot fit.
     bool set_proportions(Continent const &continent, CharacterProportions proportions);
     float crouch_amount() const;
+    float prone_amount() const;
 
     float half_width() const;
 
@@ -209,6 +214,8 @@ class Character {
     CharacterBody body_;
     CharacterProportions proportions_;
     float crouch_amount_ = 0;
+    float prone_amount_ = 0;
+    bool prone_ = false;
     game::Bag bag_;
 
     bool flashlight_on_ = false;
@@ -220,6 +227,8 @@ class Character {
     std::unique_ptr<Interactable> interactable_;
 
     bool ambient_requests_blocked_ = false;
+    bool pointing_ = false;
+    glm::vec3 point_direction_{0, 0, -1};
     bool running_ = false;
     bool moving_ = false;
     float weapon_attack_cooldown_ = 0;

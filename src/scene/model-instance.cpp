@@ -108,18 +108,26 @@ void ModelInstance::update_animation(float delta_seconds)
 
 std::vector<Vertex> ModelInstance::skin_vertices(SkinnedMesh const &mesh) const
 {
-    auto const matrices = model_matrices();
+    return skin_vertices(mesh, model_matrices());
+}
+
+std::vector<Vertex> ModelInstance::skin_vertices(SkinnedMesh const &mesh,
+                                                 std::span<glm::mat4 const> matrices) const
+{
     auto const inverse_mesh = glm::inverse(matrices[mesh.node]);
-    std::vector<glm::mat4> palette;
+    // Only the top three rows contribute to positions, normals and tangents.
+    std::vector<glm::mat4x3> palette;
+    palette.reserve(mesh.skin.joints.size());
     for (std::size_t i = 0; i < mesh.skin.joints.size(); ++i)
-        palette.push_back(inverse_mesh * matrices[mesh.skin.joints[i]] *
-                          mesh.skin.inverse_bind_matrices[i]);
+        palette.emplace_back(inverse_mesh * matrices[mesh.skin.joints[i]] *
+                             mesh.skin.inverse_bind_matrices[i]);
     auto vertices = mesh.vertices;
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         auto const &influence = mesh.influences[i];
-        glm::mat4 transform{0};
+        glm::mat4x3 transform{0};
         for (int j = 0; j < 4; ++j)
-            transform += palette[influence.joints[j]] * influence.weights[j];
+            if (influence.weights[j] != 0.0F)
+                transform += palette[influence.joints[j]] * influence.weights[j];
         auto &vertex = vertices[i];
         vertex.position = glm::vec3{transform * glm::vec4{vertex.position, 1}};
         // Inverse transpose of the blended linear map also handles scaled joints.
@@ -157,7 +165,12 @@ glm::mat4 ModelInstance::node_world_matrix(std::size_t node, glm::mat4 const &wo
 
 std::vector<MeshInstance> ModelInstance::mesh_instances(glm::mat4 const &world_transform) const
 {
-    auto const matrices = model_matrices();
+    return mesh_instances(world_transform, model_matrices());
+}
+
+std::vector<MeshInstance> ModelInstance::mesh_instances(glm::mat4 const &world_transform,
+                                                        std::span<glm::mat4 const> matrices) const
+{
     std::vector<MeshInstance> instances;
     instances.reserve(model_->draw_count());
     for (std::size_t i = 0; i < model_->nodes().size(); ++i) {

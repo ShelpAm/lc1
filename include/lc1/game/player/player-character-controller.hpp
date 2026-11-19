@@ -42,11 +42,14 @@ struct PlayerControls {
     glm::vec2 movement{};
     bool sprint = false;
     bool crouch = false;
+    bool toggle_prone = false;
     bool toggle_debug_flight = false;
     float debug_flight_speed = 1;
     float flight_vertical = 0;
     bool jump = false;
     bool swing_weapon = false;
+    bool point = false;
+    glm::vec3 point_direction{0, 0, -1};
     bool nod = false;
     bool interact = false;
     int response_index = -1;

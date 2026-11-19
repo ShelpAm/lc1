@@ -32,7 +32,7 @@ glm::vec2 edge_motion(glm::vec2 cursor, glm::vec2 size)
 PlayerView::PlayerView(Continent const &continent, glm::vec3 player_position)
     : continent_{&continent}, map_camera_{player_position}
 {
-    camera_.set_zfar(12800.0F);
+    camera_.set_zfar(128000.0F);
     map_camera_.apply(camera_);
 }
 

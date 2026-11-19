@@ -34,9 +34,12 @@ struct CharacterSnapshot {
     float max_health = 0;
     bool dead = false;
     float attack_progress = 1;
+    bool pointing = false;
+    glm::vec3 point_direction{0, 0, -1};
     bool running = false;
     bool moving = false;
     float crouch_amount = 0;
+    float prone_amount = 0;
     float reaction_time = combat::death_duration;
     // Full world speech; each observer decides whether to show it overhead or in the HUD.
     std::string speech;

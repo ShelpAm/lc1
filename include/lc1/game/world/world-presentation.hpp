@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lc1/audio/audio.hpp"
+#include "lc1/game/character/character-model.hpp"
 #include "lc1/game/continent/view.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/world/world-snapshot.hpp"
@@ -149,7 +150,9 @@ class WorldPresentation {
         std::optional<std::size_t> body_attack_animation;
         std::optional<std::size_t> death_animation;
         std::optional<std::size_t> crouch_animation;
+        std::optional<std::size_t> prone_animation;
         std::vector<std::pair<std::size_t, scene::NodeTransform>> proportion_pose;
+        std::optional<RemielMotion> remiel_motion;
     };
 
     std::vector<CharacterModels> character_models_;

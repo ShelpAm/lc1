@@ -2,6 +2,8 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/scene/model-instance.hpp"
 
+#include <glm/gtx/quaternion.hpp>
+
 #include <array>
 #include <cmath>
 #include <utility>
@@ -41,7 +43,163 @@ scene::Model revolved_model(std::span<glm::vec2 const> profile, glm::vec3 color)
 }
 } // namespace
 
-void apply_remiel_leg_height(scene::ModelInstance &pose, float scale)
+RemielMotion::RemielMotion(scene::ModelDefinition const &model)
+{
+    // Called only for the explicitly selected Remiel asset.
+    head_ = model.find_node("頭");
+    torso_ = model.find_node("上半身2");
+    for (auto const &[name, auxiliary] :
+         std::array{std::pair{"左胸", "左胸補助"}, std::pair{"右胸", "右胸補助"}}) {
+        auto const node = model.find_node(name);
+        if (!node)
+            fail("Remiel is missing secondary-motion joint {}", name);
+        springs_.push_back({.node = *node, .auxiliary = model.find_node(auxiliary)});
+    }
+    // The index remains extended; other fingers curl independently around their local Z axes.
+    for (auto const &[name, angles] : std::array{
+             std::pair{"右腕", glm::vec3{-65, -15, 65}}, std::pair{"右ひじ", glm::vec3{-35, 0, 0}},
+             std::pair{"右手首", glm::vec3{0, 0, -12}}, std::pair{"右人指１", glm::vec3{0}},
+             std::pair{"右人指２", glm::vec3{0}}, std::pair{"右人指３", glm::vec3{0}},
+             std::pair{"右中指１", glm::vec3{0, 0, 65}}, std::pair{"右中指２", glm::vec3{0, 0, 85}},
+             std::pair{"右中指３", glm::vec3{0, 0, 55}}, std::pair{"右薬指１", glm::vec3{0, 0, 70}},
+             std::pair{"右薬指２", glm::vec3{0, 0, 90}}, std::pair{"右薬指３", glm::vec3{0, 0, 55}},
+             std::pair{"右小指１", glm::vec3{0, 0, 75}}, std::pair{"右小指２", glm::vec3{0, 0, 85}},
+             std::pair{"右小指３", glm::vec3{0, 0, 55}},
+             std::pair{"右親指１", glm::vec3{25, -15, 30}},
+             std::pair{"右親指２", glm::vec3{0, 0, 35}}})
+        if (auto const node = model.find_node(name))
+            pointing_pose_.emplace_back(*node, angles);
+    for (auto const &[joint, end] :
+         std::array{std::pair{"右腕", "右ひじ"}, std::pair{"右ひじ", "右手首"},
+                    std::pair{"右手首", "右人差指先"}}) {
+        auto const node = model.find_node(joint);
+        auto const tip = model.find_node(end);
+        if (node && tip)
+            pointing_chain_.emplace_back(*node, *tip);
+    }
+}
+
+void RemielMotion::restore(scene::ModelInstance &pose)
+{
+    // Remove last frame's presentation layers before resampling sparse animation channels.
+    for (std::size_t i = 0; i < base_pose_.size(); ++i)
+        pose.set_local_transform(i, base_pose_[i]);
+}
+
+void RemielMotion::update(scene::ModelInstance &pose, glm::mat4 const &world, float delta_seconds,
+                          bool idle, bool dead, bool pointing, glm::vec3 point_direction,
+                          float prone_amount)
+{
+    base_pose_.assign(pose.local_transforms().begin(), pose.local_transforms().end());
+    time_ = std::fmod(time_ + delta_seconds, 120.0F);
+    if (!dead) {
+        if (idle && torso_) {
+            auto transform = pose.local_transforms()[*torso_];
+            transform.translation.y += 0.018F * std::sin(time_ * glm::two_pi<float>() / 4);
+            transform.rotation *=
+                glm::angleAxis(glm::radians(0.65F * std::sin(time_ * glm::two_pi<float>() / 7.5F)),
+                               glm::vec3{0, 0, 1});
+            pose.set_local_transform(*torso_, transform);
+        }
+        if (idle && head_) {
+            auto transform = pose.local_transforms()[*head_];
+            transform.rotation *=
+                glm::angleAxis(glm::radians(3.0F * std::sin(time_ * glm::two_pi<float>() / 10)),
+                               glm::vec3{0, 1, 0});
+            pose.set_local_transform(*head_, transform);
+        }
+        if (pointing)
+            for (auto const &[node, angles] : pointing_pose_) {
+                auto transform = pose.local_transforms()[node];
+                transform.rotation =
+                    pose.model().nodes()[node].transform.rotation * glm::quat{glm::radians(angles)};
+                pose.set_local_transform(node, transform);
+            }
+        if (pointing) {
+            // Aim each segment in camera-forward world space, rather than guessing Euler
+            // angles in PMX's imported joint axes. Parent rotations and import correction
+            // are included, so the arm and index remain aligned when the body turns.
+            auto const forward = point_direction;
+            for (auto const &[joint, tip] : pointing_chain_) {
+                auto const matrices = pose.model_matrices();
+                auto const parent = pose.model().nodes()[joint].parent_index;
+                auto const inverse_parent =
+                    glm::inverse(glm::mat3{world * (parent ? matrices[*parent] : glm::mat4{1})});
+                auto const segment = glm::vec3{world * (matrices[tip][3] - matrices[joint][3])};
+                auto transform = pose.local_transforms()[joint];
+                transform.rotation =
+                    glm::normalize(glm::rotation(glm::normalize(inverse_parent * segment),
+                                                 glm::normalize(inverse_parent * forward)) *
+                                   transform.rotation);
+                pose.set_local_transform(joint, transform);
+            }
+        }
+        // A short, frame-rate independent pose filter softens clip changes and crouch edges.
+        // The unfiltered animation is restored next frame, so this never feeds back into clips.
+        if (initialized_ && delta_seconds > 0 && delta_seconds <= 0.25F) {
+            auto const blend = 1 - std::exp(-delta_seconds / 0.065F);
+            for (std::size_t i = 0; i < displayed_pose_.size(); ++i) {
+                auto target = pose.local_transforms()[i];
+                target.translation =
+                    glm::mix(displayed_pose_[i].translation, target.translation, blend);
+                target.rotation =
+                    glm::normalize(glm::slerp(displayed_pose_[i].rotation, target.rotation, blend));
+                target.scale = glm::mix(displayed_pose_[i].scale, target.scale, blend);
+                pose.set_local_transform(i, target);
+            }
+        }
+    }
+    displayed_pose_.assign(pose.local_transforms().begin(), pose.local_transforms().end());
+    auto const matrices = pose.model_matrices();
+    for (auto &spring : springs_) {
+        auto const parent = pose.model().nodes()[spring.node].parent_index;
+        auto const parent_world = world * (parent ? matrices[*parent] : glm::mat4{1});
+        auto const anchor = glm::vec3{world * matrices[spring.node][3]};
+        auto const unit = glm::length(glm::vec3{parent_world[1]});
+        auto const travel = anchor - spring.previous_anchor;
+        if (!initialized_ || dead || prone_amount > 0 || delta_seconds > 0.25F ||
+            glm::length(travel) > unit * 3) {
+            spring.offset = spring.velocity = spring.previous_velocity = glm::vec3{0};
+        }
+        else if (delta_seconds > 0) {
+            auto const anchor_velocity = travel / delta_seconds;
+            spring.velocity -= 1.5F * (anchor_velocity - spring.previous_velocity);
+            spring.previous_velocity = anchor_velocity;
+            auto const steps = static_cast<int>(std::ceil(delta_seconds * 120));
+            auto const step = delta_seconds / static_cast<float>(steps);
+            // Approximately 1.3 Hz with a slow, underdamped return. Integrate in world space so
+            // turns, starts, stops and animated torso motion all produce inertia.
+            for (int i = 0; i < steps; ++i) {
+                spring.velocity += (-65.0F * spring.offset - 2.2F * spring.velocity) * step;
+                spring.offset += spring.velocity * step;
+                auto const limit = unit * 0.75F;
+                auto const distance = glm::length(spring.offset);
+                if (distance > limit) {
+                    auto const normal = spring.offset / distance;
+                    spring.offset = normal * limit;
+                    spring.velocity -= normal * std::max(0.0F, glm::dot(spring.velocity, normal));
+                }
+            }
+        }
+        spring.previous_anchor = anchor;
+        auto transform = pose.local_transforms()[spring.node];
+        transform.translation +=
+            glm::vec3{glm::inverse(parent_world) * glm::vec4{spring.offset, 0}};
+        pose.set_local_transform(spring.node, transform);
+        if (spring.auxiliary) {
+            auto const auxiliary_parent = pose.model().nodes()[*spring.auxiliary].parent_index;
+            auto const auxiliary_world =
+                world * (auxiliary_parent ? matrices[*auxiliary_parent] : glm::mat4{1});
+            auto auxiliary = pose.local_transforms()[*spring.auxiliary];
+            auxiliary.translation +=
+                glm::vec3{glm::inverse(auxiliary_world) * glm::vec4{spring.offset * 0.35F, 0}};
+            pose.set_local_transform(*spring.auxiliary, auxiliary);
+        }
+    }
+    initialized_ = true;
+}
+
+void apply_remiel_leg_height(scene::ModelInstance &pose, float scale, float prone_amount)
 {
     auto const waist = pose.model().find_node("腰");
     auto const lower = pose.model().find_node("下半身");
@@ -54,7 +212,7 @@ void apply_remiel_leg_height(scene::ModelInstance &pose, float scale)
     auto const parent_matrix = parent ? matrices[*parent] : glm::mat4{1};
     // Stretch the lower body around the feet and translate its waist/upper body by
     // the same extension. Inverse parent converts world-up to the imported rig space.
-    auto const extension = matrices[*lower][3].y * (scale - 1);
+    auto const extension = matrices[*lower][3].y * (scale - 1) * (1 - prone_amount);
     waist_transform.translation +=
         glm::vec3{glm::inverse(parent_matrix) * glm::vec4{0, extension, 0, 0}};
     lower_transform.scale.y *= scale;

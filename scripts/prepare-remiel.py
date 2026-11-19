@@ -184,6 +184,7 @@ for clip_name, duration in [
     ("Wave", 2.4),
     ("Crouch", 1.0),
     ("StandUp", 1.0),
+    ("Prone", 0.7),
 ]:
     frames = 48
     time = accessor([(duration * i / frames,) for i in range(frames + 1)], "SCALAR")
@@ -216,12 +217,12 @@ for clip_name, duration in [
                 0,
                 -sign * (24 + 1.5 * sway),
             )
-            pose[side + "ひじ"] = (-35 if running else -10, 0, 0)
+            pose[side + "ひじ"] = (-45 if running else -25, 0, 0)
         if clip_name == "Wave":
             # Ease the greeting in and out; locomotion resumes after the clip.
             envelope = math.sin(math.pi * frame / frames) ** 2
             pose["右腕"] = (-10 * envelope, 0, 24 - 124 * envelope)
-            pose["右ひじ"] = (-10, 0, (-35 + 20 * math.sin(phase * 3)) * envelope)
+            pose["右ひじ"] = (-25, 0, (-35 + 20 * math.sin(phase * 3)) * envelope)
             pose["右手首"] = (0, 15 * math.sin(phase * 3) * envelope, 0)
         crouch = 0
         if clip_name in ("Crouch", "StandUp"):
@@ -244,7 +245,19 @@ for clip_name, duration in [
                     -42.8 * crouch * sign,
                     -(24 + 36.4 * crouch) * sign,
                 )
-                pose[side + "ひじ"] = (-10 * (1 - crouch), 0, 0)
+                pose[side + "ひじ"] = (-25 * (1 - crouch), 0, 0)
+        prone = 0
+        if clip_name == "Prone":
+            progress = frame / frames
+            prone = progress * progress * (3 - 2 * progress)
+            # Rotate about the pelvis: PMX chest faces +Z, so +90 degrees lies face down.
+            pose["腰"] = (90 * prone, 0, 0)
+            pose["上半身"] = (0, 0, 0)
+            pose["上半身2"] = (0, 0, 0)
+            pose["頭"] = (-25 * prone, 0, 0)
+            for side, sign in [("左", 1), ("右", -1)]:
+                pose[side + "腕"] = (-65 * prone, 0, -sign * (24 + 25 * prone))
+                pose[side + "ひじ"] = (-25 - 55 * prone, 0, 0)
         for name, angles in pose.items():
             channels.setdefault((name, "rotation"), []).append(rotation(*angles))
         pelvis = document["nodes"][nodes["腰"]]
@@ -252,6 +265,8 @@ for clip_name, duration in [
             "translation", pelvis.get("matrix", [0] * 16)[12:15]
         ).copy()
         translation[1] -= 10.49 * (1 - math.cos(math.radians(84.34 * crouch)))
+        # Baked skinned chest minimum is 2.26531 units below the prone pelvis.
+        translation[1] -= (12.890596 - 2.28531) * prone
         channels.setdefault(("腰", "translation"), []).append(translation)
     animation = {"name": clip_name, "samplers": [], "channels": []}
     for (name, path), values in channels.items():
@@ -292,5 +307,5 @@ shutil.copyfile(source / "RM.txt", model_dir / "RM.txt")
 atlas.save(texture_dir / "base-color.png")
 print(
     f"Prepared {len(primitives)} primitives, {len(images)} atlas tiles; baked "
-    "Idle/Walk/Run/Wave/Crouch/StandUp."
+    "Idle/Walk/Run/Wave/Crouch/StandUp/Prone."
 )
