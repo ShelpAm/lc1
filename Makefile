@@ -90,21 +90,21 @@ build: $(CONAN_TOOLCHAIN) $(if $(SLANGC),configure,$(BUILD_DIR)/CMakeCache.txt)
 #
 # The Windows side has the mirror-image problem: profiles/mingw64 deliberately does not
 # build the layers (see conanfile.py), and a plain wine prefix has none either, so a
-# Debug exe gets as far as instance creation and stops. LC1_NO_VALIDATION=1 is the
-# switch main.cpp already has for exactly this, and it is left to the caller to set:
+# Debug exe gets as far as instance creation and stops. The caller can pass
+# --no-validation via ARGS:
 # silently disabling the safety net on every wine run is how it stops being one.
 run: build
 	@case "$(PLATFORM)" in \
 	linux-x86_64) \
-		cd $(BUILD_DIR) && . ./generators/conanrun.sh && ./lc1 ;; \
+		cd $(BUILD_DIR) && . ./generators/conanrun.sh && ./lc1 $(ARGS) ;; \
 	windows-x86_64) \
 		command -v wine >/dev/null || { echo "run: wine is not installed"; exit 1; }; \
 		if [ ! -d $(WINE_PREFIX) ]; then \
 			echo "run: creating $(WINE_PREFIX) (first time only)"; \
 			$(WINE_ENV) wineboot -u >/dev/null 2>&1; \
 		fi; \
-		echo "run: if this stops at 'layer not available', use LC1_NO_VALIDATION=1 make run PLATFORM=$(PLATFORM)"; \
-		cd $(BUILD_DIR) && $(WINE_ENV) wine ./lc1.exe ;; \
+		echo "run: if this stops at 'layer not available', use make run PLATFORM=$(PLATFORM) ARGS=--no-validation"; \
+		cd $(BUILD_DIR) && $(WINE_ENV) wine ./lc1.exe $(ARGS) ;; \
 	*) \
 		echo "run: unknown platform $(PLATFORM)"; exit 1 ;; \
 	esac
@@ -117,7 +117,7 @@ run: build
 run-gdb: build
 	@case "$(PLATFORM)" in \
 	linux-x86_64) \
-		cd $(BUILD_DIR) && . ./generators/conanrun.sh && exec gdb ./lc1 ;; \
+		cd $(BUILD_DIR) && . ./generators/conanrun.sh && exec gdb --args ./lc1 $(ARGS) ;; \
 	*) \
 		echo "run-gdb: cannot debug PLATFORM=$(PLATFORM); only linux-x86_64 runs natively"; exit 1 ;; \
 	esac

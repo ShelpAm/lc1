@@ -13,6 +13,7 @@
 #include "lc1/vk/resources/gpu-font.hpp"
 
 #include <array>
+#include <map>
 
 namespace lc1 {
 
@@ -118,7 +119,6 @@ class WorldPresentation {
         std::optional<std::size_t> mount;
         std::optional<std::size_t> attack_animation;
         std::uint64_t attack_sequence;
-        std::optional<std::size_t> nod_animation;
         std::uint64_t nod_sequence;
         std::uint64_t hit_sequence = 0;
         bool dead = false;
@@ -144,15 +144,18 @@ class WorldPresentation {
         std::optional<std::size_t> head_mount;
         std::optional<std::size_t> eyes_mount;
         glm::mat4 eyes_offset{1};
-        std::optional<std::size_t> idle_animation;
-        std::optional<std::size_t> move_animation;
-        std::optional<std::size_t> run_animation;
-        std::optional<std::size_t> body_attack_animation;
-        std::optional<std::size_t> death_animation;
+        std::array<std::optional<std::size_t>, character_animation_count> animations{};
         std::optional<std::size_t> crouch_animation;
         std::optional<std::size_t> prone_animation;
         std::vector<std::pair<std::size_t, scene::NodeTransform>> proportion_pose;
         std::optional<RemielMotion> remiel_motion;
+
+        std::optional<std::size_t> animation(CharacterAnimation action) const
+        {
+            return animations[static_cast<std::size_t>(action)];
+        }
+
+        std::optional<std::size_t> locomotion(bool moving, bool running) const;
     };
 
     std::vector<CharacterModels> character_models_;
@@ -168,10 +171,14 @@ class WorldPresentation {
         MaterialInfo material;
 
         ModelResources(Device const &device, std::filesystem::path const &asset_root,
-                       ModelConfig const &config, CharacterBody const &body);
+                       ModelConfig const &config, CharacterBody const &body,
+                       MaterialInfo const &material);
     };
 
-    std::map<std::pair<std::string, TextureColorSpace>, std::unique_ptr<GpuTexture>>
+    ModelResources &resources_for(Device const &device, std::filesystem::path const &asset_root,
+                                  ModelConfig const &config, CharacterBody const &body);
+
+    std::map<std::pair<std::filesystem::path, TextureColorSpace>, std::unique_ptr<GpuTexture>>
         model_textures_;
     std::vector<std::unique_ptr<ModelResources>> model_resources_;
     // Required scene-owned borrows, valid until scene_ is destroyed.

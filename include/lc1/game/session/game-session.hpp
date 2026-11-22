@@ -20,7 +20,9 @@ class GameSession {
     // layer for the game and the debug panel edits it. Application keeps it alive.
     GameSession(Device const &device, std::filesystem::path const &asset_root,
                 GameSimulation &simulation, std::filesystem::path const &save_directory,
-                OutputSettings output, Window *window, PlayerId player, CloudSettings &clouds);
+                OutputSettings output, Window *window, PlayerId player,
+                CloudSettings &clouds,
+                std::filesystem::path const &ui_settings_file);
 
     GameSession(GameSession const &) = delete;
     GameSession &operator=(GameSession const &) = delete;

@@ -7,6 +7,7 @@
 #include "lc1/game/party/faction.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/resources/catalog.hpp"
+#include "lc1/utf8-path.hpp"
 
 #include <rfl/yaml.hpp>
 
@@ -307,7 +308,7 @@ std::filesystem::path Save::slot_directory(std::filesystem::path const &root, st
 {
     if (!valid_slot_name(name))
         fail("invalid save name: use 1-128 bytes without path separators or reserved characters");
-    return root / std::filesystem::path{std::u8string{name.begin(), name.end()}};
+    return root / path_from_utf8(name);
 }
 
 std::vector<std::string> Save::slots(std::filesystem::path const &root)

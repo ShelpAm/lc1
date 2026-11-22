@@ -9,6 +9,8 @@
   `load_from_file(Device const&, path const&) -> T`。网格仍使用独立缓存。
   `GpuTexture` 上传 CPU Image，不是文件加载 Resource；ResourceManager 不依赖 Renderer。
 - 资源 ID 相对于指定 asset root 词法规范化，拒绝绝对路径和目录逃逸；不合并符号链接别名。
+- 存档与材质配置中的路径按 UTF-8 保存；进入 `std::filesystem` 前统一经 `path_from_utf8()`
+  转换，避免 Windows 使用 ANSI 代码页解释中文资源名。
 - 卸载会立即使该资源的借用失效，没有引用计数。卸载资源或销毁 manager 前，必须停止使用相关借用，
   并等待使用它的 GPU 工作完成。RAII 销毁本身不等待 GPU。
 - `scene::Scene` 中的实例、`DrawItem`、`scene::Object`、`RenderTarget` 借用资源；资源在成员声明顺序中先于使用者。
@@ -126,12 +128,12 @@ OBJ、程序化顶点/索引构造生成一个引用网格 0 的单位根节点�
 占位角色的 `Eyes` 节点挂在头部下；表现层保存挂点索引，在动画更新后向 Scene 查询，
 把眼睛世界变换（位置与旋转）交给第一人称相机。
 
-glTF 导入只读取几何、层级、蒙皮与动画，不自动导入材质绑定。默认 `GltfMaterialPolicy::WarnIfPresent`
-在源文件带材质时提示调用方绑定绘制材质；已由 `ModelConfig.material` 提供外部材质的角色/武器加载路径
-显式使用 `UseExternal`，不再对此预期行为报警。该选项不跳过几何、蒙皮、扩展或贴图加载校验。
+GLB 导入按 primitive 保留 PBR 材质和对应的内嵌贴图，从 `bufferView` 解码 RGBA8，使用 `TEXCOORD_0`。
+`GpuModel` 按图片索引和色彩空间共享 GPU 纹理，`Scene` 按网格选材质。程序装配仍可通过
+`SceneModel.material` 指定整模材质。GLB 当前沿用不透明绘制和默认采样器，材质扩展与 AO 不参与绘制。
 
 当前 `WorldPresentation` 按角色与武器的 YAML 模型配置加载 GPU 资源；相同配置共享资源与材质，
-占位几何另外按身体尺寸区分，贴图按规范路径和色彩空间共享。
+占位几何另外按身体尺寸区分，YAML 外部贴图按规范路径和色彩空间共享，并逐槽覆盖 GLB 贴图。
 刚性模型的 CPU 几何在 GpuModel 构造返回前释放；蒙皮资产保留绑定姿态几何和权重；
 在 Scene 中为每个角色创建独立 `ModelInstance`，游戏层只保存借用指针。
 占位内容由 `make_character_model()` 构造，身体和头部是两个网格节点，共享定义中有头部左右转动的 `Idle` 和双次点头的 `Nod`；
@@ -151,10 +153,9 @@ glTF 导入只读取几何、层级、蒙皮与动画，不自动导入材质绑
 动画导入 translation/rotation/scale 的 STEP 和 LINEAR，继续使用运行时的完整校验与独立实例播放。
 缓冲范围、步长、属性数量、索引和节点拓扑均在返回模型前检查。
 
-材质绑定尚未导入：文件含材质时记录警告，调用方仍须提供绘制材质。
+模型文件中的图片须存于 GLB 的 `bufferView`。外部贴图由[模型配置](save-data.md#角色与武器的-model)引用。
 稀疏 accessor、必需扩展、压缩 primitive、非三角形、额外顶点属性、透明顶点色、
 CUBICSPLINE、morph 和额外权重组（如 JOINTS_1）明确报错，不产生声称支持这些特性的模型。
-材质仍由 YAML 显式绑定，glTF 材质和透明特效尚未自动接入。
 
 ### 骨骼蒙皮
 
@@ -181,21 +182,15 @@ Scene 的 DrawItem 保存本帧变形顶点的不可变快照。Renderer 在各�
 当前是 CPU 蒙皮加 GPU 上传/BLAS rebuild，尚无 GPU 蒙皮、动画混合或 root motion。
 
 兰博接入资源由 `python scripts/prepare-rumble.py` 从原始 `models/rumble/source.glb` 生成；
-保留骨架、权重与待机、跑步、攻击、死亡、玩笑五段动画并原样提取底色贴图。
+保留内嵌材质、骨架、权重与所选的待机、跑步、攻击、死亡和玩笑动画。
 透明护盾和使用零缩放切换可见性的其他片段属于尚未实现的特效路径，不纳入人物变体；原文件不修改。
 `runtime/saves/01` 和 `blacksmith` 中 lc 使用该变体；已有 checkpoint 保留自己的外观配置，不自动迁移。
 
-yyx 使用 `models/yone/封魔剑魂.glb`。`python scripts/prepare-yone.py yone` 从 `models/yone/source.glb`
-生成模型及 `textures/yone/base-color.png`，将原文件的四张底色图拼为一张图集并改写各网格的 UV，
-以适配当前单模型单材质绑定。原文件的节点、骨骼和动画保持不变；已有 checkpoint 仍保留自己的外观配置。
-铁匠使用 `models/western-yone/西部魔影_炽天使_永恩.glb`。`python scripts/prepare-yone.py western-yone`
-从同目录的 `source.glb` 生成模型及 `textures/western-yone/base-color.png`，并只保留兼容可逆变换约束的
-待机、行走、攻击、死亡与玩笑动画。两份原始 GLB 都已从 `unused/` 移入对应的模型目录。
-
-北极星使者_彗使用 `models/winterblessed-hwei/北极星使者_彗.glb`。`python scripts/prepare-winterblessed-hwei.py` 从同目录的
-`source.glb` 提取两张内嵌贴图，分别缩放至 1024×1024 后合成为 `textures/winterblessed-hwei/base-color.png`。
-子网格共享 UV accessor，按各子网格索引引用的顶点仅改写一次 UV，映射至对应图集区域；模型保留原始动画，种子存档的
-3 号角色使用 `Idle1_Base`、`RunSlow`、`RunFast`、`Attack1_A`、`Death` 和 `Joke`。
+基础永恩和北极星使者彗直接使用各自目录下的 `source.glb`，保留原始 UV 和内嵌贴图。
+铁匠使用 `models/western-yone/western-yone.glb`。`python scripts/prepare-yone.py western-yone`
+从同目录的 `source.glb` 生成，保留原始 UV、内嵌贴图与兼容可逆变换约束的动画。
+旧图集版 GLB 和 PNG 保留原路径，供已有 checkpoint 引用。永恩的旧图集可用 `prepare-yone.py` 的
+`--legacy-atlas` 重建，彗的旧图集可用 `prepare-winterblessed-hwei.py` 重建。
 
 集市摊贩（`runtime/saves/01` 的 6 号 NPC）使用本地导入的蕾米埃尔泳装模型。
 `python scripts/prepare-remiel.py /path/to/蕾米埃尔-泳装` 通过 Assimp CLI 和 Pillow 生成

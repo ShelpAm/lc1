@@ -7,29 +7,27 @@
 #include "lc1/vk/render/volumetric-clouds.hpp"
 #include "lc1/vk/resources/gpu-font.hpp"
 #include <array>
+#include <filesystem>
 #include <optional>
 #include <span>
 
 namespace lc1 {
 class MusicBrowser;
 struct FogSettings;
+class PlayerView;
+class WorldPresentation;
 struct GameLocation;
 
-struct GameUiInfo {
+struct GameUiContext {
     WorldSnapshot const &world;
-    CharacterId player;
-    std::vector<Party const *> player_parties; // Parties related to current player
+    PlayerId player_id;
+    WorldPresentation const &presentation;
+    PlayerView const &player_view;
+    Window const &window;
+    MusicBrowser &music;
     std::span<std::string const> saves;
     std::string_view current_save;
-    FrameExtent extent;
-    std::string_view lighting_name;
-    float exposure;
-    double time_of_day;
-    float time_rate;
-    int grass_density;
     float debug_flight_speed = 1;
-    bool showcase_animated;
-    std::string_view interaction_target;
     // Live renderer configuration; null when the caller does not render clouds.
     CloudSettings *clouds = nullptr;
     FogSettings *fog = nullptr;
@@ -60,7 +58,9 @@ struct CharacterPreviewRequest {
 
 class GameUi {
   public:
-    GameUiActions update(GameUiInfo const &info, MusicBrowser &music);
+    explicit GameUi(std::filesystem::path settings_file);
+
+    GameUiActions update(GameUiContext const &context);
 
     bool gameplay_enabled() const;
     std::optional<CharacterPreviewRequest> character_preview() const;
@@ -87,10 +87,13 @@ class GameUi {
                                               GameLocation location) const;
 
   private:
-    void player_info(GameUiInfo const &info, GameUiActions &actions);
+    void player_info(GameUiContext const &info, GameUiActions &actions);
+    void persist_ui_scale() const;
 
     enum class State { MainMenu, InSettings, InGame };
+    std::filesystem::path settings_file_;
     State state_ = State::MainMenu;
+    float ui_scale_ = 1.3F;
     float volume_ = 50.0F;
     std::string save_status_ = "F6: Save game | F9: Load game";
     std::array<char, 129> save_name_{};

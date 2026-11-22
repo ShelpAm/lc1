@@ -92,10 +92,10 @@ void Scene::remove_light(SceneLight const *light)
 
 SceneModel *Scene::add_model(SceneModel model)
 {
-    if (!model.material)
-        fail("scene model requires a material");
     if (!model.model || &model.pose.model() != &model.model->definition())
         fail("scene model pose does not match its GPU model");
+    if (!model.material && !model.model->has_embedded_materials())
+        fail("scene model requires a material");
     if (!model.view_hidden_nodes.empty() &&
         model.view_hidden_nodes.size() != model.pose.model().nodes().size())
         fail("view visibility mask must match the model nodes");
@@ -154,8 +154,8 @@ std::vector<DrawItem> Scene::draws() const
     result.reserve(draw_count());
     for (auto const &[pointer, model] : models_)
         if (model->visible) {
-            if (!model->material || !model->model ||
-                &model->pose.model() != &model->model->definition())
+            if (!model->model || &model->pose.model() != &model->model->definition() ||
+                (!model->material && !model->model->has_embedded_materials()))
                 fail("scene model has invalid resource bindings");
             auto const matrices = model->pose.model_matrices();
             auto const instances = model->pose.mesh_instances(model->world_transform, matrices);
@@ -165,7 +165,9 @@ std::vector<DrawItem> Scene::draws() const
                     continue;
                 auto const &mesh = instances[draw_index++];
                 result.push_back({.mesh = &model->model->meshes()[mesh.mesh],
-                                  .material = model->material,
+                                  .material = model->material
+                                                  ? model->material
+                                                  : &model->model->embedded_material(mesh.mesh),
                                   .model_matrix = mesh.model_matrix,
                                   .casts_shadow = model->casts_shadow,
                                   .depth_bias = model->depth_bias,

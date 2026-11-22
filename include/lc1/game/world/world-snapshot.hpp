@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/animation-motion.hpp"
 #include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/character-pose.hpp"
 #include "lc1/game/character/character-proportions.hpp"
@@ -41,6 +42,7 @@ struct CharacterSnapshot {
     float crouch_amount = 0;
     float prone_amount = 0;
     float reaction_time = combat::death_duration;
+    std::optional<TimedCharacterAnimation> timed_animation;
     // Full world speech; each observer decides whether to show it overhead or in the HUD.
     std::string speech;
     std::optional<std::uint32_t> dialog_partner;

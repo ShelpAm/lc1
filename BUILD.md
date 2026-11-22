@@ -164,18 +164,21 @@ cd build/linux-x86_64/Debug
 ```
 
 Shader, dialogue, and default data paths are relative to the working directory.
-Release builds must also run from the build directory. `LC1_ASSET_ROOT` overrides
-the asset root; `LC1_SAVE_ROOT` overrides the default save directory,
-`runtime/saves/01`. See the [save documentation](docs/save-data.md) (Chinese) for details.
+Release builds must also run from the build directory. `--asset-root PATH` overrides
+the asset root. `--save-root PATH` overrides the default save directory, `runtime/saves/01`.
+See the [save documentation](docs/save-data.md) (Chinese) for details.
 
 Debug enables Vulkan validation and synchronization validation by default, and
 Conan installs the corresponding layers by default. `with_validation_layers=False`
 only controls dependency installation; it does not disable the application's Debug
-validation behavior. For diagnostics explicitly performed without validation, set
-`LC1_NO_VALIDATION=1`. Such a run is not evidence of passing validation checks.
+validation behavior. For diagnostics explicitly performed without validation, pass
+`--no-validation`. Such a run is not evidence of passing validation checks.
 
-`LC1_PLAYER_ID` selects the local player binding (default `1`), independently of character
+`--player-id ID` selects the local player binding (default `1`), independently of character
 keyids. See [player identities and local multiplayer](docs/players.md) for the binding contract.
+
+`--device SUBSTRING` filters GPUs by device name. Pass options through `make run`
+or `make run-gdb` with `ARGS`, for example `make run ARGS='--device Radeon --player-id 1'`.
 
 ## Windows builds
 
@@ -200,7 +203,7 @@ The MinGW profile does not install validation layers by default. To run Debug in
 a Wine environment without those layers, explicitly opt out:
 
 ```sh
-LC1_NO_VALIDATION=1 make run PLATFORM=windows-x86_64
+make run PLATFORM=windows-x86_64 ARGS=--no-validation
 ```
 
 ### Native Windows with MSVC
@@ -281,7 +284,7 @@ explicitly to restore the previous behavior.
   environment was loaded from the build directory, then check that the layer
   dependency was installed.
 - **Missing assets or a failed directory copy:** check that `runtime/assets/`
-  exists and contains the required files. `LC1_ASSET_ROOT` affects runtime loading;
+  exists and contains the required files. `--asset-root` affects runtime loading;
   the build still copies that directory from the source tree.
 - **Duplicate presets or missing preset includes:** inspect the generated
   `CMakeUserPresets.json`. After changing preset generation, rerun Conan installation

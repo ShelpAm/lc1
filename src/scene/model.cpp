@@ -10,13 +10,13 @@
 
 namespace lc1::scene {
 
-Model Model::load_from_file(std::filesystem::path const &path, GltfMaterialPolicy materials)
+Model Model::load_from_file(std::filesystem::path const &path)
 {
     auto extension = path.extension();
     if (extension == ".obj")
         return load_from_obj(path);
     if (extension == ".gltf" || extension == ".glb")
-        return load_from_gltf(path, materials);
+        return load_from_gltf(path);
     fail("unsupported model file extension: {}", path.extension().string());
 }
 
@@ -83,10 +83,17 @@ Model::Model(std::vector<Vertex> vertices, std::vector<std::uint32_t> indices)
 }
 
 Model::Model(std::vector<Mesh> meshes, std::vector<ModelNode> nodes,
-             std::vector<AnimationClip> animations, std::vector<SkinnedMesh> skins)
+             std::vector<AnimationClip> animations, std::vector<SkinnedMesh> skins,
+             EmbeddedMaterials materials)
     : meshes_(std::move(meshes)),
-      definition_{meshes_.size(), std::move(nodes), std::move(animations)}, skins_(std::move(skins))
+      definition_{meshes_.size(), std::move(nodes), std::move(animations)},
+      skins_(std::move(skins)), materials_(std::move(materials))
 {
+    if (!materials_.mesh_materials.empty() &&
+        (materials_.mesh_materials.size() != meshes_.size() ||
+         std::ranges::any_of(materials_.mesh_materials,
+                             [this](auto index) { return index >= materials_.materials.size(); })))
+        fail("invalid embedded mesh material bindings");
     for (auto const &mesh : skins_) {
         if (mesh.node >= definition_.nodes().size() || !definition_.nodes()[mesh.node].mesh_index ||
             mesh.skin.joints.empty() ||
@@ -155,12 +162,28 @@ std::span<SkinnedMesh const> Model::skins() const
     return skins_;
 }
 
+EmbeddedMaterials const &Model::embedded_materials() const &
+{
+    return materials_;
+}
+
+EmbeddedMaterials Model::embedded_materials() &&
+{
+    return std::move(materials_);
+}
+
 void Model::generate_tangents()
 {
-    for (auto &mesh : meshes_)
+    for (std::size_t mesh_index = 0; mesh_index < meshes_.size(); ++mesh_index) {
+        auto &mesh = meshes_[mesh_index];
+        if (std::ranges::all_of(mesh.vertices_, valid_tangent_frame))
+            continue;
+        if (std::ranges::any_of(skins_, [&](auto const &skin) {
+                return definition_.nodes()[skin.node].mesh_index == mesh_index;
+            }))
+            fail("normal maps on skinned meshes require authored tangents");
         lc1::generate_tangents(mesh.vertices_, mesh.indices_);
-    for (auto &skin : skins_)
-        skin.vertices = meshes_[*definition_.nodes()[skin.node].mesh_index].vertices_;
+    }
 }
 
 } // namespace lc1::scene

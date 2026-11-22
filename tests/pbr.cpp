@@ -14,6 +14,7 @@
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/physics/world-collision.hpp"
+#include "lc1/game/player/player-view.hpp"
 #include "lc1/game/resources/catalog.hpp"
 #include "lc1/game/session/save.hpp"
 #include "lc1/game/world/game-world.hpp"
@@ -1247,16 +1248,9 @@ void player_models_test(lc1::Device const &device)
         device, lc1::load_configured_model(character, "runtime/assets", lc1::CharacterBody{})};
     lc1::scene::GpuModel sword{
         device, lc1::load_configured_model(weapon_config, "runtime/assets", lc1::CharacterBody{})};
-    auto wood = character.material.value().material();
-    lc1::GpuTexture body_texture{
-        device,
-        lc1::Image::load_from_file(std::filesystem::path{"runtime/assets"} /
-                                   character.material.value().base_color_texture.value()),
-        lc1::TextureColorSpace::Srgb};
-    wood.base_color.texture = &body_texture;
     auto const metal = weapon_config.material.value().material();
     lc1::scene::Scene scene;
-    auto *player = scene.add_model({.model = &barrel, .material = &wood});
+    auto *player = scene.add_model({.model = &barrel});
     auto const grip = *barrel.definition().find_node(character.weapon_mount.value());
     auto *weapon = scene.add_model(
         {.model = &sword, .material = &metal, .world_transform = player->node_world_matrix(grip)});
@@ -1380,6 +1374,14 @@ void player_models_test(lc1::Device const &device)
             state = lc1::capture_world(world);
             presentation.update(0, {});
             auto const &pose = presentation.weapon_model(bearer->config().keyid)->pose;
+            if (bearer->timed_animation()) {
+                check(!pose.playback(), "villager's hand drives the sword without weapon Swing");
+                auto const &body = presentation.character_model(bearer->config().keyid).pose;
+                check(body.playback() &&
+                          body.model().animations()[body.playback()->animation].name == "Slash",
+                      "equipped villager plays Slash from the simulation snapshot");
+                continue;
+            }
             check(pose.playback() && pose.playback()->time == 0,
                   "accepted attack snapshot starts player and NPC weapon animations");
             presentation.update(0.1F, {});
@@ -1430,7 +1432,8 @@ void player_models_test(lc1::Device const &device)
             auto const *model = presentation.weapon_model(bearer->config().keyid);
             check(model && !std::ranges::contains(weapon_models, model),
                   "each player's or NPC's equipped weapon has its own scene instance");
-            check(model->pose.playback() && model->pose.playback()->time > 0.27F,
+            check(bearer->timed_animation() ||
+                      (model->pose.playback() && model->pose.playback()->time > 0.27F),
                   "player and NPC weapon swings advance through character intent");
             weapon_models.push_back(model);
             auto const mount = *presentation.character_model(bearer->config().keyid)
@@ -1443,7 +1446,7 @@ void player_models_test(lc1::Device const &device)
                     near(model->world_transform[column][row], expected[column][row],
                          "every weapon follows its bearer's current mount");
         }
-        check(weapon_models.size() == 3, "default player and both armed NPCs display weapons");
+        check(weapon_models.size() == 4, "default player and all three armed NPCs display weapons");
         check(weapon_models[1]->model == weapon_models[2]->model,
               "NPC weapons share GPU resources while retaining independent scene instances");
         check(equipped->pose.playback()->time > 0.27F, "configured action animation advances");
@@ -1604,7 +1607,7 @@ void particle_render_test(lc1::Device const &device, vk::SampleCountFlagBits sam
 }
 
 void inventory_preview_test(lc1::Device const &device, lc1::VulkanLoader const &loader,
-                            lc1::Instance const &instance)
+                            lc1::Instance const &instance, lc1::Window const &window)
 {
     lc1::GameWorld world{lc1::Save{"runtime/saves/01"}, "runtime/dialogs/catalog.yaml"};
     auto state = lc1::capture_world(world);
@@ -1612,6 +1615,7 @@ void inventory_preview_test(lc1::Device const &device, lc1::VulkanLoader const &
                                         {},     lc1::PlayerId{1}, world.dialogs().catalog()};
     presentation.update(0.1F, {.first_person = true});
     auto const id = state.players.at(lc1::PlayerId{1}).character_id;
+    lc1::PlayerView player_view{world.continent(), state.character(id).pose.position()};
     auto preview = presentation.character_preview(id, -20);
     auto &preview_scene = preview.scene;
     check(std::ranges::none_of(preview_scene.draws(),
@@ -1716,7 +1720,7 @@ void inventory_preview_test(lc1::Device const &device, lc1::VulkanLoader const &
     check(ImGui_ImplVulkan_Init(&backend), "initialize inventory UI renderer");
     auto const texture = std::bit_cast<std::uint64_t>(
         ImGui_ImplVulkan_AddTexture(*portrait.view(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
-    lc1::GameUi ui;
+    lc1::GameUi ui{{}};
     presentation.set_volume(0);
     lc1::MusicBrowser music{presentation.audio_context()};
     ui.start_game();
@@ -1744,20 +1748,14 @@ void inventory_preview_test(lc1::Device const &device, lc1::VulkanLoader const &
         ImGui_ImplVulkan_NewFrame();
         ImGui::NewFrame();
         ui.update({.world = state,
-                   .player = id,
-                   .player_parties = {&state.parties.front()},
+                   .player_id = lc1::PlayerId{1},
+                   .presentation = presentation,
+                   .player_view = player_view,
+                   .window = window,
+                   .music = music,
                    .saves = {},
                    .current_save = "01",
-                   .extent = {1280, 900},
-                   .lighting_name = "Studio",
-                   .exposure = 1,
-                   .time_of_day = 12,
-                   .time_rate = 1,
-                   .grass_density = 4,
-                   .showcase_animated = false,
-                   .interaction_target = {},
-                   .character_preview_texture = texture},
-                  music);
+                   .character_preview_texture = texture});
         auto const request = *ui.character_preview();
         auto current =
             request.resource
@@ -2014,6 +2012,16 @@ void village_test(lc1::Device const &device)
     auto state = lc1::capture_world(world);
     auto &player = state.characters.front();
     player.pose.world_transform.position = {-5, 0, 103};
+    auto const villager = std::ranges::find(state.characters, 12, &lc1::CharacterSnapshot::keyid);
+    check(villager != state.characters.end(), "the seed save includes the villager");
+    auto const other = std::ranges::find(state.characters, 5, &lc1::CharacterSnapshot::keyid);
+    check(other != state.characters.end(), "the seed save includes a second NPC for overrides");
+    auto &override_character = *other;
+    override_character.model = villager->model;
+    override_character.model.animation_bindings.value() = {{"Idle", "Idle"}, {"Walk", "Walk"}};
+    override_character.timed_animation = lc1::TimedCharacterAnimation{};
+    override_character.model.material.value().base_color_texture =
+        std::string{"textures/prototype-white.png"};
     lc1::WorldPresentation presentation{
         device,
         "runtime/assets",
@@ -2024,6 +2032,74 @@ void village_test(lc1::Device const &device)
         world.dialogs().catalog()};
     presentation.update(0.2F, {});
     check(!presentation.scene().particles().empty(), "smithy furnace burns without a held torch");
+    override_character.timed_animation =
+        lc1::TimedCharacterAnimation{lc1::CharacterAnimation::SprintStart};
+    override_character.moving = true;
+    override_character.running = true;
+    presentation.update(0.2F, {});
+    auto const &sparse_pose = presentation.character_model(override_character.keyid).pose;
+    auto const sparse_playback = sparse_pose.playback();
+    check(sparse_playback && sparse_playback->looping &&
+              sparse_pose.model().animations()[sparse_playback->animation].name == "Walk",
+          "a character without a sprint or transition binding falls back to its walk loop");
+    auto const &villager_pose = presentation.character_model(villager->keyid).pose;
+    for (std::size_t index = 0; index < lc1::character_animation_count; ++index) {
+        auto const action = static_cast<lc1::CharacterAnimation>(index);
+        auto const name = villager->model.animation_name(action);
+        if (name.empty())
+            continue;
+        auto const clip = villager_pose.model().find_animatinon(name);
+        check(clip.has_value(), "configured villager animation exists in the asset");
+        auto const seconds = villager_pose.model().animations()[*clip].duration() * 0.5F;
+        villager->timed_animation = lc1::TimedCharacterAnimation{action, seconds};
+        presentation.update(0.2F, {});
+        auto const playback = *villager_pose.playback();
+        check(playback.animation == *clip && std::abs(playback.time - seconds) < 0.001F,
+              "villager presentation samples the simulation's clip and time");
+        if (action == lc1::CharacterAnimation::Attack) {
+            auto const &body = presentation.character_model(villager->keyid);
+            auto const grip = *body.pose.model().find_node(villager->model.weapon_mount.value());
+            auto const *sword = presentation.weapon_model(villager->keyid);
+            check(sword && !sword->pose.playback() &&
+                      sword->world_transform == body.node_world_matrix(grip),
+                  "villager Slash drives the sword directly through the hand mount");
+        }
+    }
+    villager->timed_animation = lc1::TimedCharacterAnimation{};
+    presentation.update(0, {});
+    auto const &embedded_model = *presentation.character_model(villager->keyid).model;
+    auto const &override_model = *presentation.character_model(override_character.keyid).model;
+    check(embedded_model.has_embedded_materials() && override_model.has_embedded_materials(),
+          "both villagers retain GLB material bindings");
+    auto const draws = presentation.scene().draws();
+    lc1::GpuTexture const *first_color = nullptr;
+    bool distinct_colors = false;
+    bool preserved_normal = false;
+    for (std::size_t mesh_index = 0; mesh_index < embedded_model.meshes().size(); ++mesh_index) {
+        auto const &embedded = embedded_model.embedded_material(mesh_index);
+        auto const &overridden = override_model.embedded_material(mesh_index);
+        check(overridden.base_color.texture &&
+                  overridden.base_color.texture->image().extent() == vk::Extent2D{1, 1} &&
+                  overridden.base_color.texture->color_space() == lc1::TextureColorSpace::Srgb,
+              "YAML base color texture overrides the GLB base color slot");
+        if (embedded.base_color.texture) {
+            distinct_colors |= first_color && first_color != embedded.base_color.texture;
+            first_color = embedded.base_color.texture;
+        }
+        if (embedded.normal.texture) {
+            check(overridden.normal.texture && overridden.normal.texture->image().extent() ==
+                                                   embedded.normal.texture->image().extent(),
+                  "base color override preserves the embedded normal map");
+            preserved_normal = true;
+        }
+        check(std::ranges::any_of(draws,
+                                  [&](auto const &draw) {
+                                      return draw.mesh == &embedded_model.meshes()[mesh_index] &&
+                                             draw.material == &embedded;
+                                  }),
+              "scene binds each villager mesh to its authored material");
+    }
+    check(distinct_colors && preserved_normal, "villager uses multiple GLB textures");
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
     auto frame = renderer.make_frame_resources(presentation.object_capacity());
     lc1::scene::FpsCamera camera;
@@ -2294,7 +2370,7 @@ int main(int argc, char **argv)
             return 0;
         }
         if (inventory_only) {
-            inventory_preview_test(device, loader, instance);
+            inventory_preview_test(device, loader, instance, window);
             std::cout << "Inventory preview and UI GPU tests passed\n";
             return 0;
         }

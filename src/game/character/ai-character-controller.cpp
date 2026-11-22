@@ -21,10 +21,11 @@ AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
 AiCharacterController::AiCharacterController(DialogSystem const &dialogs,
                                              CharacterLookup characters,
                                              std::span<Character *const> action_targets,
-                                             std::vector<Waypoint> path, float arrival_radius)
+                                             std::vector<Waypoint> path, float arrival_radius,
+                                             std::optional<CharacterId> ambient_patrol)
     : dialogs_(&dialogs), characters_(std::move(characters)),
       action_targets_(action_targets.begin(), action_targets.end()), state_(State::Patrol),
-      path_(std::move(path)), arrival_radius_(arrival_radius)
+      path_(std::move(path)), arrival_radius_(arrival_radius), ambient_patrol_(ambient_patrol)
 {
     assert(!path_.empty() && "path must have at least one waypoint");
     current_target_ = path_.size() > 1 ? 1 : 0;
@@ -71,6 +72,9 @@ CharacterIntent AiCharacterController::decide(float delta_seconds)
     case State::Wait:
         break;
     case State::Patrol:
+        if (ambient_patrol_)
+            return *ambient_patrol_ == character.id() ? patrol_update(delta_seconds, character)
+                                                      : intent;
         intent = patrol_update(delta_seconds, character);
         break;
     case State::Follow:
@@ -89,8 +93,8 @@ CharacterIntent AiCharacterController::decide(float delta_seconds)
     if (action_targets_.empty() && character.config().party) {
         auto const id = character.config().party->leader();
         auto const *leader = id ? &characters_(*id) : nullptr;
-        intent.swing_weapon =
-            leader && glm::distance(leader->position(), character.position()) <= 3.0F;
+        intent.swing_weapon = leader && leader != &character &&
+                              glm::distance(leader->position(), character.position()) <= 3.0F;
     }
 
     return intent;
@@ -98,7 +102,7 @@ CharacterIntent AiCharacterController::decide(float delta_seconds)
 
 bool AiCharacterController::patrolling() const
 {
-    return (state_ == State::Dialog ? resume_state_ : state_) == State::Patrol;
+    return !ambient_patrol_ && (state_ == State::Dialog ? resume_state_ : state_) == State::Patrol;
 }
 
 std::optional<CompanionOrder> AiCharacterController::companion_order() const
@@ -132,20 +136,22 @@ CharacterIntent AiCharacterController::patrol_update(float delta_seconds,
         return intent;
     }
 
-    auto const target_pos = path_[current_target_].position;
-    if (glm::distance(character.position(), target_pos) <= arrival_radius_) {
-        wait_remaining_ = path_[current_target_].wait_seconds;
+    auto const &target = path_[current_target_];
+    float const arrival = target.sprint ? 2.1F : arrival_radius_;
+    if (glm::distance(character.position(), target.position) <= arrival) {
+        wait_remaining_ = target.wait_seconds;
         if (wait_remaining_ == 0.0F)
             current_target_ = (current_target_ + 1) % path_.size();
         return intent;
     }
 
-    auto const to_target = target_pos - character.position();
+    auto const to_target = target.position - character.position();
     if (glm::length(to_target) > 1e-12F) {
         auto const direction = glm::normalize(to_target);
         // Character owns speed, collision and body turning; the patrol only asks to move.
         intent.move = glm::vec2{direction.x, direction.z};
         intent.face_movement = true;
+        intent.sprint = target.sprint;
     }
 
     return intent;

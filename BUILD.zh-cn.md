@@ -137,14 +137,16 @@ cd build/linux-x86_64/Debug
 ```
 
 着色器、对话和默认数据路径相对于工作目录解析，Release 同样需要从构建目录运行。
-`LC1_ASSET_ROOT` 可覆盖资源根目录，`LC1_SAVE_ROOT` 可覆盖默认存档目录
+`--asset-root 路径` 可覆盖资源根目录，`--save-root 路径` 可覆盖默认存档目录
 `runtime/saves/01`。存档行为见[存档文档](docs/save-data.md)。
 
 Debug 默认启用 Vulkan 验证和同步验证，Conan 也默认安装对应验证层。
 `with_validation_layers=False` 只控制依赖安装，不会关闭程序的 Debug 验证逻辑。
-在明确不使用验证的诊断场景，可通过 `LC1_NO_VALIDATION=1` 启动；该运行结果不能作为验证层检查通过的证据。
+在明确不使用验证的诊断场景，可传入 `--no-validation`；该运行结果不能作为验证层检查通过的证据。
 
-`LC1_PLAYER_ID` 选择本地玩家绑定，默认 `1`，与角色编号独立。绑定约定见[玩家与多人模拟](docs/players.md)。
+`--player-id ID` 选择本地玩家绑定，默认 `1`，与角色编号独立。绑定约定见[玩家与多人模拟](docs/players.md)。
+
+`--device 子串` 按名称筛选 GPU。`make run` 和 `make run-gdb` 通过 `ARGS` 转发参数，例如 `make run ARGS='--device Radeon --player-id 1'`。
 
 ## Windows 构建
 
@@ -167,7 +169,7 @@ Make 使用独立的 `build/wine-prefix`，不使用个人的 `~/.wine`。MinGW 
 在没有验证层的 Wine 环境中运行 Debug 时，需要显式选择：
 
 ```sh
-LC1_NO_VALIDATION=1 make run PLATFORM=windows-x86_64
+make run PLATFORM=windows-x86_64 ARGS=--no-validation
 ```
 
 ### Windows 原生 MSVC
@@ -233,7 +235,7 @@ cmake --preset linux-x86_64-debug -Dlc1_enable_asan=ON
   手动配置对应 `-DSLANGC_EXECUTABLE=/path/to/slangc`，路径会缓存到该构建树。
 - **Debug 提示找不到验证层**：先确认从构建目录加载了 Conan 运行环境，再检查是否安装了验证层依赖。
 - **缺少资源或复制目录失败**：检查 `runtime/assets/` 是否存在且内容齐全。
-  `LC1_ASSET_ROOT` 影响运行时加载路径，构建时仍会复制源码树中的该目录。
+  `--asset-root` 影响运行时加载路径，构建时仍会复制源码树中的该目录。
 - **CMake 报 preset 重复或引用失效**：检查生成的 `CMakeUserPresets.json`。
   修改 preset 生成规则后，应为其包含的每个平台和构建类型重新执行 Conan 安装。
 - **需要清理**：`make clean` 删除整个 `build/`，包括所有平台产物、Wine prefix

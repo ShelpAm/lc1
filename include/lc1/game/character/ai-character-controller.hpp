@@ -19,6 +19,7 @@ class DialogSystem;
 struct Waypoint {
     glm::vec3 position;
     float wait_seconds = 0.0F; // Seconds to stay at this point before moving on.
+    bool sprint = false;
 };
 
 class AiCharacterController : public CharacterController {
@@ -26,7 +27,8 @@ class AiCharacterController : public CharacterController {
     explicit AiCharacterController(DialogSystem const &dialogs, CharacterLookup characters);
     explicit AiCharacterController(DialogSystem const &dialogs, CharacterLookup characters,
                                    std::span<Character *const> action_targets,
-                                   std::vector<Waypoint> path, float arrival_radius = 0.5F);
+                                   std::vector<Waypoint> path, float arrival_radius = 0.5F,
+                                   std::optional<CharacterId> ambient_patrol = std::nullopt);
     void set_order(CompanionOrder order);
 
     CharacterIntent decide(float delta_seconds) override;
@@ -50,6 +52,7 @@ class AiCharacterController : public CharacterController {
     std::size_t current_target_ = 0;
     float arrival_radius_ = 0.5F;
     float wait_remaining_ = 0.0F;
+    std::optional<CharacterId> ambient_patrol_;
 };
 
 } // namespace lc1

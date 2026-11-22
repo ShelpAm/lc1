@@ -31,6 +31,9 @@ flowchart TD
     session --> music[MusicBrowser]
     view --> world
     ui --> world
+    ui -. 借用 .-> view
+    ui -. 借用 .-> player
+    ui -. 借用 .-> music
     player --> controller["PlayerCharacterController · 输入解释"]
     controller --> intent["CharacterIntent · 一帧期望"]
     ai["AiCharacterController · 巡逻/伴随"] --> intent

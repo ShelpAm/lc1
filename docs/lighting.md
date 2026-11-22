@@ -30,7 +30,7 @@ color = emissive
 或 64 个存活材质的限制。参数使用 glTF 默认值；程序生成的普通表面显式设 metallic = 0、
 roughness = 0.8。
 
-`Renderer::record()` 在验证输入后，将材质参数及 heap 索引复制到当前 `FrameResources`。
+`Renderer` 在注册渲染图时校验绘制输入，阴影和光照共用该帧快照。记录命令时将材质参数及 heap 索引复制到当前 `FrameResources`。
 每个 draw 各有 object、material、frame UBO，后者保存该 draw 的资源索引；不会在录制下一次
 draw 时覆盖前一次 draw 的数据。camera/lights 在同一帧槽内共享。CPU 参数只需活到 record
 返回，mesh、纹理和采样器则必须活到对应 GPU 工作完成。

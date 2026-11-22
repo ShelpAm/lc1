@@ -15,6 +15,9 @@
 
 namespace lc1 {
 namespace {
+constexpr std::string_view villager_model_path = "models/characters/runtime/villager.glb";
+constexpr glm::vec3 villager_patrol_start{-3, 0, 34};
+
 template <typename Map, typename Value>
 void insert_unique(Map &map, std::uint32_t keyid, Value value, std::string_view kind)
 {
@@ -104,9 +107,27 @@ void GameWorld::load(Save const &save)
 
     for (auto const &[_, character] : characters_) {
         if (!character->controller()) {
-            auto &controller = controllers_.emplace_back(std::make_unique<AiCharacterController>(
-                dialogs_, [this](CharacterId id) -> Character & { return this->character(id); }));
-            character->set_controller(controller.get());
+            auto lookup = [this](CharacterId id) -> Character & { return this->character(id); };
+            if (character->config().model.path.value() == villager_model_path &&
+                setup_.continent.identity().id == "present") {
+                std::vector<Waypoint> route{{villager_patrol_start, 2.0F},
+                                            {{-3, 0, 41}, 1.5F},
+                                            {{4, 0, 48}, 2.0F, true},
+                                            {{4, 0, 34}, 1.5F}};
+                auto const nearest =
+                    std::ranges::min_element(route, {}, [&](Waypoint const &point) {
+                        return glm::distance(point.position, character->position());
+                    });
+                auto const index = static_cast<std::size_t>(nearest - route.begin());
+                std::ranges::rotate(route,
+                                    route.begin() + (index + route.size() - 1) % route.size());
+                controllers_.push_back(std::make_unique<AiCharacterController>(
+                    dialogs_, lookup, std::span<Character *const>{}, std::move(route), 0.55F,
+                    character->id()));
+            }
+            else
+                controllers_.push_back(std::make_unique<AiCharacterController>(dialogs_, lookup));
+            character->set_controller(controllers_.back().get());
         }
         character->set_interactable(
             std::make_unique<InteractableCharacter>(character.get(), &dialogs_));
@@ -184,11 +205,18 @@ void GameWorld::build_world(Save const &save)
             .equipment = {},
             .main_hand = nullptr,
             .model = record.model.value(),
-            .attack_animation_duration = configured_animation_duration(
-                record.model.value(), record.model.value().attack_animation.value(), asset_root_),
+            .animation_motion = {},
             .base_walk_speed = record.base_walk_speed.value(),
             .run_speed_bonus = record.run_speed_bonus.value(),
         };
+        config.animation_motion = load_animation_motion(config.model, asset_root_);
+        config.attack_animation_duration =
+            config.animation_motion &&
+                    (*config.animation_motion)[CharacterAnimation::Attack].duration > 0
+                ? (*config.animation_motion)[CharacterAnimation::Attack].duration
+                : configured_animation_duration(
+                      config.model, config.model.animation_name(CharacterAnimation::Attack),
+                      asset_root_);
         for (auto const &slot : record.equipment)
             config.equipment[slot.first] = equipments_.at(slot.second).get();
         if (record.main_hand)
@@ -213,6 +241,9 @@ void GameWorld::build_world(Save const &save)
             auto const patrol = setup_.npc_patrols.find(record.keyid);
             if (patrol != setup_.npc_patrols.end() && patrol->second.spawn)
                 actual.position = *patrol->second.spawn;
+            else if (record.model.value().path.value() == villager_model_path &&
+                     setup_.continent.identity().id == "present")
+                actual.position = villager_patrol_start;
         }
         auto const state = save.states().find(record.keyid);
         if (state != save.states().end()) {
@@ -375,7 +406,7 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
     for (auto *character : dialog_participants_)
         character->resolve_attack(dialog_participants_, setup_.continent);
     for (auto *character : dialog_participants_)
-        if (character->dead() || character->reaction_time() < combat::hit_duration)
+        if (character->dead() || character->reacting_to_hit())
             dialogs_.interrupt(*character);
 
     // Resolve each player's actions in stable player-id order, then advance dialogue once.

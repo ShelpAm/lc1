@@ -33,6 +33,11 @@ bool is_supported_audio_file(std::filesystem::path const &path)
     return extension == ".wav" || extension == ".mp3" || extension == ".ogg";
 }
 
+float ui_scale()
+{
+    return ImGui::GetStyle().FontScaleMain;
+}
+
 } // namespace
 
 MusicBrowser::MusicBrowser(audio::AudioContext const &context)
@@ -71,7 +76,9 @@ void MusicBrowser::update()
         music_browser_loaded_ = true;
     }
 
-    ImGui::SetNextWindowSize({480.0F, 360.0F}, ImGuiCond_FirstUseEver);
+    float const scale = ui_scale();
+    ImGui::SetNextWindowSize({480.0F * scale, 360.0F * scale}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints({320.0F * scale, 240.0F * scale}, {FLT_MAX, FLT_MAX});
     if (!ImGui::Begin("Choose music", &music_browser_open_)) {
         ImGui::End();
         return;

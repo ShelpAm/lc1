@@ -1,5 +1,7 @@
 #include "lc1/game/world/world-snapshot.hpp"
+
 #include "lc1/game/world/game-world.hpp"
+#include <rfl/enums.hpp>
 
 #include "lc1/error.hpp"
 
@@ -46,6 +48,11 @@ WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot con
                                                      current.characters[i].prone_amount, alpha);
         result.characters[i].crouch_amount = glm::mix(previous.characters[i].crouch_amount,
                                                       current.characters[i].crouch_amount, alpha);
+        auto const &previous_animation = previous.characters[i].timed_animation;
+        auto &animation = result.characters[i].timed_animation;
+        if (animation && previous_animation && animation->clip == previous_animation->clip &&
+            animation->seconds >= previous_animation->seconds)
+            animation->seconds = std::lerp(previous_animation->seconds, animation->seconds, alpha);
     }
     return result;
 }
@@ -59,6 +66,15 @@ WorldSnapshot capture_world(GameWorld const &world)
         snapshot.weapons.emplace(id, *weapon);
     snapshot.characters.reserve(world.characters().size());
     for (auto const *character : world.characters()) {
+        auto model = character->config().model;
+        if (auto const &motion = character->config().animation_motion) {
+            for (std::size_t slot = 0; slot < motion->clips.size(); ++slot) {
+                auto const &clip = motion->clips[slot];
+                if (!clip.name.empty())
+                    model.animation_bindings.value().try_emplace(
+                        rfl::enum_to_string(static_cast<CharacterAnimation>(slot)), clip.name);
+            }
+        }
         std::optional<ModelConfig> weapon_model;
         if (character->config().main_hand)
             weapon_model = character->config().main_hand->model_config();
@@ -71,7 +87,7 @@ WorldSnapshot capture_world(GameWorld const &world)
              .name = character->config().name,
              .faction = world.faction(character->faction()).name(),
              .pose = *character,
-             .model = character->config().model,
+             .model = std::move(model),
              .proportions = character->proportions(),
              .weapon_model = std::move(weapon_model),
              .attack_sequence = character->attack_sequence(),
@@ -88,6 +104,7 @@ WorldSnapshot capture_world(GameWorld const &world)
              .crouch_amount = character->crouch_amount(),
              .prone_amount = character->prone_amount(),
              .reaction_time = character->reaction_time(),
+             .timed_animation = character->timed_animation(),
              .speech = std::move(speech),
              .dialog_partner =
                  dialog ? std::optional{(dialog->talker() == character ? dialog->target()

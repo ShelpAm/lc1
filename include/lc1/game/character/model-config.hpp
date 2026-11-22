@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/character-animation.hpp"
 #include "lc1/scene/animation.hpp"
 #include "lc1/scene/model.hpp"
 #include "lc1/vk/render/material.hpp"
@@ -8,6 +9,7 @@
 
 #include <array>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -55,11 +57,11 @@ struct ModelAnimationConfig {
 };
 
 struct ModelMaterialConfig {
-    rfl::DefaultVal<std::array<float, 4>> base_color{{1, 1, 1, 1}};
-    rfl::DefaultVal<float> metallic{0.0F};
-    rfl::DefaultVal<float> roughness{0.8F};
-    rfl::DefaultVal<std::array<float, 3>> emissive{{0, 0, 0}};
-    rfl::DefaultVal<float> normal_scale{1.0F};
+    rfl::DefaultVal<std::optional<std::array<float, 4>>> base_color;
+    rfl::DefaultVal<std::optional<float>> metallic;
+    rfl::DefaultVal<std::optional<float>> roughness;
+    rfl::DefaultVal<std::optional<std::array<float, 3>>> emissive;
+    rfl::DefaultVal<std::optional<float>> normal_scale;
     rfl::DefaultVal<std::string> base_color_texture;
     rfl::DefaultVal<std::string> metallic_roughness_texture;
     rfl::DefaultVal<std::string> normal_texture;
@@ -89,6 +91,9 @@ struct ModelConfig {
     rfl::DefaultVal<std::string> death_animation;
     rfl::DefaultVal<std::string> crouch_animation;
 
+    rfl::DefaultVal<std::map<std::string, std::string>> animation_bindings;
+
+    std::string animation_name(CharacterAnimation action) const;
     bool operator==(ModelConfig const &other) const;
 };
 

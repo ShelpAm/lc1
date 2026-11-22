@@ -25,7 +25,6 @@
     death_animation: Death
     action_animation: Rumble_Skin03_Joke.anm
     material:
-      base_color_texture: textures/rumble/base-color.png
       metallic: 0.25
       roughness: 0.65
 - keyid: 2
@@ -38,7 +37,7 @@
   - [Head, 4]
   main_hand: 1002
   model:
-    path: models/yone/封魔剑魂.glb
+    path: models/yone/source.glb
     transform:
       rotation_degrees: [0, 180, 0]
     eyes: Head
@@ -52,7 +51,6 @@
     death_animation: Death
     action_animation: Joke_Loop
     material:
-      base_color_texture: textures/yone/base-color.png
       metallic: 0
       roughness: 0.8
 - keyid: 3
@@ -65,7 +63,7 @@
   - [Head, 4]
   main_hand: 1003
   model:
-    path: models/winterblessed-hwei/北极星使者_彗.glb
+    path: models/winterblessed-hwei/source.glb
     transform:
       rotation_degrees: [0, 180, 0]
     eyes: Head
@@ -79,9 +77,19 @@
     death_animation: Death
     action_animation: Joke
     material:
-      base_color_texture: textures/winterblessed-hwei/base-color.png
       metallic: 0
       roughness: 0.8
+- keyid: 12
+  name: 村民
+  sex: true
+  age: 30
+  party: 6
+  level: 1
+  equipment: []
+  main_hand: 1001
+  model:
+    path: models/characters/runtime/villager.glb
+    first_person_hidden_nodes: [head]
 - keyid: 4
   name: Blacksmith
   sex: false
@@ -91,7 +99,7 @@
   equipment: []
   main_hand: 0
   model:
-    path: models/western-yone/西部魔影_炽天使_永恩.glb
+    path: models/western-yone/western-yone.glb
     transform:
       rotation_degrees: [0, 180, 0]
     eyes: Head
@@ -105,7 +113,6 @@
     death_animation: Death
     action_animation: Joke_Loop.SKINS_Yone_Skin58.anm
     material:
-      base_color_texture: textures/western-yone/base-color.png
       metallic: 0
       roughness: 0.8
 - keyid: 5
@@ -117,7 +124,7 @@
   equipment: []
   main_hand: 0
   model:
-    path: models/winterblessed-hwei/北极星使者_彗.glb
+    path: models/winterblessed-hwei/source.glb
     transform:
       rotation_degrees: [0, 180, 0]
     eyes: Head
@@ -131,7 +138,6 @@
     death_animation: Death
     action_animation: Joke
     material:
-      base_color_texture: textures/winterblessed-hwei/base-color.png
       metallic: 0
       roughness: 0.8
 - keyid: 6

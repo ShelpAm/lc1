@@ -18,6 +18,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace lc1::app {
 
@@ -27,13 +28,15 @@ struct ApplicationConfig {
     std::filesystem::path asset_root = "runtime/assets";
     std::filesystem::path dialog_root = "runtime/dialogs";
     std::filesystem::path save_root = "runtime/saves/01";
+    std::filesystem::path ui_settings_file = "runtime/user-settings.yaml";
+    std::string device_filter;
 };
 
 // Owns platform/graphics lifetime and the local simulation. GameSession borrows the
 // simulation and owns presentation and in-session UI.
 class Application {
   public:
-    explicit Application(ApplicationConfig config);
+    Application(int argc, char const *const *argv);
 
     Application(Application const &) = delete;
     Application &operator=(Application const &) = delete;

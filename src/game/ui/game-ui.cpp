@@ -14,12 +14,28 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <fstream>
 #include <imgui.h>
 #include <ranges>
+#include <rfl/yaml.hpp>
+#include <spdlog/spdlog.h>
+#include <utility>
 
 namespace lc1 {
 namespace {
 constexpr ImVec4 accent{0.83F, 0.69F, 0.43F, 1.0F};
+constexpr float default_ui_scale = 1.3F;
+constexpr float minimum_ui_scale = 1.0F;
+constexpr float maximum_ui_scale = 2.0F;
+
+struct UiSettingsFile {
+    float ui_scale;
+};
+
+float ui_scale()
+{
+    return ImGui::GetStyle().FontScaleMain;
+}
 
 void panel_heading(char const *title)
 {
@@ -37,18 +53,21 @@ void unavailable_button(char const *label, char const *reason)
         ImGui::SetTooltip("%s", reason);
 }
 
-CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
+CharacterSnapshot const *party_info(GameUiContext const &info, ImVec2 size,
                                     std::optional<std::uint32_t> &party_id,
                                     std::optional<CharacterId> &character_id)
 {
-    auto const *player = &info.world.character(info.player);
+    auto const player_id = info.world.players.at(info.player_id).character_id;
+    auto const *player = &info.world.character(player_id);
     auto const *selected = player;
-    auto const &parties = info.player_parties;
+    auto parties = info.world.parties | std::views::filter([player_id](Party const &party) {
+                       return party.leader() == player_id || party.has_member(player_id);
+                   });
     auto current = std::ranges::find_if(
-        parties, [&](auto const *party) { return party_id == party->keyid(); });
+        parties, [&](Party const &party) { return party_id == party.keyid(); });
     if (current == parties.end())
         current = parties.begin();
-    Party const *party = current != parties.end() ? *current : nullptr;
+    Party const *party = current != parties.end() ? &*current : nullptr;
     std::vector<CharacterSnapshot const *> people;
     auto const resolve_selection = [&] {
         people.clear();
@@ -76,10 +95,10 @@ CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
         auto const preview = party ? std::format("Party {}", party->keyid()) : "No party";
         ImGui::SetNextItemWidth(-1.0F);
         if (ImGui::BeginCombo("##party", preview.c_str())) {
-            for (auto const *candidate : parties) {
-                auto const label = std::format("Party {}", candidate->keyid());
-                if (ImGui::Selectable(label.c_str(), candidate == party)) {
-                    party = candidate;
+            for (auto const &candidate : parties) {
+                auto const label = std::format("Party {}", candidate.keyid());
+                if (ImGui::Selectable(label.c_str(), &candidate == party)) {
+                    party = &candidate;
                     character_id.reset();
                 }
             }
@@ -87,6 +106,7 @@ CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
         }
         resolve_selection();
         if (ImGui::BeginChild("Members", {0, 0})) {
+            float const row_height = std::max(25.0F, ImGui::GetFrameHeight());
             for (auto const *person : people) {
                 ImGui::PushID(static_cast<int>(person->keyid));
                 auto name = person->name;
@@ -94,10 +114,10 @@ CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
                     name += " (Me)";
                 if (party->has_captive(CharacterId{person->keyid}))
                     name += " (Captive)";
-                if (ImGui::Selectable(name.c_str(), person == selected, 0, {0, 25}))
+                if (ImGui::Selectable(name.c_str(), person == selected, 0, {0, row_height}))
                     selected = person;
                 if (CharacterId{person->keyid} == party->leader()) {
-                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 22.0F);
+                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight());
                     ImGui::TextColored(accent, "★");
                 }
                 ImGui::PopID();
@@ -299,11 +319,13 @@ game::Resource const *inventory_panel(CharacterSnapshot const &person, ImVec2 si
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Backpack capacity. Changing backpacks is not available yet.");
         constexpr std::array names{"All", "Equipment", "Items"};
+        float const tab_height = std::max(26.0F, ImGui::GetFrameHeight());
         for (int i = 0; i < static_cast<int>(names.size()); ++i) {
             if (i)
                 ImGui::SameLine();
-            if (ImGui::Selectable(names[i], category == i, 0,
-                                  {std::max(1.0F, (size.x - 56) / 3), 26})) {
+            if (ImGui::Selectable(
+                    names[i], category == i, 0,
+                    {std::max(1.0F, (size.x - 56.0F * ui_scale()) / 3), tab_height})) {
                 category = i;
                 selected = nullptr;
                 order.clear();
@@ -326,11 +348,19 @@ game::Resource const *inventory_panel(CharacterSnapshot const &person, ImVec2 si
         float const footer = ImGui::GetFrameHeightWithSpacing();
         if (ImGui::BeginChild("Items", {0, -footer}, ImGuiChildFlags_None,
                               ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+            float const scale = ui_scale();
+            float const icon_size = 34.0F * scale;
+            float const icon_margin = 5.0F * scale;
+            float const text_offset = 48.0F * scale;
+            float const text_margin = 5.0F * scale;
+            float const row_height =
+                std::max({54.0F * scale, icon_size + icon_margin * 2.0F,
+                          text_margin * 2.0F + ImGui::GetTextLineHeight() * 2.0F});
             for (auto const &item : items) {
                 auto const *resource = game::find_resource(item.keyid);
                 ImGui::PushID(static_cast<int>(item.keyid));
                 auto const position = ImGui::GetCursorScreenPos();
-                if (ImGui::Selectable("##item", selected == resource, 0, {0, 54}))
+                if (ImGui::Selectable("##item", selected == resource, 0, {0, row_height}))
                     selected = resource;
                 if (ImGui::BeginDragDropSource()) {
                     ImGui::SetDragDropPayload("INVENTORY_ORDER", &item.keyid, sizeof(item.keyid));
@@ -370,18 +400,20 @@ game::Resource const *inventory_panel(CharacterSnapshot const &person, ImVec2 si
                     ImGui::EndPopup();
                 }
                 auto *draw = ImGui::GetWindowDrawList();
-                item_icon(*resource, {position.x + 5, position.y + 5}, 42);
+                item_icon(*resource, {position.x + icon_margin, position.y + icon_margin},
+                          icon_size);
                 if (ImGui::IsItemHovered() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                     ImGui::BeginTooltip();
                     item_summary(*resource, item.quantity);
                     ImGui::EndTooltip();
                 }
-                draw->AddText({position.x + 56, position.y + 5}, ImGui::GetColorU32(ImGuiCol_Text),
-                              resource->name.c_str());
+                draw->AddText({position.x + text_offset, position.y + text_margin},
+                              ImGui::GetColorU32(ImGuiCol_Text), resource->name.c_str());
                 auto const detail = std::format("x{}   {:.2f} kg", item.quantity,
                                                 item.quantity * (resource->weight / 1000.0));
-                draw->AddText({position.x + 56, position.y + 28}, ImGui::GetColorU32(ImGuiCol_Text),
-                              detail.c_str());
+                draw->AddText({position.x + text_offset,
+                               position.y + text_margin + ImGui::GetTextLineHeight()},
+                              ImGui::GetColorU32(ImGuiCol_Text), detail.c_str());
                 ImGui::PopID();
             }
             if (items.empty())
@@ -438,22 +470,25 @@ bool draw_character_preview(CharacterSnapshot const &person, game::Resource cons
 }
 
 void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resource const *resource,
-                       int &slot, float &slot_position, float &slot_target, GameUiInfo const &info,
-                       GameUiActions &actions)
+                       int &slot, float &slot_position, float &slot_target,
+                       GameUiContext const &info, GameUiActions &actions)
 {
     auto const armor =
         resource ? info.world.equipments.find(resource->keyid) : info.world.equipments.end();
     auto const weapon =
         resource ? info.world.weapons.find(resource->keyid) : info.world.weapons.end();
     if (ImGui::BeginChild("Equipment details", size, ImGuiChildFlags_Borders)) {
+        float const scale = ui_scale();
         panel_heading("EQUIPMENT");
         float const gap = ImGui::GetStyle().ItemSpacing.x;
-        float const slots_width = 86;
+        float const slots_width = 86.0F * scale;
         float const cards_width =
             std::max(100.0F, ImGui::GetContentRegionAvail().x - slots_width - gap);
-        float const content_height = std::max(160.0F, ImGui::GetContentRegionAvail().y -
-                                                          ImGui::GetFrameHeightWithSpacing() * 2);
+        float const content_height =
+            std::max(160.0F * scale,
+                     ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() * 2);
         constexpr std::array slot_names{"Head", "Body", "Feet", "Main hand"};
+        float const slot_height = 58.0F * scale;
         // Draw slots first so a click updates both detail cards in the same frame.
         auto const start = ImGui::GetCursorPos();
         ImGui::SetCursorPosX(start.x + cards_width + gap);
@@ -464,7 +499,7 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
                              (1.0F - std::exp(-14.0F * ImGui::GetIO().DeltaTime));
             if (std::abs(slot_target - slot_position) < 0.001F)
                 slot_position = slot_target;
-            float const step = 58 + ImGui::GetStyle().ItemSpacing.y;
+            float const step = slot_height + ImGui::GetStyle().ItemSpacing.y;
             if (ImGui::BeginChild("Slot wheel", {0, step * 3}, ImGuiChildFlags_None,
                                   ImGuiWindowFlags_NoScrollbar |
                                       ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -474,11 +509,11 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
                 for (int position = center - 2; position <= center + 3; ++position) {
                     int const i = (position % count + count) % count;
                     float const y = origin.y + (position - slot_position + 1) * step;
-                    if (y + 58 <= origin.y || y >= origin.y + step * 3)
+                    if (y + slot_height <= origin.y || y >= origin.y + step * 3)
                         continue;
                     ImGui::SetCursorPos({origin.x, y});
                     ImGui::PushID(position);
-                    if (ImGui::Selectable(slot_names[i], slot == i, 0, {0, 58})) {
+                    if (ImGui::Selectable(slot_names[i], slot == i, 0, {0, slot_height})) {
                         slot = i;
                         slot_target = static_cast<float>(position);
                     }
@@ -490,8 +525,8 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
         ImGui::EndChild();
         ImGui::SetCursorPos(start);
         if (ImGui::BeginChild("Item cards", {cards_width, content_height})) {
-            float const card_height =
-                std::clamp((ImGui::GetContentRegionAvail().y - gap) * 0.34F, 125.0F, 145.0F);
+            float const card_height = std::clamp((ImGui::GetContentRegionAvail().y - gap) * 0.34F,
+                                                 125.0F * scale, 145.0F * scale);
             constexpr std::array equipment_types{EquipmentType::Head, EquipmentType::Body,
                                                  EquipmentType::Foot};
             bool const has_current =
@@ -563,13 +598,14 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
             }
         }
         ImGui::EndChild();
-        bool controllable = person.keyid == info.player.value;
+        auto const player_id = info.world.players.at(info.player_id).character_id;
+        bool controllable = person.keyid == player_id.value;
         for (auto const &party : info.world.parties)
-            if (party.leader() == info.player && party.has_member(CharacterId{person.keyid}))
+            if (party.leader() == player_id && party.has_member(CharacterId{person.keyid}))
                 controllable = std::ranges::none_of(info.world.players, [&](auto const &entry) {
                     return entry.second.character_id == CharacterId{person.keyid};
                 });
-        controllable = controllable && !person.dead && !info.world.character(info.player).dead;
+        controllable = controllable && !person.dead && !info.world.character(player_id).dead;
         ImGui::BeginDisabled(!controllable || (armor == info.world.equipments.end() &&
                                                weapon == info.world.weapons.end()));
         if (ImGui::Button("Equip"))
@@ -611,57 +647,104 @@ void clouds(lc1::CloudSettings *settings)
     if (!ImGui::CollapsingHeader("Volumetric clouds"))
         return;
     ImGui::Checkbox("Enabled", &clouds.enabled);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Coverage", &clouds.coverage, 0.02F, 1.0F, "%.2f",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Density", &clouds.density, 0.0F, 3.0F, "%.2f",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Brightness", &clouds.radiance_scale, 0.5F, 8.0F, "x%.1f",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Cloud bottom", &clouds.bottom, 200.0F, 7900.0F, "%.0f m",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Cloud top", &clouds.top, 300.0F, 8000.0F, "%.0f m",
                        ImGuiSliderFlags_AlwaysClamp);
     // The renderer requires a layer with thickness; keep the two fields ordered here
     // instead of letting the next registration fail.
     clouds.top = std::max(clouds.top, clouds.bottom + 100.0F);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Shape scale", &clouds.noise_scale, 1000.0F, 120000.0F, "%.0f m",
                        ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Detail", &clouds.detail_strength, 0.0F, 1.0F, "%.2f",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Extinction", &clouds.extinction, 0.002F, 0.08F, "%.3f /m",
                        ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat("Anisotropy", &clouds.anisotropy, -0.9F, 0.9F, "%.2f",
                        ImGuiSliderFlags_AlwaysClamp);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     ImGui::SliderFloat3("Wind (m/s)", &clouds.wind_velocity.x, -40.0F, 40.0F, "%.1f",
                         ImGuiSliderFlags_AlwaysClamp);
     int view_steps = static_cast<int>(clouds.view_steps);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     if (ImGui::SliderInt("View steps", &view_steps, 8, 256, "%d", ImGuiSliderFlags_AlwaysClamp))
-        clouds.view_steps = static_cast<std::uint32_t>(std::clamp(view_steps, 8, 256));
+        clouds.view_steps = static_cast<std::uint32_t>(view_steps);
     int light_steps = static_cast<int>(clouds.light_steps);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     if (ImGui::SliderInt("Light steps", &light_steps, 1, 16, "%d", ImGuiSliderFlags_AlwaysClamp))
-        clouds.light_steps = static_cast<std::uint32_t>(std::clamp(light_steps, 1, 16));
+        clouds.light_steps = static_cast<std::uint32_t>(light_steps);
     constexpr std::array<char const *, 5> const debug_names{"Off", "Density", "Sun transmittance",
                                                             "View transmittance", "Step count"};
     int debug = static_cast<int>(clouds.debug);
-    ImGui::SetNextItemWidth(180.0F);
+    ImGui::SetNextItemWidth(180.0F * ui_scale());
     if (ImGui::Combo("Debug view", &debug, debug_names.data(),
                      static_cast<int>(debug_names.size())))
         clouds.debug = static_cast<lc1::CloudSettings::Debug>(debug);
 }
 
 } // namespace
+
+GameUi::GameUi(std::filesystem::path settings_file) : settings_file_(std::move(settings_file))
+{
+    if (settings_file_.empty())
+        return;
+
+    auto stream = std::ifstream{settings_file_};
+    if (!stream) {
+        persist_ui_scale();
+        return;
+    }
+
+    auto settings = rfl::yaml::read<UiSettingsFile, rfl::NoOptionals>(stream);
+    if (!settings) {
+        spdlog::warn("[ui] cannot read {}: {}", settings_file_.string(), settings.error().what());
+        return;
+    }
+    if (!std::isfinite(settings->ui_scale)) {
+        spdlog::warn("[ui] ignoring non-finite scale in {}", settings_file_.string());
+        return;
+    }
+    ui_scale_ = std::clamp(settings->ui_scale, minimum_ui_scale, maximum_ui_scale);
+}
+
+void GameUi::persist_ui_scale() const
+{
+    if (settings_file_.empty())
+        return;
+
+    std::error_code error;
+    auto const parent = settings_file_.parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent, error);
+    if (error) {
+        spdlog::warn("[ui] cannot create {}: {}", parent.string(), error.message());
+        return;
+    }
+
+    auto stream = std::ofstream{settings_file_, std::ios::binary | std::ios::trunc};
+    if (!stream) {
+        spdlog::warn("[ui] cannot write {}", settings_file_.string());
+        return;
+    }
+    rfl::yaml::write(UiSettingsFile{.ui_scale = ui_scale_}, stream);
+    if (!stream)
+        spdlog::warn("[ui] failed while writing {}", settings_file_.string());
+}
 
 void GameUi::open_save(std::string_view name)
 {
@@ -685,28 +768,40 @@ void GameUi::toggle_menu()
     }
 }
 
-GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
+GameUiActions GameUi::update(GameUiContext const &info)
 {
     character_preview_.reset();
     GameUiActions actions;
+
+    // Rebuild from the unscaled defaults so changing the slider never accumulates rounding error.
+    ImGuiStyle scaled_style{};
+    std::ranges::copy(ImGui::GetStyle().Colors, scaled_style.Colors);
+    scaled_style.ScaleAllSizes(ui_scale_);
+    scaled_style.FontScaleMain = ui_scale_;
+    ImGui::GetStyle() = scaled_style;
+
     // The debug page belongs to the overlay: during play the screen shows the game, and
     // Esc brings both the page and the menu back together.
     if (state_ != State::InGame) {
+        float const scale = ui_scale();
+        ImGui::SetNextWindowSize({380.0F * scale, 710.0F * scale}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints({300.0F * scale, 0.0F}, {FLT_MAX, FLT_MAX});
         ImGui::Begin("lc1 debug info");
-        auto [w, h] = info.extent;
-        ImGui::TextUnformatted(std::format("Window size: {}x{}", w, h).c_str());
+        auto const [width, height] = info.window.framebuffer_extent();
+        ImGui::TextUnformatted(std::format("Window size: {}x{}", width, height).c_str());
         ImGui::TextUnformatted(std::format("FPS: {}", ImGui::GetIO().Framerate).c_str());
-        ImGui::TextUnformatted(std::format("Lighting: {}", info.lighting_name).c_str());
-        ImGui::Text("Exposure: %.2f", info.exposure);
-        auto const minutes = static_cast<int>(info.time_of_day * 60.0);
+        ImGui::TextUnformatted(
+            std::format("Lighting: {}", info.presentation.lighting_name()).c_str());
+        ImGui::Text("Exposure: %.2f", info.presentation.output().exposure);
+        auto const minutes = static_cast<int>(info.presentation.time_of_day() * 60.0);
         ImGui::Text("Time: %02d:%02d", minutes / 60, minutes % 60);
         ImGui::TextUnformatted("Time rate");
         ImGui::SameLine();
-        float rate = info.time_rate;
-        ImGui::SetNextItemWidth(90.0F);
+        float rate = info.presentation.time_rate();
+        ImGui::SetNextItemWidth(90.0F * ui_scale_);
         bool changed = ImGui::InputFloat("##time-rate-input", &rate, 0, 0, "%.2f");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(180.0F);
+        ImGui::SetNextItemWidth(180.0F * ui_scale_);
         changed |= ImGui::SliderFloat("##time-rate-slider", &rate, 0.01F, 100.0F, "%.2fx",
                                       ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
         if (changed && std::isfinite(rate))
@@ -715,7 +810,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         if (ImGui::SliderFloat("Flight speed", &flight_speed, 0.1F, 100.0F, "%.2fx",
                                ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
             actions.debug_flight_speed = flight_speed;
-        int density = info.grass_density;
+        int density = info.presentation.grass_density();
         auto const density_label = std::format("{}%%", density * 25);
         if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
                              ImGuiSliderFlags_AlwaysClamp))
@@ -747,24 +842,28 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         }
         ImGui::TextUnformatted(save_status_.c_str());
         ImGui::TextUnformatted(
-            std::format("Showcase motion: {}", info.showcase_animated ? "on" : "off").c_str());
-        ImGui::TextUnformatted(std::format("interaction_target: {}", info.interaction_target.empty()
+            std::format("Showcase motion: {}", info.presentation.showcase_animated() ? "on" : "off")
+                .c_str());
+        auto const &interaction_target = info.world.players.at(info.player_id).interaction_target;
+        ImGui::TextUnformatted(std::format("interaction_target: {}", interaction_target.empty()
                                                                          ? "not found"
-                                                                         : info.interaction_target)
+                                                                         : interaction_target)
                                    .c_str());
 
         if (ImGui::Button("Close (Esc)"))
             state_ = State::InGame;
 
-        music.controls();
+        info.music.controls();
 
         ImGui::End();
     }
-    music.update();
+    info.music.update();
 
+    constexpr ImGuiWindowFlags menu_flags =
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize;
     switch (state_) {
     case State::MainMenu:
-        ImGui::Begin("lc1 main menu##menu");
+        ImGui::Begin("lc1 main menu##menu", nullptr, menu_flags);
         if (ImGui::Button("Start Game"))
             actions.start = true; // TODO
         if (ImGui::Button("Load Game")) {
@@ -778,14 +877,26 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
             actions.quit = true;
         ImGui::End();
         break;
-    case State::InSettings:
-        ImGui::Begin("lc1 settings##menu");
+    case State::InSettings: {
+        ImGui::Begin("lc1 settings##menu", nullptr, menu_flags);
         if (ImGui::SliderFloat("Volume", &volume_, 0, 100))
             actions.volume = volume_;
+        float ui_scale_percent = ui_scale_ * 100.0F;
+        ImGui::SetNextItemWidth(180.0F * ui_scale_);
+        if (ImGui::SliderFloat("UI scale", &ui_scale_percent, 100.0F, 200.0F, "%.0f%%",
+                               ImGuiSliderFlags_AlwaysClamp))
+            ui_scale_ = std::clamp(ui_scale_percent / 100.0F, minimum_ui_scale, maximum_ui_scale);
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            persist_ui_scale();
+        if (ImGui::Button("Reset scale")) {
+            ui_scale_ = default_ui_scale;
+            persist_ui_scale();
+        }
         if (ImGui::Button("Back to Main Menu"))
             state_ = State::MainMenu;
         ImGui::End();
         break;
+    }
     case State::InGame:
         break;
     }
@@ -910,38 +1021,40 @@ void GameUi::toggle_player_info()
         player_info_opened_ = !player_info_opened_;
 }
 
-void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
+void GameUi::player_info(GameUiContext const &info, GameUiActions &actions)
 {
+    float const scale = ui_scale();
     auto const *viewport = ImGui::GetMainViewport();
-    ImVec2 const max_size{std::max(1.0F, viewport->WorkSize.x - 24.0F),
-                          std::max(1.0F, viewport->WorkSize.y - 24.0F)};
+    ImVec2 const max_size{std::max(1.0F, viewport->WorkSize.x - 24.0F * scale),
+                          std::max(1.0F, viewport->WorkSize.y - 24.0F * scale)};
     ImGui::SetNextWindowPos({viewport->WorkPos.x + viewport->WorkSize.x * 0.5F,
                              viewport->WorkPos.y + viewport->WorkSize.y * 0.5F},
                             ImGuiCond_FirstUseEver, {0.5F, 0.5F});
-    ImGui::SetNextWindowSize({std::min(1240.0F, max_size.x), std::min(780.0F, max_size.y)},
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(
+        {std::min(1240.0F * scale, max_size.x), std::min(780.0F * scale, max_size.y)},
+        ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(
-        {std::min(760.0F, max_size.x), std::min(580.0F, max_size.y)}, max_size);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16, 16});
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 5.0F);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {12, 8});
+        {std::min(760.0F * scale, max_size.x), std::min(580.0F * scale, max_size.y)}, max_size);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16 * scale, 16 * scale});
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 5.0F * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {12 * scale, 8 * scale});
     ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(24, 28, 31, 255));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(35, 40, 43, 255));
     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(104, 86, 55, 255));
     if (ImGui::Begin("Character & inventory", &player_info_opened_,
                      ImGuiWindowFlags_HorizontalScrollbar)) {
-        auto const &controlled = info.world.character(info.player);
-        ImGui::SetNextItemWidth(260.0F);
+        auto const &controlled = info.world.player(info.player_id);
+        ImGui::SetNextItemWidth(260.0F * ui_scale());
         if (ImGui::BeginCombo("Control", controlled.name.c_str())) {
             for (auto const &candidate : info.world.characters) {
                 bool const occupied =
                     std::ranges::any_of(info.world.players, [&](auto const &entry) {
                         return entry.second.character_id == CharacterId{candidate.keyid} &&
-                               candidate.keyid != info.player.value;
+                               candidate.keyid != controlled.keyid;
                     });
                 ImGui::BeginDisabled(candidate.dead || occupied);
                 auto const label = std::format("{}##{}", candidate.name, candidate.keyid);
-                if (ImGui::Selectable(label.c_str(), candidate.keyid == info.player.value))
+                if (ImGui::Selectable(label.c_str(), candidate.keyid == controlled.keyid))
                     actions.control_target = CharacterId{candidate.keyid};
                 ImGui::EndDisabled();
             }
@@ -949,7 +1062,8 @@ void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
         }
         if (auto giant = std::ranges::find(info.world.characters, 10U, &CharacterSnapshot::keyid);
             giant != info.world.characters.end() &&
-            selected_character_.value_or(info.player) == CharacterId{giant->keyid}) {
+            selected_character_.value_or(CharacterId{controlled.keyid}) ==
+                CharacterId{giant->keyid}) {
             auto proportions = giant->proportions;
             ImGui::SetNextItemWidth(220);
             bool changed =
@@ -963,13 +1077,14 @@ void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
                 actions.proportions = ProportionsRequest{CharacterId{giant->keyid}, proportions};
         }
         auto available = ImGui::GetContentRegionAvail();
-        available.x = std::max(720.0F, available.x);
+        available.x = std::max(720.0F * scale, available.x);
         float const gap = ImGui::GetStyle().ItemSpacing.x;
         float const left = (available.x - gap * 2) * 0.34F;
         float const middle = (available.x - gap * 2) * 0.28F;
         float const right = available.x - gap * 2 - left - middle;
-        float const top = std::clamp(available.y * 0.29F, 150.0F, 210.0F);
-        float const bottom = std::max(240.0F, available.y - top - ImGui::GetStyle().ItemSpacing.y);
+        float const top = std::clamp(available.y * 0.29F, 150.0F * scale, 210.0F * scale);
+        float const bottom =
+            std::max(240.0F * scale, available.y - top - ImGui::GetStyle().ItemSpacing.y);
         auto const previous_character = selected_character_;
         auto const *person = party_info(info, {left, top}, selected_party_, selected_character_);
         if (previous_character != selected_character_) {

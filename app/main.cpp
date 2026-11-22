@@ -4,13 +4,11 @@
 
 #include <spdlog/spdlog.h>
 
-#include <charconv>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <print>
-#include <string_view>
 
 namespace {
 
@@ -24,7 +22,7 @@ void interrupt_handler(int /*unused*/)
 
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
     try {
         spdlog::set_pattern("[%^%l%$] %v");
@@ -32,27 +30,7 @@ int main()
         std::signal(SIGINT, interrupt_handler);
         std::signal(SIGTERM, interrupt_handler);
 
-        lc1::app::ApplicationConfig config;
-#ifdef NDEBUG
-        config.enable_validation = false;
-#endif
-        if (std::getenv("LC1_NO_VALIDATION") != nullptr)
-            config.enable_validation = false;
-        if (auto const *asset_root = std::getenv("LC1_ASSET_ROOT"))
-            config.asset_root = asset_root;
-        if (auto const *save_root = std::getenv("LC1_SAVE_ROOT"))
-            config.save_root = save_root;
-
-        if (auto const *player = std::getenv("LC1_PLAYER_ID")) {
-            std::string_view const text{player};
-            auto const [end, error] =
-                std::from_chars(text.data(), text.data() + text.size(), config.local_player.value);
-            if (error != std::errc{} || end != text.data() + text.size() ||
-                config.local_player.value == 0)
-                lc1::fail("LC1_PLAYER_ID must be a nonzero player id");
-        }
-
-        lc1::app::Application application{config};
+        lc1::app::Application application{argc, argv};
         application.run([] { return interrupted != 0; });
     }
     catch (lc1::Error const &error) {

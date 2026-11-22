@@ -237,7 +237,6 @@ std::string_view DialogCatalog::select(Character const &talker, Character const 
 
 Dialog::Dialog(DialogScript const &script) : script_(&script)
 {
-    script_->validate();
 }
 
 bool Dialog::start(Character &talker, Character &target)
@@ -341,9 +340,6 @@ void Dialog::respond(Character &character, int response_index)
 
 void Dialog::update(float delta_seconds, bool automatic_response, float line_seconds)
 {
-    validate_time(delta_seconds);
-    if (!std::isfinite(line_seconds) || line_seconds <= 0.0F)
-        fail("dialog line duration must be positive");
     if (!target_)
         return;
     elapsed_ += delta_seconds;
@@ -480,9 +476,8 @@ bool DialogSystem::cooling_down(Character const &character) const
 bool DialogSystem::can_start(Character const &talker, Character const &target,
                              DialogTrigger trigger) const
 {
-    return &talker != &target && !talker.dead() && !target.dead() &&
-           talker.reaction_time() >= combat::hit_duration &&
-           target.reaction_time() >= combat::hit_duration && !find(talker) && !find(target) &&
+    return &talker != &target && !talker.dead() && !target.dead() && !talker.reacting_to_hit() &&
+           !target.reacting_to_hit() && !find(talker) && !find(target) &&
            glm::distance(talker.position(), target.position()) <=
                catalog_.settings().start_distance &&
            (trigger != DialogTrigger::Nearby ||
