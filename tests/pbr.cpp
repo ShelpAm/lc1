@@ -1555,6 +1555,12 @@ void village_test(lc1::Device const &device)
         camera.look_at(view == 0   ? glm::vec3{-9, 4, 120}
                        : view == 1 ? glm::vec3{-2, 2, 133}
                                    : glm::vec3{-23, 1.5F, 110});
+        auto const camera_draws = presentation.scene().draws(camera.view_projection_matrix());
+        check(camera_draws.size() == presentation.scene().draws().size() &&
+                  std::ranges::any_of(
+                      camera_draws,
+                      [](auto const &draw) { return draw.outside_view && draw.casts_shadow; }),
+              "off-camera terrain skips rasterization and retains shadow geometry");
         presentation.update_listener(camera);
         Capture image;
         double gpu_ms = 0;

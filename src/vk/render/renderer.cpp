@@ -194,7 +194,7 @@ void Renderer::add_passes(RenderGraph &graph, FrameResources &resources, RenderT
                           OutputSettings output, TextFrameInput text)
 {
     auto lights = input.lights();
-    auto draws = input.draws();
+    auto draws = input.draws(camera.view_projection_matrix());
     validate_draws(resources, target.extent, draws);
     resources.skinned_geometry.resize(draws.size());
     for (std::size_t i = 0; i < draws.size(); ++i) {
@@ -434,6 +434,8 @@ void Renderer::record_hdr(CommandBuffer &cmd, FrameResources &resources, vk::Ext
     command_buffer.setScissorWithCount(vk::Rect2D{.offset = {.x = 0, .y = 0}, .extent = extent});
 
     for (std::size_t i = 0; i < draws.size(); ++i) {
+        if (draws[i].outside_view || draws[i].view_index_count == 0)
+            continue;
         FrameResources::FrameBufferObject const frame_bo{
             .clear_color = {},
             .camera_index = resources.camera_index,

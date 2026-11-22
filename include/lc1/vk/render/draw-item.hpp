@@ -31,6 +31,7 @@ struct DrawItem {
     std::shared_ptr<std::vector<Vertex> const> skinned_vertices{};
     std::span<std::uint32_t const> skin_indices{};
     GpuMesh const *source_mesh = nullptr;
+    bool outside_view = false;
 
     GpuMesh const *geometry_identity() const { return source_mesh ? source_mesh : mesh; }
 };

@@ -5,6 +5,7 @@
 #include "lc1/scene/model-instance.hpp"
 #include "lc1/vk/render/draw-item.hpp"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <span>
@@ -26,6 +27,7 @@ struct SceneModel {
     bool view_visible = true;
     bool use_view_indices = false;
     std::vector<bool> view_hidden_nodes{};
+    std::optional<std::array<glm::vec3, 2>> local_bounds{};
 
     glm::mat4 node_world_matrix(std::size_t node) const;
 
@@ -97,7 +99,7 @@ class Scene {
     // Value snapshots, with unspecified collection order.
     // Subsequent scene edits cannot change them.
     std::vector<Light> lights() const;
-    std::vector<DrawItem> draws() const;
+    std::vector<DrawItem> draws(std::optional<glm::mat4> view_projection = {}) const;
     // Expanded mesh count, including hidden models.
     std::size_t draw_count() const;
 

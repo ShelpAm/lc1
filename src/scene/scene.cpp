@@ -148,7 +148,7 @@ std::vector<Light> Scene::lights() const
     return result;
 }
 
-std::vector<DrawItem> Scene::draws() const
+std::vector<DrawItem> Scene::draws(std::optional<glm::mat4> view_projection) const
 {
     std::vector<DrawItem> result;
     result.reserve(draw_count());
@@ -158,6 +158,25 @@ std::vector<DrawItem> Scene::draws() const
                 (!model->material && !model->model->has_embedded_materials()))
                 fail("scene model has invalid resource bindings");
             auto const instances = model->pose.mesh_instances(model->world_transform);
+            bool outside_view = false;
+            if (view_projection && model->local_bounds) {
+                auto const &[lower, upper] = *model->local_bounds;
+                auto const projection = *view_projection * model->world_transform;
+                unsigned outside = 0x3f;
+                for (unsigned corner = 0; corner < 8 && outside != 0; ++corner) {
+                    auto const clip = projection * glm::vec4{corner & 1 ? upper.x : lower.x,
+                                                             corner & 2 ? upper.y : lower.y,
+                                                             corner & 4 ? upper.z : lower.z, 1};
+                    auto const flags = static_cast<unsigned>(clip.x < -clip.w) |
+                                       (static_cast<unsigned>(clip.x > clip.w) << 1) |
+                                       (static_cast<unsigned>(clip.y < -clip.w) << 2) |
+                                       (static_cast<unsigned>(clip.y > clip.w) << 3) |
+                                       (static_cast<unsigned>(clip.z < 0) << 4) |
+                                       (static_cast<unsigned>(clip.z > clip.w) << 5);
+                    outside &= flags;
+                }
+                outside_view = outside != 0;
+            }
             std::size_t draw_index = 0;
             for (std::size_t node = 0; node < model->pose.model().nodes().size(); ++node) {
                 if (!model->pose.model().nodes()[node].mesh_index)
@@ -175,7 +194,8 @@ std::vector<DrawItem> Scene::draws() const
                                                                !model->view_hidden_nodes.empty() &&
                                                                model->view_hidden_nodes[node])
                                           ? std::optional<std::uint32_t>{0}
-                                          : std::nullopt});
+                                          : std::nullopt,
+                                  .outside_view = outside_view});
                 for (auto const &skin : model->model->skins())
                     if (skin.node == node) {
                         result.back().skinned_vertices =

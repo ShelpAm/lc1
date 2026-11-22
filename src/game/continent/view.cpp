@@ -513,10 +513,11 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
     auto const bounds = continent.bounds();
 
     struct PendingDraw {
-        std::size_t mesh_index;
+        scene::Model model;
         glm::vec3 origin;
         int grass_level;
         MaterialInfo const *material;
+        std::array<glm::vec3, 2> bounds;
     };
 
     std::vector<PendingDraw> pending;
@@ -524,15 +525,20 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
                                int grass_level = 0) {
         if (geometry.vertices.empty())
             return;
-        auto const mesh_index = models_.size();
+        auto lower = geometry.vertices.front().position;
+        auto upper = lower;
+        for (auto const &vertex : geometry.vertices) {
+            lower = glm::min(lower, vertex.position);
+            upper = glm::max(upper, vertex.position);
+        }
         scene::Model model{geometry.vertices, geometry.indices};
         if (material.normal.texture)
             model.generate_tangents();
-        models_.push_back(std::make_unique<scene::GpuModel>(device, std::move(model)));
-        pending.push_back({.mesh_index = mesh_index,
+        pending.push_back({.model = std::move(model),
                            .origin = geometry.origin,
                            .grass_level = grass_level,
-                           .material = &material});
+                           .material = &material,
+                           .bounds = {lower, upper}});
     };
     // Grass shares eight density batches across the resident world, rather than
     // multiplying draw count by the number of chunks.
@@ -627,14 +633,25 @@ ContinentView::ContinentView(Device const &device, GpuTexture const &texture,
     }
     for (int group = 0; group < 8; ++group)
         append_geometry(grass[group], material_, group + 1);
+    models_.reserve(pending.size());
+    std::vector<GpuBuffer> staging;
+    staging.reserve(pending.size() * 2);
+    one_time_submit(device, [&](vk::raii::CommandBuffer const &commands) {
+        MeshUploadBatch batch{commands, staging};
+        for (auto const &entry : pending)
+            models_.push_back(std::make_unique<scene::GpuModel>(
+                GpuMesh{device, entry.model.vertices(), entry.model.indices(), &batch}));
+    });
     draws_.reserve(pending.size());
-    for (auto const &entry : pending) {
+    for (std::size_t index = 0; index < pending.size(); ++index) {
+        auto const &entry = pending[index];
         if (entry.grass_level != 0)
             grass_batches_.push_back({.draw_index = draws_.size(), .level = entry.grass_level});
-        draws_.push_back({.model = models_[entry.mesh_index].get(),
+        draws_.push_back({.model = models_[index].get(),
                           .material = entry.material,
                           .world_transform = glm::translate(glm::mat4{1.0F}, entry.origin),
-                          .visible = entry.grass_level <= 4});
+                          .visible = entry.grass_level <= 4,
+                          .local_bounds = entry.bounds});
     }
 }
 

@@ -178,6 +178,8 @@ void RayQueryShadows::record_visibility(CommandBuffer &cmd, FrameResources &reso
     commands.setScissorWithCount(vk::Rect2D{.offset = {0, 0}, .extent = extent});
     for (std::size_t i = 0; i < draws.size(); ++i) {
         auto const &item = draws[i];
+        if (item.outside_view || item.view_index_count == 0)
+            continue;
         commands.setFrontFace(glm::determinant(glm::mat3{item.model_matrix}) < 0.0F
                                   ? vk::FrontFace::eClockwise
                                   : vk::FrontFace::eCounterClockwise);
