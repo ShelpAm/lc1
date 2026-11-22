@@ -90,7 +90,7 @@ Vulkan 调用失败直接传播 `vk::SystemError`，保留具体异常类型与�
   `info.instance`、`info.device`、`info.pVulkanFunctions` 留空，由包装层从 raii dispatcher 填充。
 - Application 按 `src/vk/core/device.cpp` 的显式要求筛选设备，包括 BDA、maintenance5、
   ray-query/acceleration-structure/deferred-host-operations 扩展及所需 feature，检查 graphics、compute、
-  present 支持并排除 CPU 设备；VMA feature flags 与之保持一致。`LC1_DEVICE=<substring>` 选择 GPU，
+  present 支持并排除 CPU 设备；VMA feature flags 与之保持一致。`--device <substring>` 选择 GPU，
   启动日志输出名称、类型与驱动。不增加通用能力协商框架。
 - 构造顺序为 `VulkanLoader → Window → Instance → Surface → Device → Renderer → GameSession → FrameLoop`，
   逆序销毁；Application/GameSession 不可移动。Window 的首成员 `glfw_lifetime_` 保证构造失败时也终止 GLFW，

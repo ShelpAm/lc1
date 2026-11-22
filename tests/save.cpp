@@ -453,9 +453,17 @@ void model_configuration_round_trip()
     auto const root = std::filesystem::path{__FILE__}.parent_path() / "fixtures";
     std::ifstream character_stream{root / "character-model.yaml"};
     std::ifstream weapon_stream{root / "weapon-model.yaml"};
-    auto const character = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(character_stream);
+    auto character = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(character_stream);
     auto const weapon = rfl::yaml::read<lc1::ModelConfig, rfl::NoOptionals>(weapon_stream);
     check(character && weapon, "model fixtures decode");
+    check(character->animation_name(lc1::CharacterAnimation::Action) == "Nod" &&
+              character->animation_name(lc1::CharacterAnimation::Sprint).empty(),
+          "legacy action binding is available and missing sprint stays unbound");
+    character->animation_bindings.value() = {{"Walk", "Idle"}, {"Idle", "Idle"}};
+    check(character->animation_name(lc1::CharacterAnimation::Walk) == "Idle" &&
+              character->animation_name(lc1::CharacterAnimation::Idle) == "Idle" &&
+              character->animation_name(lc1::CharacterAnimation::Action) == "Nod",
+          "explicit bindings can reuse asset clips and coexist with legacy slots");
     data.characters.front().model = *character;
     data.weapons.front().model = *weapon;
     for (auto &record : data.characters)
@@ -481,6 +489,9 @@ void model_configuration_round_trip()
               data.characters.back().main_hand,
           "multiple characters share a weapon definition with independent placements");
     data.characters.back().main_hand = 0;
+    data.characters.front().model.value().animation_bindings.value()["UnknownAction"] = "Idle";
+    rejects_write([&] { lc1::Save::write(scratch.directory(), data); }, "animation binding");
+    data.characters.front().model.value().animation_bindings.value().erase("UnknownAction");
     data.characters.front().model.value().material.value().roughness = -1.0F;
     rejects_write([&] { lc1::Save::write(scratch.directory(), data); }, "invalid PBR");
     check(lc1::Save{scratch.directory()}

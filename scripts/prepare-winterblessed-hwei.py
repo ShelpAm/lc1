@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pack 北极星使者_彗's embedded textures into the renderer's one-texture model format."""
+"""Regenerate the legacy external-atlas variant of 北极星使者_彗 for old saves."""
 
 import io
 import json

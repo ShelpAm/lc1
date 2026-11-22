@@ -4,6 +4,8 @@
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/utf8-path.hpp"
 
+#include <rfl/enums.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -95,12 +97,13 @@ bool ModelAnimationChannelConfig::operator==(ModelAnimationChannelConfig const &
 
 MaterialInfo ModelMaterialConfig::material() const
 {
-    auto const &color = base_color.value();
-    return {.parameters = {.base_color_factor = {color[0], color[1], color[2], color[3]},
-                           .emissive_factor = vector(emissive.value()),
-                           .metallic_factor = metallic.value(),
-                           .roughness_factor = roughness.value(),
-                           .normal_scale = normal_scale.value()}};
+    auto const color = base_color.value().value_or(std::array<float, 4>{1, 1, 1, 1});
+    return {
+        .parameters = {.base_color_factor = {color[0], color[1], color[2], color[3]},
+                       .emissive_factor = vector(emissive.value().value_or(std::array<float, 3>{})),
+                       .metallic_factor = metallic.value().value_or(0.0F),
+                       .roughness_factor = roughness.value().value_or(0.8F),
+                       .normal_scale = normal_scale.value().value_or(1.0F)}};
 }
 
 bool ModelMaterialConfig::operator==(ModelMaterialConfig const &other) const
@@ -129,7 +132,33 @@ bool ModelConfig::operator==(ModelConfig const &other) const
            move_animation.value() == other.move_animation.value() &&
            run_animation.value() == other.run_animation.value() &&
            attack_animation.value() == other.attack_animation.value() &&
-           death_animation.value() == other.death_animation.value();
+           death_animation.value() == other.death_animation.value() &&
+           animation_bindings.value() == other.animation_bindings.value();
+}
+
+std::string ModelConfig::animation_name(CharacterAnimation action) const
+{
+    auto const &bindings = animation_bindings.value();
+    if (auto const found = bindings.find(rfl::enum_to_string(action)); found != bindings.end())
+        return found->second;
+
+    using enum CharacterAnimation;
+    switch (action) {
+    case Idle:
+        return idle_animation.value();
+    case Walk:
+        return move_animation.value();
+    case Sprint:
+        return run_animation.value();
+    case Attack:
+        return attack_animation.value();
+    case Death:
+        return death_animation.value();
+    case Action:
+        return action_animation.value();
+    default:
+        return {};
+    }
 }
 
 float configured_animation_duration(ModelConfig const &config, std::string const &name,
@@ -165,6 +194,11 @@ void validate_model_config(ModelConfig const &config)
         if (path.is_absolute() || (!path.empty() && *path.begin() == ".."))
             fail("model asset path must stay relative to the asset root: {}", name);
     }
+    for (auto const &[name, clip] : config.animation_bindings.value()) {
+        auto const action = rfl::string_to_enum<CharacterAnimation>(name);
+        if (!action || *action == CharacterAnimation::Count || clip.empty())
+            fail("invalid character animation binding: {} -> {}", name, clip);
+    }
     config.transform.value().transform().matrix();
     config.eyes_offset.value().transform().matrix();
     validate_material(material.material());
@@ -199,13 +233,27 @@ scene::Model load_configured_model(ModelConfig const &config,
                                    std::filesystem::path const &asset_root,
                                    CharacterBody const &body)
 {
-    auto const imported =
+    auto imported =
         config.path.value() == "builtin:flashlight" ? make_flashlight_model()
         : config.path.value() == "builtin:torch"    ? make_torch_model()
         : config.path.value().empty()
             ? make_character_model(body)
-            : scene::Model::load_from_file(asset_root / path_from_utf8(config.path.value()),
-                                           scene::GltfMaterialPolicy::UseExternal);
+            : scene::Model::load_from_file(asset_root / path_from_utf8(config.path.value()));
+    auto const &material = config.material.value();
+    auto const parameters = material.material().parameters;
+    auto embedded = std::move(imported).embedded_materials();
+    for (auto &entry : embedded.materials) {
+        if (material.base_color.value())
+            entry.parameters.base_color_factor = parameters.base_color_factor;
+        if (material.metallic.value())
+            entry.parameters.metallic_factor = parameters.metallic_factor;
+        if (material.roughness.value())
+            entry.parameters.roughness_factor = parameters.roughness_factor;
+        if (material.emissive.value())
+            entry.parameters.emissive_factor = parameters.emissive_factor;
+        if (material.normal_scale.value())
+            entry.parameters.normal_scale = parameters.normal_scale;
+    }
     std::vector<scene::Mesh> meshes;
     for (std::size_t i = 0; i < imported.mesh_count(); ++i) {
         auto const vertices = imported.vertices(i);
@@ -259,9 +307,9 @@ scene::Model load_configured_model(ModelConfig const &config,
         skin.indices = std::move(body_indices);
         meshes[*nodes[skin.node].mesh_index] = scene::Mesh{skin.vertices, skin.indices};
     }
-    scene::Model model{std::move(meshes), std::move(nodes), std::move(animations),
-                       std::move(skins)};
-    if (!config.material.value().normal_texture.value().empty())
+    scene::Model model{std::move(meshes), std::move(nodes), std::move(animations), std::move(skins),
+                       std::move(embedded)};
+    if (!material.normal_texture.value().empty())
         model.generate_tangents();
     return model;
 }

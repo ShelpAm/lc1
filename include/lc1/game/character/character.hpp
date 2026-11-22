@@ -1,5 +1,6 @@
 #pragma once
 
+#include "lc1/game/character/animation-motion.hpp"
 #include "lc1/game/character/bag.hpp"
 #include "lc1/game/character/character-body.hpp"
 #include "lc1/game/character/character-controller.hpp"
@@ -52,6 +53,7 @@ struct CharacterConfig {
     Weapon *main_hand = nullptr;
     ModelConfig model;
 
+    std::optional<AnimationMotion> animation_motion;
     float attack_animation_duration = 0; // Resolved from CPU animation data during world assembly.
     float health_lost = 0;
 
@@ -130,6 +132,8 @@ class Character {
 
     bool moving() const { return moving_; }
 
+    std::optional<TimedCharacterAnimation> timed_animation() const;
+
     // Resolves the installed controller once, then applies character rules and physics.
     // A character without a controller receives an empty intent.
     void update(float delta_seconds, Continent const &continent);
@@ -169,6 +173,7 @@ class Character {
 
     void take_damage(float amount);
     bool dead() const;
+    bool reacting_to_hit() const;
     float reaction_time() const;
     std::uint64_t hit_sequence() const;
 
@@ -179,6 +184,20 @@ class Character {
     // Resolves the requested actions before physics. Called only by update().
     void apply_intent(float delta_seconds, CharacterIntent const &intent);
     glm::vec3 walking_velocity(glm::vec3 direction, bool running, bool face_movement);
+    float reaction_limit() const;
+
+    float attack_windup() const
+    {
+        return config_.animation_motion ? config_.animation_motion->attack_start : combat::windup;
+    }
+
+    float attack_active_end() const
+    {
+        return config_.animation_motion ? config_.animation_motion->attack_end : combat::active_end;
+    }
+
+    void update_animation_motion(float delta_seconds, Continent const &continent,
+                                 CharacterIntent const &intent);
 
     friend class MeleeWeapon;
     friend class Flashlight;
@@ -206,6 +225,9 @@ class Character {
     bool ambient_requests_blocked_ = false;
     bool running_ = false;
     bool moving_ = false;
+    std::optional<TimedCharacterAnimation> timed_motion_;
+    glm::vec3 animation_move_direction_{};
+    float animation_turn_start_ = 0;
     float weapon_attack_cooldown_ = 0;
     float attack_elapsed_ = combat::swing_duration; // Normalized to the default hit timeline.
     float attack_duration_ = combat::swing_duration;

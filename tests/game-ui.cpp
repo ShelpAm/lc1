@@ -14,7 +14,7 @@ void check(bool condition, char const *message)
 
 void panel_input_gate()
 {
-    lc1::GameUi ui;
+    lc1::GameUi ui{{}};
     ui.toggle_player_info();
     ui.start_game();
     check(ui.gameplay_enabled(), "main menu cannot open the character panel");
@@ -32,7 +32,7 @@ void panel_input_gate()
 
 void menu_overlay()
 {
-    lc1::GameUi ui;
+    lc1::GameUi ui{{}};
     // The game starts on the menu; Esc there closes the overlay instead of quitting.
     check(!ui.gameplay_enabled(), "the main menu suspends gameplay input");
     ui.toggle_menu();

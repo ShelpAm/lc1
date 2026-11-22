@@ -13,7 +13,7 @@
 
 namespace lc1::scene {
 
-// Model and material are required borrows, alive and unmoved until removal.
+// Model and any material override are borrows, alive and unmoved until removal.
 struct SceneModel {
     GpuModel const *model = nullptr;
     ModelInstance pose{definition(model)};

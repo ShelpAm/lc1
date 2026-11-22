@@ -183,12 +183,12 @@ AI 从绑定的对话系统查询活动对话，按内部状态暂停巡逻、�
 Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中的节点和动画片段；
 `Character` 不借用 Scene；接受挥砍请求后增加 `attack_sequence`，由表现层读取快照触发武器动画。
 `WorldPresentation` 装配模型、设置初始待机动画并提交世界变换，Scene 负责推进动画、挂点查询与绘制展开。
-配置了 `idle_animation` 的角色循环待机；配置了 `move_animation` 的角色在水平位置变化时切换移动片段。
-按 F2 经角色 intent 增加 `nod_sequence`，所有观察者播放一次 `action_animation`（再次按下从头播放）。
+角色共用 `CharacterAnimation` 动作枚举。每个模型通过 `animation_bindings` 绑定自身支持的子集。
+`Idle` 循环待机，`Walk` 用于普通移动，`Sprint` 用于加速跑。
+按 F2 经角色 intent 增加 `nod_sequence`，所有观察者播放一次 `Action`（再次按下从头播放）。
 占位角色仍使用头部左右转动的 `Idle` 和前 1.2 秒双次点头、总长 3 秒的 `Nod`。
 兰博使用资源中的待机、跑步、身体攻击、死亡和玩笑片段；单次动作播放完后恢复待机或移动。
 角色世界姿态仍只属于 `Character`，动画不改写玩法坐标。
-受击保留整模型刚性表现；配置死亡片段的模型播放原动画，不再叠加程序倒地旋转。
 骨骼绑定和 CPU 蒙皮的导入、变形与帧槽资源约束见[资源管理](resources.md#骨骼蒙皮)。
 尚未实现动画混合、root motion 或布娃娃。
 占位模型的 `Eyes` 是 `Head` 下的无网格挂点，默认世界位置等于脚底加身体配置的眼睛高度。
@@ -234,27 +234,32 @@ Scene 拥有每个角色的 `ModelInstance`，借用共享 `ModelDefinition` 中
 伤害直接取武器 `attack`，尚未加入护甲减伤、暴击或击退。
 `take_damage()` 拒绝负数和非有限值，零伤害无效果，实际伤害最多扣至零；
 每次有效受击增加 `hit_sequence`，清除未结算攻击并重置受击时间。
-存活角色受击后硬直 0.3 秒，期间不接受控制器的移动、转身、跳跃和攻击；重力继续推进。
+存活角色受击后默认硬直 0.3 秒。运动配置提供 `HitReact` 时，硬直使用该片段的时长。硬直期间不接受控制器的移动、转身、跳跃和攻击，重力继续推进。
 零血量即死亡，不另外维护可与血量矛盾的死亡标记；死亡永久停止控制器意图，仍保留重力。
 受击或死亡中断对话，硬直中和死亡角色不能开始新对话。
 
 快照复制血量、最大血量、受击序号、死亡状态与反应时间，人物属性面板读取真实血量。
 `WorldPresentation` 将 `character_reaction_transform()` 叠加到角色的绘制世界矩阵：
 受击用 0.3 秒后仰并回正，死亡用 0.6 秒向前倒地、抬升半宽以贴近平地，结束后保持最后姿势。
-未配置死亡片段时使用这些程序化刚性动画；配置了 `death_animation` 的模型改为播放自身片段。
+受击与死亡分别使用 `HitReact` 和 `Death` 绑定，缺少片段时沿用程序化刚性动画。
 死亡时停止原有待机和点头，受击与死亡均停止武器动作；武器和眼睛继续跟随最终挂点。
 动画不会改写玩法坐标，尸体仍沿用直立地形碰撞体；斜坡贴合和布娃娃尚未实现。
 血量随 checkpoint 保存，旧进度缺少血量字段时默认为满血；已死亡角色读档后直接显示最终倒地姿势。
 
 ## 本地模型试用
 
-玩家 lc 使用 `runtime/assets/models/rumble/rumble.glb`，底色贴图位于
-`runtime/assets/textures/rumble/base-color.png`；NPC 保留方块占位模型。
+玩家 lc 使用 `runtime/assets/models/rumble/rumble.glb` 的内嵌贴图。村民 NPC 使用 `villager.glb` 的内嵌材质。
 `characters.yaml` 指定模型尺度、朝向和动画片段，模型外观变换不修改玩法的 `CharacterBody` 或碰撞体。
 角色在模拟 tick 内根据实际水平位移发布移动状态，避免渲染帧采样到相同位置时误切回待机；
-角色快照也发布本次是否加速跑。表现层移动时选用 `run_animation`，普通移动选用 `move_animation`，
-停止时选用 `idle_animation`。未配置跑步片段时沿用移动片段。
+角色快照也发布本次是否加速跑。缺少加速跑片段时回退到普通移动，再回退到待机。
 原始模型 `models/rumble/source.glb` 供 `scripts/prepare-rumble.py` 重新生成运行时变体。
+
+`01` 和 `blacksmith` 的村民在出生点附近沿四个路点活动，走路、短跑并在路点停留。
+对话暂停巡逻，读档后从保存位置前往最近路点。种子村民装备长剑，接管后可使用普通攻击输入。
+村民通过模型旁的 `villager.motion.yaml` 绑定 22 段片段。模拟按共享动作选择片段，播放时长从 GLB 读取。
+起停与走跑过渡按着地步相衔接，转身按片段进度改变身体朝向。
+位移使用素材标定速度和游戏碰撞。表现层按快照采样骨骼，手部挂点带动长剑。
+`Slash` 的命中窗口对应约 0.33–0.50 秒，`HitReact` 中断当前动作，`Death` 保持末帧。
 
 武器使用本地 `models/kingdom/weapon_set_kingdom.blend` 中 pfunked 的 `KingdomLongsword`，
 经 `scripts/export-kingdom-longsword.py` 提取为同目录的 `KingdomLongsword.obj`。

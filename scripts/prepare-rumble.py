@@ -34,18 +34,8 @@ if {clip["name"] for clip in model["animations"]} != clips:
 for mesh in model["meshes"]:
     mesh["primitives"] = [primitive for primitive in mesh["primitives"]
                           if model["materials"][primitive["material"]].get("alphaMode", "OPAQUE") == "OPAQUE"]
-# lc1 binds the common body atlas explicitly through ModelConfig.
-texture = model["textures"][model["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"]]
-image = model["images"][texture["source"]]
-if image["mimeType"] != "image/png":
-    raise ValueError("expected the supplied PNG body atlas")
-view = model["bufferViews"][image["bufferView"]]
 output = args.assets / "models/rumble"
 output.mkdir(parents=True, exist_ok=True)
-start = view.get("byteOffset", 0)
-texture_output = args.assets / "textures/rumble"
-texture_output.mkdir(parents=True, exist_ok=True)
-(texture_output / "base-color.png").write_bytes(binary[start:start + view["byteLength"]])
 encoded = json.dumps(model, ensure_ascii=False, separators=(",", ":")).encode()
 encoded += b" " * (-len(encoded) % 4)
 binary += b"\0" * (-len(binary) % 4)

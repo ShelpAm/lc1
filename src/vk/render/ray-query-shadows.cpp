@@ -1,7 +1,6 @@
 #include "lc1/vk/render/ray-query-shadows.hpp"
 #include "lc1/vk/render/graphics-state.hpp"
 
-#include "draw-validation.hpp"
 #include "frame-scene.hpp"
 #include "lc1/scene/camera.hpp"
 #include "lc1/vk/core/device.hpp"
@@ -288,7 +287,6 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
                                     std::optional<scene::DistanceFog> const &fog)
 {
     auto const &command_buffer = cmd.raii();
-    validate_draws(resources, extent, draws);
     for (std::size_t i = 0; i < draws.size(); ++i) {
         ObjectData const object_data{
             .model = draws[i].model_matrix,
@@ -315,15 +313,8 @@ void RayQueryShadows::prepare_frame(CommandBuffer &cmd, FrameResources &resource
     };
     resources.camera_buffer.upload(std::as_bytes(std::span{&ubo, 1}));
 
-    LightsData const lights_data{
-        .count = static_cast<std::uint32_t>(std::min(lights.size(), std::size_t{max_num_lights})),
-        .lights =
-            [&] {
-                std::array<scene::Light, max_num_lights> arr{};
-                std::copy_n(lights.begin(), std::min(lights.size(), arr.size()), arr.begin());
-                return arr;
-            }(),
-    };
+    LightsData lights_data{.count = static_cast<std::uint32_t>(lights.size()), .lights = {}};
+    std::ranges::copy(lights, lights_data.lights.begin());
     resources.lights_buffer.upload(std::as_bytes(std::span{&lights_data, 1}));
 
     update_acceleration_structure(command_buffer, resources, draws);
@@ -362,9 +353,8 @@ void RayQueryShadows::finish_frame(scene::FpsCamera const &camera,
     previous_view_projection_ = camera.view_projection_matrix();
     previous_draws_.assign(draws.begin(), draws.end());
     previous_lights_ = {};
-    previous_light_count_ =
-        static_cast<std::uint32_t>(std::min(lights.size(), previous_lights_.size()));
-    std::copy_n(lights.begin(), previous_light_count_, previous_lights_.begin());
+    previous_light_count_ = static_cast<std::uint32_t>(lights.size());
+    std::ranges::copy(lights, previous_lights_.begin());
 }
 
 } // namespace lc1

@@ -87,7 +87,7 @@ struct DialogPlayer {
     bool accepts_requests;
 };
 
-// A single conversation. The script and participants must outlive it.
+// A single conversation. The validated script and participants must outlive it.
 class Dialog {
   public:
     explicit Dialog(DialogScript const &script);

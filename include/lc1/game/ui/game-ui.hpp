@@ -13,22 +13,19 @@
 
 namespace lc1 {
 class MusicBrowser;
+class PlayerView;
+class WorldPresentation;
 struct GameLocation;
 
-struct GameUiInfo {
+struct GameUiContext {
     WorldSnapshot const &world;
-    CharacterId player;
-    std::vector<Party const *> player_parties; // Parties related to current player
+    PlayerId player_id;
+    WorldPresentation const &presentation;
+    PlayerView const &player_view;
+    Window const &window;
+    MusicBrowser &music;
     std::span<std::string const> saves;
     std::string_view current_save;
-    FrameExtent extent;
-    std::string_view lighting_name;
-    float exposure;
-    double time_of_day;
-    float time_rate;
-    int grass_density;
-    bool showcase_animated;
-    std::string_view interaction_target;
     // Live renderer configuration; null when the caller does not render clouds.
     CloudSettings *clouds = nullptr;
 };
@@ -48,9 +45,9 @@ struct GameUiActions {
 
 class GameUi {
   public:
-    explicit GameUi(std::filesystem::path settings_file = {});
+    explicit GameUi(std::filesystem::path settings_file);
 
-    GameUiActions update(GameUiInfo const &info, MusicBrowser &music);
+    GameUiActions update(GameUiContext const &context);
 
     bool gameplay_enabled() const;
 
@@ -76,7 +73,7 @@ class GameUi {
                                               GameLocation location) const;
 
   private:
-    void player_info(GameUiInfo const &info, GameUiActions &actions);
+    void player_info(GameUiContext const &info, GameUiActions &actions);
     void persist_ui_scale() const;
 
     enum class State { MainMenu, InSettings, InGame };

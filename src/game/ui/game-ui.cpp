@@ -52,18 +52,21 @@ void unavailable_button(char const *label, char const *reason)
         ImGui::SetTooltip("%s", reason);
 }
 
-CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
+CharacterSnapshot const *party_info(GameUiContext const &info, ImVec2 size,
                                     std::optional<std::uint32_t> &party_id,
                                     std::optional<CharacterId> &character_id)
 {
-    auto const *player = &info.world.character(info.player);
+    auto const player_id = info.world.players.at(info.player_id).character_id;
+    auto const *player = &info.world.character(player_id);
     auto const *selected = player;
-    auto const &parties = info.player_parties;
+    auto parties = info.world.parties | std::views::filter([player_id](Party const &party) {
+                       return party.leader() == player_id || party.has_member(player_id);
+                   });
     auto current = std::ranges::find_if(
-        parties, [&](auto const *party) { return party_id == party->keyid(); });
+        parties, [&](Party const &party) { return party_id == party.keyid(); });
     if (current == parties.end())
         current = parties.begin();
-    Party const *party = current != parties.end() ? *current : nullptr;
+    Party const *party = current != parties.end() ? &*current : nullptr;
     std::vector<CharacterSnapshot const *> people;
     auto const resolve_selection = [&] {
         people.clear();
@@ -91,10 +94,10 @@ CharacterSnapshot const *party_info(GameUiInfo const &info, ImVec2 size,
         auto const preview = party ? std::format("Party {}", party->keyid()) : "No party";
         ImGui::SetNextItemWidth(-1.0F);
         if (ImGui::BeginCombo("##party", preview.c_str())) {
-            for (auto const *candidate : parties) {
-                auto const label = std::format("Party {}", candidate->keyid());
-                if (ImGui::Selectable(label.c_str(), candidate == party)) {
-                    party = candidate;
+            for (auto const &candidate : parties) {
+                auto const label = std::format("Party {}", candidate.keyid());
+                if (ImGui::Selectable(label.c_str(), &candidate == party)) {
+                    party = &candidate;
                     character_id.reset();
                 }
             }
@@ -337,8 +340,8 @@ void character_preview(CharacterSnapshot const &person, ImVec2 size)
 }
 
 void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resource const *resource,
-                       int &slot, float &slot_position, float &slot_target, GameUiInfo const &info,
-                       GameUiActions &actions)
+                       int &slot, float &slot_position, float &slot_target,
+                       GameUiContext const &info, GameUiActions &actions)
 {
     auto const armor =
         resource ? info.world.equipments.find(resource->keyid) : info.world.equipments.end();
@@ -459,13 +462,14 @@ void equipment_details(CharacterSnapshot const &person, ImVec2 size, game::Resou
             }
         }
         ImGui::EndChild();
-        bool controllable = person.keyid == info.player.value;
+        auto const player_id = info.world.players.at(info.player_id).character_id;
+        bool controllable = person.keyid == player_id.value;
         for (auto const &party : info.world.parties)
-            if (party.leader() == info.player && party.has_member(CharacterId{person.keyid}))
+            if (party.leader() == player_id && party.has_member(CharacterId{person.keyid}))
                 controllable = std::ranges::none_of(info.world.players, [&](auto const &entry) {
                     return entry.second.character_id == CharacterId{person.keyid};
                 });
-        controllable = controllable && !person.dead && !info.world.character(info.player).dead;
+        controllable = controllable && !person.dead && !info.world.character(player_id).dead;
         ImGui::BeginDisabled(!controllable || (armor == info.world.equipments.end() &&
                                                weapon == info.world.weapons.end()));
         if (ImGui::Button("Equip"))
@@ -543,11 +547,11 @@ void clouds(lc1::CloudSettings *settings)
     int view_steps = static_cast<int>(clouds.view_steps);
     ImGui::SetNextItemWidth(180.0F * ui_scale());
     if (ImGui::SliderInt("View steps", &view_steps, 8, 256, "%d", ImGuiSliderFlags_AlwaysClamp))
-        clouds.view_steps = static_cast<std::uint32_t>(std::clamp(view_steps, 8, 256));
+        clouds.view_steps = static_cast<std::uint32_t>(view_steps);
     int light_steps = static_cast<int>(clouds.light_steps);
     ImGui::SetNextItemWidth(180.0F * ui_scale());
     if (ImGui::SliderInt("Light steps", &light_steps, 1, 16, "%d", ImGuiSliderFlags_AlwaysClamp))
-        clouds.light_steps = static_cast<std::uint32_t>(std::clamp(light_steps, 1, 16));
+        clouds.light_steps = static_cast<std::uint32_t>(light_steps);
     constexpr std::array<char const *, 5> const debug_names{"Off", "Density", "Sun transmittance",
                                                             "View transmittance", "Step count"};
     int debug = static_cast<int>(clouds.debug);
@@ -628,7 +632,7 @@ void GameUi::toggle_menu()
     }
 }
 
-GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
+GameUiActions GameUi::update(GameUiContext const &info)
 {
     GameUiActions actions;
 
@@ -646,16 +650,17 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         ImGui::SetNextWindowSize({380.0F * scale, 710.0F * scale}, ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSizeConstraints({300.0F * scale, 0.0F}, {FLT_MAX, FLT_MAX});
         ImGui::Begin("lc1 debug info");
-        auto [w, h] = info.extent;
-        ImGui::TextUnformatted(std::format("Window size: {}x{}", w, h).c_str());
+        auto const [width, height] = info.window.framebuffer_extent();
+        ImGui::TextUnformatted(std::format("Window size: {}x{}", width, height).c_str());
         ImGui::TextUnformatted(std::format("FPS: {}", ImGui::GetIO().Framerate).c_str());
-        ImGui::TextUnformatted(std::format("Lighting: {}", info.lighting_name).c_str());
-        ImGui::Text("Exposure: %.2f", info.exposure);
-        auto const minutes = static_cast<int>(info.time_of_day * 60.0);
+        ImGui::TextUnformatted(
+            std::format("Lighting: {}", info.presentation.lighting_name()).c_str());
+        ImGui::Text("Exposure: %.2f", info.presentation.output().exposure);
+        auto const minutes = static_cast<int>(info.presentation.time_of_day() * 60.0);
         ImGui::Text("Time: %02d:%02d", minutes / 60, minutes % 60);
         ImGui::TextUnformatted("Time rate");
         ImGui::SameLine();
-        float rate = info.time_rate;
+        float rate = info.presentation.time_rate();
         ImGui::SetNextItemWidth(90.0F * ui_scale_);
         bool changed = ImGui::InputFloat("##time-rate-input", &rate, 0, 0, "%.2f");
         ImGui::SameLine();
@@ -664,7 +669,7 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
                                       ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
         if (changed && std::isfinite(rate))
             actions.time_rate = std::clamp(rate, 0.01F, 100.0F);
-        int density = info.grass_density;
+        int density = info.presentation.grass_density();
         auto const density_label = std::format("{}%%", density * 25);
         if (ImGui::SliderInt("Grass density", &density, 0, 8, density_label.c_str(),
                              ImGuiSliderFlags_AlwaysClamp))
@@ -679,20 +684,22 @@ GameUiActions GameUi::update(GameUiInfo const &info, MusicBrowser &music)
         }
         ImGui::TextUnformatted(save_status_.c_str());
         ImGui::TextUnformatted(
-            std::format("Showcase motion: {}", info.showcase_animated ? "on" : "off").c_str());
-        ImGui::TextUnformatted(std::format("interaction_target: {}", info.interaction_target.empty()
+            std::format("Showcase motion: {}", info.presentation.showcase_animated() ? "on" : "off")
+                .c_str());
+        auto const &interaction_target = info.world.players.at(info.player_id).interaction_target;
+        ImGui::TextUnformatted(std::format("interaction_target: {}", interaction_target.empty()
                                                                          ? "not found"
-                                                                         : info.interaction_target)
+                                                                         : interaction_target)
                                    .c_str());
 
         if (ImGui::Button("Close (Esc)"))
             state_ = State::InGame;
 
-        music.controls();
+        info.music.controls();
 
         ImGui::End();
     }
-    music.update();
+    info.music.update();
 
     constexpr ImGuiWindowFlags menu_flags =
         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize;
@@ -851,7 +858,7 @@ void GameUi::toggle_player_info()
         player_info_opened_ = !player_info_opened_;
 }
 
-void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
+void GameUi::player_info(GameUiContext const &info, GameUiActions &actions)
 {
     float const scale = ui_scale();
     auto const *viewport = ImGui::GetMainViewport();
@@ -873,18 +880,18 @@ void GameUi::player_info(GameUiInfo const &info, GameUiActions &actions)
     ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(104, 86, 55, 255));
     if (ImGui::Begin("Character & inventory", &player_info_opened_,
                      ImGuiWindowFlags_HorizontalScrollbar)) {
-        auto const &controlled = info.world.character(info.player);
+        auto const &controlled = info.world.player(info.player_id);
         ImGui::SetNextItemWidth(260.0F * ui_scale());
         if (ImGui::BeginCombo("Control", controlled.name.c_str())) {
             for (auto const &candidate : info.world.characters) {
                 bool const occupied =
                     std::ranges::any_of(info.world.players, [&](auto const &entry) {
                         return entry.second.character_id == CharacterId{candidate.keyid} &&
-                               candidate.keyid != info.player.value;
+                               candidate.keyid != controlled.keyid;
                     });
                 ImGui::BeginDisabled(candidate.dead || occupied);
                 auto const label = std::format("{}##{}", candidate.name, candidate.keyid);
-                if (ImGui::Selectable(label.c_str(), candidate.keyid == info.player.value))
+                if (ImGui::Selectable(label.c_str(), candidate.keyid == controlled.keyid))
                     actions.control_target = CharacterId{candidate.keyid};
                 ImGui::EndDisabled();
             }

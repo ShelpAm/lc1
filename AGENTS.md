@@ -43,7 +43,7 @@ ctest --test-dir build/linux-x86_64/Debug --output-on-failure --no-tests=error
 - Check defaults before adding overrides. Local `JOBS=8` is a memory limit, not CI policy.
 - Run checks appropriate to the change. Report compilation, CPU tests, GPU execution and
   platform coverage separately; local success does not establish remote CI success.
-- Rendering checks require clean validation output. `LC1_NO_VALIDATION=1` is an explicit
+- Rendering checks require clean validation output. `--no-validation` is an explicit
   diagnostic/performance opt-out and cannot establish validation success.
 
 ## C++ conventions

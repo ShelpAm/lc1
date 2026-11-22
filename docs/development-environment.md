@@ -22,7 +22,7 @@ make SLANGC=~/.local/share/nvim/mason/packages/slang/bin/slangc BUILD_TYPE=Relea
 ## XKB、Wine 与 loader 输出
 
 - 保留 Linux profile 的 `XLOCALEDIR=/usr/share/X11/locale`，供 Conan XKB 查找 compose/dead-key 数据。
-- Windows 本地运行使用 `build/wine-prefix`，不要污染 `~/.wine`。运行环境没有 validation layers 时，必须显式使用 `LC1_NO_VALIDATION=1`；该运行不能作为验证层通过的证据。
+- Windows 本地运行使用 `build/wine-prefix`，不要污染 `~/.wine`。运行环境没有 validation layers 时，必须显式传入 `--no-validation`；该运行不能作为验证层通过的证据。
 - `driverVersion` 来自 physical-device properties，由厂商编码，日志按十六进制输出；不要按统一版本格式解码。
 - loader 的 stderr 与应用 validation 输出分开调查。曾观察到 `/usr/libvulkan_dzn.so` 返回 -9 的 loader 消息，不能据此直接认定应用渲染出错。
 

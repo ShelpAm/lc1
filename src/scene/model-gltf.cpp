@@ -311,13 +311,27 @@ Mesh import_primitive(tinygltf::Model const &model, tinygltf::Primitive const &p
 }
 } // namespace
 
-Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolicy materials)
+Model Model::load_from_gltf(std::filesystem::path const &path)
 {
     auto const extension = path.extension();
     if (extension != ".gltf" && extension != ".glb")
         fail("expected a .gltf or .glb model");
     tinygltf::Model source;
     tinygltf::TinyGLTF loader;
+    bool const embedded = extension == ".glb";
+    if (extension == ".glb")
+        loader.SetURICallbacks({.encode = {},
+                                .decode = [](auto const &, auto *, void *) { return false; },
+                                .user_data = nullptr});
+    loader.SetImageLoader(
+        [embedded](tinygltf::Image *image, int index, std::string *error, std::string *warning,
+                   int width, int height, unsigned char const *bytes, int size, void *) {
+            if (!embedded || image->bufferView < 0)
+                return true;
+            return tinygltf::LoadImageData(image, index, error, warning, width, height, bytes, size,
+                                           nullptr);
+        },
+        nullptr);
     std::string error, warning;
     auto const utf8 = path.u8string();
     std::string const filename{utf8.begin(), utf8.end()};
@@ -330,10 +344,50 @@ Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolic
         fail("failed to load glTF model {}: {}", filename, error);
     if (!source.extensionsRequired.empty())
         fail("required glTF extensions are unsupported");
-    if (!source.materials.empty() && materials == GltfMaterialPolicy::WarnIfPresent)
-        spdlog::warn(
-            "[gltf] Material bindings are not imported; callers must provide draw materials: {}",
-            filename);
+    if (std::ranges::any_of(source.images, [embedded](auto const &image) {
+            return !embedded || image.bufferView < 0;
+        }))
+        fail("model textures must be embedded in a GLB bufferView");
+    EmbeddedMaterials imported_materials;
+    if (embedded && !source.materials.empty()) {
+        std::vector<std::optional<std::size_t>> image_indices(source.images.size());
+        auto const texture_image = [&](auto const &binding) -> std::optional<std::size_t> {
+            if (binding.index < 0)
+                return std::nullopt;
+            auto const &texture = element(source.textures, binding.index);
+            element(source.images, texture.source);
+            auto &image = source.images[texture.source];
+            if (binding.texCoord != 0 || binding.extensions.contains("KHR_texture_transform"))
+                fail("GLB embedded textures require untransformed TEXCOORD_0");
+            if (image.bits != 8 || image.component != 4 || image.width <= 0 || image.height <= 0)
+                fail("GLB embedded textures require decoded RGBA8 images");
+            auto &index = image_indices[texture.source];
+            if (!index) {
+                index = imported_materials.images.size();
+                imported_materials.images.push_back(
+                    {{static_cast<unsigned>(image.width), static_cast<unsigned>(image.height)},
+                     std::move(image.image)});
+            }
+            return index;
+        };
+        for (auto const &material : source.materials) {
+            auto const &pbr = material.pbrMetallicRoughness;
+            auto const &color = pbr.baseColorFactor;
+            auto const &emissive = material.emissiveFactor;
+            imported_materials.materials.push_back({
+                .parameters = {.base_color_factor = {color[0], color[1], color[2], color[3]},
+                               .emissive_factor = {emissive[0], emissive[1], emissive[2]},
+                               .metallic_factor = static_cast<float>(pbr.metallicFactor),
+                               .roughness_factor = static_cast<float>(pbr.roughnessFactor),
+                               .normal_scale = static_cast<float>(material.normalTexture.scale)},
+                .base_color = texture_image(pbr.baseColorTexture),
+                .metallic_roughness = texture_image(pbr.metallicRoughnessTexture),
+                .normal = texture_image(material.normalTexture),
+                .emissive = texture_image(material.emissiveTexture),
+            });
+        }
+        imported_materials.materials.emplace_back();
+    }
 
     std::vector<Mesh> meshes;
     std::vector<std::vector<VertexInfluences>> influences;
@@ -343,6 +397,19 @@ Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolic
         if (!mesh.weights.empty())
             fail("glTF morph weights are unsupported");
         for (auto const &primitive : mesh.primitives) {
+            if (!imported_materials.materials.empty()) {
+                auto const material = primitive.material < 0
+                                          ? source.materials.size()
+                                          : static_cast<std::size_t>(primitive.material);
+                if (primitive.material >= 0)
+                    element(source.materials, primitive.material);
+                auto const &binding = imported_materials.materials[material];
+                if ((binding.base_color || binding.metallic_roughness || binding.normal ||
+                     binding.emissive) &&
+                    !primitive.attributes.contains("TEXCOORD_0"))
+                    fail("GLB textured primitives require TEXCOORD_0");
+                imported_materials.mesh_materials.push_back(material);
+            }
             mesh_indices[i].push_back(meshes.size());
             influences.emplace_back();
             meshes.push_back(import_primitive(source, primitive, influences.back()));
@@ -475,7 +542,6 @@ Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolic
         skins.push_back(std::move(imported));
     }
     // The Model constructor owns the final validation of palette indices and transforms.
-    Model geometry{std::move(meshes), nodes, animations};
     std::vector<SkinnedMesh> bindings;
     for (std::size_t i = 0; i < source.nodes.size(); ++i) {
         auto const &node = source.nodes[i];
@@ -490,16 +556,14 @@ Model Model::load_from_gltf(std::filesystem::path const &path, GltfMaterialPolic
             if (influences[mesh].empty())
                 fail("glTF skinned mesh requires vertex influences");
             auto const target = primitives.size() == 1 ? *mapping[i] : *mapping[i] + 1 + p;
-            auto const vertices = geometry.vertices(mesh);
-            auto const indices = geometry.indices(mesh);
             bindings.push_back({.node = target,
                                 .skin = skin,
-                                .vertices = {vertices.begin(), vertices.end()},
-                                .indices = {indices.begin(), indices.end()},
+                                .vertices = meshes[mesh].vertices_,
+                                .indices = meshes[mesh].indices_,
                                 .influences = influences[mesh]});
         }
     }
-    return Model{std::move(geometry.meshes_), std::move(nodes), std::move(animations),
-                 std::move(bindings)};
+    return Model{std::move(meshes), std::move(nodes), std::move(animations), std::move(bindings),
+                 std::move(imported_materials)};
 }
 } // namespace lc1::scene
