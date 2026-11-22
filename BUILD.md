@@ -26,8 +26,8 @@ builds on Windows. Run commands from the repository root unless stated otherwise
 | Native Windows build | Local detected profile + `profiles/windows` | Installed MSVC with C++23 support, x64 developer environment |
 
 The installed toolchain must match the version declared in its profile. Native
-Windows builds detect the local compiler version; CI pins MSVC 19.4x separately
-in `profiles/windows-ci`. The Clang
+Windows builds detect the local compiler version. See the [CI matrix](docs/ci.md#构建检查)
+for the pinned MSVC versions. The Clang
 profile uses the system libstdc++, so its development files must also provide the
 required C++23 support. Building dependencies from source may require system
 development packages, Autoconf, Automake, Libtool, and pkg-config. See the

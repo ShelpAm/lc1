@@ -25,7 +25,7 @@ MinGW-w64 交叉编译和 Windows 原生 MSVC 配置。以下命令除特别说�
 | Windows 原生构建 | 本机检测 profile + `profiles/windows` | 已安装且支持所需 C++23 功能的 MSVC，x64 开发环境 |
 
 Profile 中声明的版本必须与实际工具链一致。Windows 原生构建检测本机编译器版本，
-CI 单独通过 `profiles/windows-ci` 固定 MSVC 19.4x。Clang 配置使用系统 libstdc++，因此也需要
+CI 使用[构建矩阵](docs/ci.md#构建检查)中固定的 MSVC 版本。Clang 配置使用系统 libstdc++，因此也需要
 提供 C++23 支持的标准库开发文件。首次构建依赖还可能需要系统开发包及 Autoconf、Automake、
 Libtool、pkg-config 等工具；具体安装列表可参考 [CI 配置](.github/workflows/ci.yml)。
 

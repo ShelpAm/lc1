@@ -110,9 +110,21 @@ jobs:
           if-no-files-found: ignore
 
   windows:
-    name: Windows / MSVC / Debug
-    runs-on: windows-2022
+    name: Windows / MSVC ${{ matrix.msvc }} / Debug
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msvc: '194'
+            runner: windows-2022
+            profile: profiles/windows-ci
+            cmake: '3.31.10'
+          - msvc: '195'
+            runner: windows-2025-vs2026
+            profile: profiles/windows-ci-195
+            cmake: '4.2.3'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,15 +137,17 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: Show MSVC version
+        run: (Get-Command cl.exe).FileVersionInfo.ProductVersion
       - name: Install build tools
-        run: python -m pip install conan==2.33.0 cmake==3.31.10 ninja==1.13.0
+        run: python -m pip install conan==2.33.0 cmake==${{ matrix.cmake }} ninja==1.13.0
       - name: Cache Conan packages
         uses: actions/cache@v4
         with:
           path: ${{ env.CONAN_HOME }}/p
-          key: conan-2.33-windows2022-msvc194-debug-${{ hashFiles('conanfile.py', 'profiles/windows', 'profiles/windows-ci') }}
+          key: conan-2.33-${{ matrix.runner }}-msvc${{ matrix.msvc }}-debug-${{ hashFiles('conanfile.py', 'profiles/windows', matrix.profile) }}
           restore-keys: |
-            conan-2.33-windows2022-msvc194-debug-
+            conan-2.33-${{ matrix.runner }}-msvc${{ matrix.msvc }}-debug-
       - name: Cache Slang
         id: slang-cache
         uses: actions/cache@v4
@@ -152,7 +166,7 @@ jobs:
       - name: Install dependencies
         shell: cmd
         run: |
-          conan install . -pr:h profiles/windows-ci -pr:b profiles/windows-ci --build=missing -s:h build_type=Debug -s:b build_type=Release -o:h "lc1/*:with_validation_layers=False"
+          conan install . -pr:h ${{ matrix.profile }} -pr:b ${{ matrix.profile }} --build=missing -s:h build_type=Debug -s:b build_type=Release -o:h "lc1/*:with_validation_layers=False"
       - name: Configure and build
         shell: cmd
         run: |
@@ -169,7 +183,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-windows-msvc
+          name: test-results-windows-msvc${{ matrix.msvc }}
           path: |
             build/windows-x86_64/Debug/test-results.xml
             build/windows-x86_64/Debug/Testing/Temporary/LastTest.log

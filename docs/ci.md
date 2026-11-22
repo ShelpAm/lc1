@@ -9,7 +9,7 @@
 ## 构建检查
 
 `.github/workflows/ci.yml` 在推送到 `main`、以 `main` 为目标的 pull request 和手动触发时
-执行四组独立的构建任务。工作分支 push 不单独运行 CI，创建或更新 PR 时只运行 PR 检查，
+执行五组独立的构建任务。工作分支 push 不单独运行 CI，创建或更新 PR 时只运行 PR 检查，
 避免同一次更新同时触发 push 和 PR 两套构建。未创建 PR 时可手动触发；合并到 `main`
 后仍验证实际合入的版本。
 
@@ -18,6 +18,7 @@
 | Linux x86_64 | Fedora 44 容器，Clang 22，`profiles/linux` | Debug |
 | Linux x86_64 | Fedora 44 容器，GCC 16，`profiles/linux-gcc` | Debug |
 | Windows x86_64 | Windows Server 2022，MSVC 19.4x，`profiles/windows-ci` | Debug |
+| Windows x86_64 | `windows-2025-vs2026`，MSVC 19.5x，`profiles/windows-ci-195`，CMake 4.2.3 | Debug |
 | Windows x86_64 | Fedora 44 容器，MinGW-w64 GCC 16，`profiles/mingw64` | Debug |
 
 所有任务检出时显式设置 `actions/checkout` 的 `lfs: false`，不下载 LFS 对象，
@@ -38,7 +39,7 @@ MinGW 交叉编译设置 `BUILD_TESTING=OFF`，仅检查程序和着色器构建
 Windows 同时覆盖原生 MSVC 构建和 Linux 上的 MinGW 交叉编译。
 两种工具链都必须启用大型 COFF 对象支持，不能只修复其中一种；编译选项与适用范围见
 [构建指南](../BUILD.md#dependency-maintenance-constraints)。
-`profiles/windows-ci` 继承 `profiles/windows` 的项目设置并固定编译器版本；
+`profiles/windows-ci` 和 `profiles/windows-ci-195` 均继承 `profiles/windows` 的项目设置并固定编译器版本。
 本地原生构建将检测到的工具链 profile 与 `profiles/windows` 组合，不要求安装特定年份的 Visual Studio。
 CI 不固定编译并行度，使用 Conan 和构建工具的默认策略。Conan 根据可用 CPU
 （包括容器 cgroup 限制）选择并行度，并写入生成的 CMake build preset。
