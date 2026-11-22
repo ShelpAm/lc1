@@ -41,7 +41,7 @@ compiler.libcxx=libstdc++11
 
 [options]
 # Environment-specific opt-out: avoid cross-compiling the large validation-layer
-# package. Pass --no-validation to run the application under Wine; override this option
+# package. Set enable_validation: false in the startup config for Wine, or override this option
 # when provisioning validation layers for a Windows Debug environment.
 lc1/*:with_validation_layers=False
 

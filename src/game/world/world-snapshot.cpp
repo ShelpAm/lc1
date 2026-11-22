@@ -28,13 +28,16 @@ WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot con
                                 float alpha)
 {
     assert(alpha >= 0 && alpha <= 1);
-    assert(previous.characters.size() == current.characters.size());
     auto result = current;
-    for (std::size_t i = 0; i < result.characters.size(); ++i) {
-        assert(previous.characters[i].keyid == current.characters[i].keyid);
-        auto const &from = previous.characters[i].pose;
-        auto const &to = current.characters[i].pose;
-        auto &pose = result.characters[i].pose;
+    auto prior = previous.characters.begin();
+    for (auto &character : result.characters) {
+        while (prior != previous.characters.end() && prior->keyid < character.keyid)
+            ++prior;
+        if (prior == previous.characters.end() || prior->keyid != character.keyid)
+            continue;
+        auto const &from = prior->pose;
+        auto const to = character.pose;
+        auto &pose = character.pose;
         pose.world_transform.position = glm::mix(from.position(), to.position(), alpha);
         // Upright gameplay transforms rotate only around Y. Cross the yaw seam by
         // the shortest arc; relative look angles have bounded, non-wrapping ranges.
@@ -42,8 +45,8 @@ WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot con
             from.body_yaw() + std::remainder(to.body_yaw() - from.body_yaw(), 360.0F) * alpha;
         pose.relative_look_yaw = glm::mix(from.look_yaw(), to.look_yaw(), alpha);
         pose.relative_look_pitch = glm::mix(from.look_pitch(), to.look_pitch(), alpha);
-        auto const &previous_animation = previous.characters[i].timed_animation;
-        auto &animation = result.characters[i].timed_animation;
+        auto const &previous_animation = prior->timed_animation;
+        auto &animation = character.timed_animation;
         if (animation && previous_animation && animation->clip == previous_animation->clip &&
             animation->seconds >= previous_animation->seconds)
             animation->seconds = std::lerp(previous_animation->seconds, animation->seconds, alpha);

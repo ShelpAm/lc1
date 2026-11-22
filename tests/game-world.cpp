@@ -354,6 +354,34 @@ void snapshot_lifetime()
     }
 }
 
+void dynamic_npc_roster()
+{
+    using namespace lc1;
+    Checkpoint checkpoint;
+    GameWorld world{Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    auto const &player = world.player(PlayerId{1});
+    auto config = player.config();
+    config.keyid = 123456;
+    config.name = "New NPC";
+    auto const party_id = config.party->keyid();
+    auto const pose = player.transform();
+    auto const id = world.spawn_npc(party_id, std::move(config), pose).id();
+    world.update(0, {});
+    auto const spawned = capture_world(world);
+    check(spawned.character(id).name == "New NPC" && world.parties().at(party_id)->has_member(id),
+          "spawn registers both the NPC and its party membership");
+    Save::write(checkpoint.directory(), world.snapshot());
+    GameWorld restored{Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
+    check(restored.character(id).config().name == "New NPC", "spawn persists through a checkpoint");
+    check(!world.remove_npc(player.id()) && world.remove_npc(id) && !world.remove_npc(id),
+          "only the existing non-leader NPC can be removed");
+    world.update(0, {});
+    Save::write(checkpoint.directory(), world.snapshot());
+    check(!world.parties().at(party_id)->has_member(id) &&
+              spawned.characters.size() == world.characters().size() + 1,
+          "removal clears membership and preserves the published snapshot");
+}
+
 void player_party_membership()
 {
     Checkpoint checkpoint;
@@ -872,6 +900,7 @@ int main(int argc, char **argv)
         independent_interactions();
         player_party_membership();
         snapshot_lifetime();
+        dynamic_npc_roster();
         world_and_checkpoint();
         reload_world();
         world_applies_control();

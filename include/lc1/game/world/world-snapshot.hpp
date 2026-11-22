@@ -81,7 +81,7 @@ struct WorldSnapshot {
     CharacterSnapshot const &player(PlayerId id) const;
 };
 
-// Presentation only: interpolate poses of the fixed, keyid-sorted character roster.
+// Presentation only: interpolate poses of characters present in both keyid-sorted snapshots.
 // Discrete state and tick acknowledgements come from current. Alpha is in [0, 1].
 WorldSnapshot interpolate_world(WorldSnapshot const &previous, WorldSnapshot const &current,
                                 float alpha);

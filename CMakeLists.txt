@@ -373,6 +373,7 @@ add_custom_target(copy_saves
         -P "${CMAKE_CURRENT_SOURCE_DIR}/scripts/seed-saves.cmake"
     VERBATIM
 )
+configure_file(runtime/config.yaml runtime/config.yaml COPYONLY)
 add_dependencies(lc1 shaders copy_assets copy_saves copy_dialogs)
 
 include(CTest)

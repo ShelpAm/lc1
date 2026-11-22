@@ -79,7 +79,7 @@ class Lc1Recipe(ConanFile):
         #
         # profiles/mingw64 opts out to avoid an expensive cross build of the layers.
         # Wine can run the resulting application, but its prefix has no layers by
-        # default; pass --no-validation there, or explicitly enable this option
+        # default; set enable_validation: false in the startup config, or enable this option
         # and install the layers for the target environment. Native Debug builds
         # keep them by default.
         if self.settings.build_type == "Debug" and self.options.with_validation_layers:

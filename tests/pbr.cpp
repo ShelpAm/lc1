@@ -1519,6 +1519,27 @@ void village_test(lc1::Device const &device)
               "scene binds each villager mesh to its authored material");
     }
     check(distinct_colors && preserved_normal, "villager uses multiple GLB textures");
+    auto const *existing_model = &presentation.character_model(villager->keyid);
+    auto entrant = *villager;
+    ++entrant.keyid;
+    while (std::ranges::any_of(state.characters,
+                               [&](auto const &entry) { return entry.keyid == entrant.keyid; }))
+        ++entrant.keyid;
+    auto const entrant_id = entrant.keyid;
+    auto const insert_at =
+        std::ranges::lower_bound(state.characters, entrant_id, {}, &lc1::CharacterSnapshot::keyid);
+    state.characters.insert(insert_at, std::move(entrant));
+    auto const initial_capacity = presentation.object_capacity();
+    presentation.update(0, {});
+    check(&presentation.character_model(6) == existing_model &&
+              &presentation.character_model(entrant_id) != existing_model &&
+              presentation.object_capacity() > initial_capacity,
+          "new roster entry creates an instance and preserves existing instances");
+    std::erase_if(state.characters, [&](auto const &entry) { return entry.keyid == entrant_id; });
+    presentation.update(0, {});
+    check(presentation.object_capacity() == initial_capacity,
+          "departed NPC releases its draw placements");
+    rejects([&] { presentation.character_model(entrant_id); }, "departed NPC instance is gone");
     lc1::Renderer renderer{device, {vk::Format::eR8G8B8A8Unorm}, vk::SampleCountFlagBits::e1};
     auto frame = renderer.make_frame_resources(presentation.object_capacity());
     lc1::scene::FpsCamera camera;

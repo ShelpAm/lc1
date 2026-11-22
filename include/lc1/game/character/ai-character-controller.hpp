@@ -30,6 +30,7 @@ class AiCharacterController : public CharacterController {
                                    std::vector<Waypoint> path, float arrival_radius = 0.5F,
                                    std::optional<CharacterId> ambient_patrol = std::nullopt);
     void set_order(CompanionOrder order);
+    void forget_action_target(Character const &character);
 
     CharacterIntent decide(float delta_seconds) override;
     bool patrolling() const;

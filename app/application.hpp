@@ -23,12 +23,17 @@
 namespace lc1::app {
 
 struct ApplicationConfig {
-    bool enable_validation = true;
-    PlayerId local_player{1};
-    std::filesystem::path asset_root = "runtime/assets";
-    std::filesystem::path dialog_root = "runtime/dialogs";
-    std::filesystem::path save_root = "runtime/saves/01";
-    std::filesystem::path ui_settings_file = "runtime/user-settings.yaml";
+    bool enable_validation;
+    PlayerId local_player;
+
+    struct GameConfig {
+        std::filesystem::path asset_root;
+        std::filesystem::path dialog_root;
+        std::filesystem::path initial_save_directory;
+        std::filesystem::path ui_settings_file;
+    };
+
+    GameConfig game_config;
     std::string device_filter;
 };
 
@@ -71,6 +76,7 @@ class Application {
     // Keep the session alive until all frame resources have been destroyed.
     std::unique_ptr<GameSimulation> simulation_;
     std::unique_ptr<GameSession> game_;
+    std::uint32_t frame_object_capacity_;
     std::unique_ptr<FrameLoop<FrameResources>> frame_loop_;
     bool recreate_requested_ = false;
     std::uint32_t imgui_image_count_ = 0;

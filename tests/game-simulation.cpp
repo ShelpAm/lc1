@@ -9,6 +9,7 @@
 #include <format>
 #include <iostream>
 #include <limits>
+#include <ranges>
 #include <stdexcept>
 #include <thread>
 
@@ -108,6 +109,23 @@ void presentation_interpolation()
     check(previous.player(lc1::PlayerId{1}).pose.position() == glm::vec3{} &&
               current.player(lc1::PlayerId{1}).pose.position() == glm::vec3{10, 2, -4},
           "render interpolation does not change authoritative snapshots");
+
+    auto removed = current.characters.front();
+    current.characters.erase(current.characters.begin());
+    auto added = removed;
+    added.keyid = previous.characters.back().keyid + 1;
+    added.pose.world_transform.position = {100, 0, 0};
+    current.characters.push_back(added);
+    auto const changed = lc1::interpolate_world(previous, current, 0.5F);
+    check(changed.characters.size() == current.characters.size() &&
+              changed.characters.front().keyid != removed.keyid &&
+              changed.characters.back().keyid == added.keyid &&
+              changed.characters.back().pose.position() == added.pose.position(),
+          "presentation uses current roster and does not interpolate entrants");
+    for (auto const &character :
+         changed.characters | std::views::take(changed.characters.size() - 1))
+        check(character.pose.position() == glm::vec3{5, 1, -2},
+              "surviving characters still interpolate after the roster shifts");
 }
 
 void fixed_rate_and_messages()

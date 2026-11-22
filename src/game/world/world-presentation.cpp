@@ -109,7 +109,8 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                      Continent const &continent, WorldSnapshot const &world,
                                      OutputSettings output, PlayerId observer,
                                      DialogCatalog const &dialogs)
-    : world_(&world), continent_(&continent), observer_(observer),
+    : world_(&world), continent_(&continent), observer_(observer), device_(&device),
+      asset_root_(asset_root),
       font_{device, text::GlyphAtlas{asset_root / font_file,
                                      {.codepoints = font_codepoints(world, dialogs)}}},
       white_{device, Image::load_from_file(asset_root / "textures/prototype-white.png")},
@@ -120,11 +121,88 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
       helmet_model_(device, make_helmet_model()), output_(output)
 {
     output_.bloom_strength = 0.12F;
-    character_models_.reserve(world.characters.size());
-    for (std::size_t i = 0; i < world.characters.size(); ++i) {
-        auto const &character = world.characters[i];
+    sync_character_models();
+
+    scene::DirectionalLight const sun{
+        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.45F},
+        .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
+    scene::SphereLight const lamp{.base = {.color = glm::vec3{1.0F, 0.5F, 0.5F}, .intensity = 128},
+                                  .position = continent_->spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
+                                  .radius = 1.0F,
+                                  .shadow_sample_count = 2};
+    sun_ = scene_.add_light(to_light(sun));
+    lights_.push_back(sun_);
+    lights_.push_back(scene_.add_light(to_light(lamp)));
+    if (continent_->location(village::smithy)) {
+        lights_.push_back(scene_.add_light(
+            to_light(scene::SphereLight{.base = {.color = {1.0F, 0.28F, 0.045F}, .intensity = 28},
+                                        .position = village::hearth + glm::vec3{0, 0.35F, 0},
+                                        .radius = 0.4F,
+                                        .shadow_sample_count = 2})));
+    }
+    if (continent_->location(village::smithy) && continent_->location(village::tower)) {
+        for (auto const *name : {"wind.wav", "hammer.wav", "bell.wav"}) {
+            auto &source = village_sounds_.emplace_back(audio_context_);
+            source.set_looping(true);
+            source.set_gain(0);
+            source.play(
+                audio::Sound::load_from_file(audio_context_, asset_root / "audio/village" / name));
+        }
+        village_sounds_[1].set_reference_distance(8);
+        village_sounds_[2].set_reference_distance(18);
+        village_sounds_[1].set_position(village::hearth.x, village::hearth.y, village::hearth.z);
+        auto const *tower = continent_->location(village::tower);
+        auto const center = (tower->bounds.min + tower->bounds.max) * 0.5F;
+        village_sounds_[2].set_position(center.x, 17, center.y);
+    }
+    for (auto const &light : showcase_.lights())
+        lights_.push_back(scene_.add_light(light));
+
+    auto const add_draw = [this](scene::SceneModel const &draw) { return scene_.add_model(draw); };
+    std::vector<scene::SceneModel *> terrain_models;
+    for (auto const &draw : continent_view_.draw_items())
+        terrain_models.push_back(add_draw(draw));
+    for (auto const &batch : continent_view_.grass_batches())
+        grass_models_.emplace_back(terrain_models[batch.draw_index], batch.level);
+    for (auto const &draw : showcase_.draws())
+        showcase_models_.push_back(add_draw(draw));
+    update_instances();
+    update_lighting();
+    update_particles(0);
+
+    set_volume(50.0F);
+}
+
+void WorldPresentation::sync_character_models()
+{
+    if (std::ranges::equal(character_models_, world_->characters, {}, &CharacterModels::keyid,
+                           &CharacterSnapshot::keyid))
+        return;
+    for (auto const &models : character_models_) {
+        auto const found = std::ranges::lower_bound(world_->characters, models.keyid, {},
+                                                    &CharacterSnapshot::keyid);
+        if (found != world_->characters.end() && found->keyid == models.keyid)
+            continue;
+        for (auto const &[id, weapon] : models.weapons)
+            scene_.remove_model(weapon.model);
+        scene_.remove_model(models.character);
+        scene_.remove_model(models.helmet);
+        scene_.remove_light(models.hand_light);
+    }
+
+    std::vector<CharacterModels> next;
+    next.reserve(world_->characters.size());
+    auto existing = character_models_.begin();
+    for (auto const &character : world_->characters) {
+        while (existing != character_models_.end() && existing->keyid < character.keyid)
+            ++existing;
+        if (existing != character_models_.end() && existing->keyid == character.keyid) {
+            next.push_back(std::move(*existing));
+            continue;
+        }
+        auto const i = next.size();
         auto const &config = character.model;
-        auto &resources = resources_for(device, asset_root, config, character.pose.body);
+        auto &resources = resources_for(*device_, asset_root_, config, character.pose.body);
         auto *model = scene_.add_model(scene::SceneModel{
             .model = &resources.model,
             .material = resources.model.has_embedded_materials() ? nullptr : &resources.material,
@@ -176,12 +254,12 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
         bool uses_flashlight = false;
         // Preload definition assets and retain hidden placements. Switching equipment
         // does not destroy resources borrowed by in-flight frames or grow frame capacity.
-        for (auto const &[id, definition] : world.weapons) {
+        for (auto const &[id, definition] : world_->weapons) {
             auto const &weapon_config = definition.model_config();
             if (weapon_config.path.value().empty())
                 continue;
             auto &weapon_resources =
-                resources_for(device, asset_root, weapon_config, character.pose.body);
+                resources_for(*device_, asset_root_, weapon_config, character.pose.body);
             auto *placement =
                 scene_.add_model({.model = &weapon_resources.model,
                                   .material = weapon_resources.model.has_embedded_materials()
@@ -212,74 +290,26 @@ WorldPresentation::WorldPresentation(Device const &device, std::filesystem::path
                                       .inner_angle = glm::radians(15.0F),
                                       .outer_angle = glm::radians(30.0F)}));
         hand_light->enabled = character.flashlight_on;
-        character_models_.push_back({.keyid = character.keyid,
-                                     .character = model,
-                                     .weapon = weapon_model,
-                                     .mount = mount,
-                                     .attack_animation = attack_animation,
-                                     .attack_sequence = character.attack_sequence,
-                                     .nod_sequence = character.nod_sequence,
-                                     .hit_sequence = character.hit_sequence,
-                                     .dead = character.dead,
-                                     .weapons = std::move(weapons),
-                                     .hand_light = hand_light,
-                                     .uses_flashlight = uses_flashlight,
-                                     .particles = {},
-                                     .helmet = helmet,
-                                     .head_mount = resources.model.definition().find_node("Head"),
-                                     .eyes_mount = eyes_mount,
-                                     .eyes_offset = config.eyes_offset.value().transform().matrix(),
-                                     .animations = animations});
+        next.push_back({.keyid = character.keyid,
+                        .character = model,
+                        .weapon = weapon_model,
+                        .mount = mount,
+                        .attack_animation = attack_animation,
+                        .attack_sequence = character.attack_sequence,
+                        .nod_sequence = character.nod_sequence,
+                        .hit_sequence = character.hit_sequence,
+                        .dead = character.dead,
+                        .weapons = std::move(weapons),
+                        .hand_light = hand_light,
+                        .uses_flashlight = uses_flashlight,
+                        .particles = {},
+                        .helmet = helmet,
+                        .head_mount = resources.model.definition().find_node("Head"),
+                        .eyes_mount = eyes_mount,
+                        .eyes_offset = config.eyes_offset.value().transform().matrix(),
+                        .animations = animations});
     }
-
-    scene::DirectionalLight const sun{
-        .base = {.color = glm::vec3{1.0F, 0.95F, 0.9F}, .intensity = 0.45F},
-        .direction = glm::normalize(glm::vec3{-1.0F, -1.0F, -1.0F})};
-    scene::SphereLight const lamp{.base = {.color = glm::vec3{1.0F, 0.5F, 0.5F}, .intensity = 128},
-                                  .position = continent_->spawn() + glm::vec3{3.0F, 10.0F, 0.0F},
-                                  .radius = 1.0F,
-                                  .shadow_sample_count = 2};
-    sun_ = scene_.add_light(to_light(sun));
-    lights_.push_back(sun_);
-    lights_.push_back(scene_.add_light(to_light(lamp)));
-    if (continent_->location(village::smithy)) {
-        lights_.push_back(scene_.add_light(
-            to_light(scene::SphereLight{.base = {.color = {1.0F, 0.28F, 0.045F}, .intensity = 28},
-                                        .position = village::hearth + glm::vec3{0, 0.35F, 0},
-                                        .radius = 0.4F,
-                                        .shadow_sample_count = 2})));
-    }
-    if (continent_->location(village::smithy) && continent_->location(village::tower)) {
-        for (auto const *name : {"wind.wav", "hammer.wav", "bell.wav"}) {
-            auto &source = village_sounds_.emplace_back(audio_context_);
-            source.set_looping(true);
-            source.set_gain(0);
-            source.play(
-                audio::Sound::load_from_file(audio_context_, asset_root / "audio/village" / name));
-        }
-        village_sounds_[1].set_reference_distance(8);
-        village_sounds_[2].set_reference_distance(18);
-        village_sounds_[1].set_position(village::hearth.x, village::hearth.y, village::hearth.z);
-        auto const *tower = continent_->location(village::tower);
-        auto const center = (tower->bounds.min + tower->bounds.max) * 0.5F;
-        village_sounds_[2].set_position(center.x, 17, center.y);
-    }
-    for (auto const &light : showcase_.lights())
-        lights_.push_back(scene_.add_light(light));
-
-    auto const add_draw = [this](scene::SceneModel const &draw) { return scene_.add_model(draw); };
-    std::vector<scene::SceneModel *> terrain_models;
-    for (auto const &draw : continent_view_.draw_items())
-        terrain_models.push_back(add_draw(draw));
-    for (auto const &batch : continent_view_.grass_batches())
-        grass_models_.emplace_back(terrain_models[batch.draw_index], batch.level);
-    for (auto const &draw : showcase_.draws())
-        showcase_models_.push_back(add_draw(draw));
-    update_instances();
-    update_lighting();
-    update_particles(0);
-
-    set_volume(50.0F);
+    character_models_ = std::move(next);
 }
 
 scene::SceneModel const &WorldPresentation::character_model(std::uint32_t keyid) const
@@ -529,6 +559,7 @@ std::string_view WorldPresentation::lighting_name() const
 
 void WorldPresentation::update(float delta_seconds, WorldPresentationInput const &input)
 {
+    sync_character_models();
     first_person_ = input.first_person;
     // One game hour per real minute at 1x: 24 minutes per day.
     time_of_day_ =

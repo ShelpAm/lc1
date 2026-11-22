@@ -14,8 +14,8 @@ CMake 目标 `copy_saves` 每次构建都将种子文件复制进运行树，覆
 不符合存档命名规则的目录通过普通条件过滤，不以异常控制列表扫描；显式提交非法名称时仍报告错误。
 损坏的 checkpoint 仍列出，选择后报告错误，不静默隐藏或回退。
 启动时，目录里存在 `checkpoint.yaml` 就优先读取完整进度，否则读取七个初始 YAML。
-`--save-root` 可以覆盖启动槽位，默认为 `runtime/saves/01`；游戏内列表和命名保存使用
-该槽位的同级目录。例如默认新建 `Trip` 写入 `runtime/saves/Trip/checkpoint.yaml`。
+启动配置的 `game_config.save_root` 指定存档根目录，`game_config.default_save` 指定启动槽位名。
+默认配置下 `01` 加载 `runtime/saves/01`，新建 `Trip` 写入 `runtime/saves/Trip/checkpoint.yaml`。
 名称为 1–128 字节，不能包含路径分隔符、控制字符、跨平台保留标点，也不能以空格开头或以空格、句点结尾；
 不允许通过名称写到上级或嵌套目录。退出不会自动保存。
 

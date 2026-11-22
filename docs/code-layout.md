@@ -159,7 +159,8 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 会话按 `steady_clock` 的渲染采样时间生成延后一 tick（约 16.7 ms）的表现快照：
 位置线性插值、身体 yaw 按最短弧插值、相对观察角线性插值；比例限制在 [0, 1]，
 尚无新 tick 时最多到达最新姿态，不外推。启动时两端均为初始快照；读档创建新模拟，自然重置两端。
-角色名单在模拟生命周期内固定且按 keyid 排序，插值按对应索引进行。
+快照的角色名单按 keyid 排序。插值按 keyid 配对，只插值连续两帧都存在的角色，
+新角色使用最新姿态，离开的角色从表现快照移除。
 模型、武器挂点、世界文字、光照和相机读取同一份表现姿态；背包、对话、攻击序号及输入确认取最新 tick，
 插值结果不写回模拟或存档。尚无客户端预测或回滚。
 
@@ -170,7 +171,8 @@ Application 不启用 ImGui 键盘导航，并显式保留 `io.ConfigNavCaptureK
 
 ## 生命周期与资源
 
-`main` 将 `argc`、`argv` 传给 `Application`。`Application` 在初始化窗口和 Vulkan 前用 `Parser` 解析启动参数并生成配置。
+`main` 将 `argc`、`argv` 传给 `Application`。`Application` 在初始化窗口和 Vulkan 前读取并校验
+[启动配置](../BUILD.zh-cn.md#启动配置)，并持有解析后的 `ApplicationConfig`。
 Application 负责窗口/Vulkan 生命周期、原始输入接入、交换链和 ImGui 后端；
 `GameSession` 持有显式绑定的本地玩家 Connection，拥有游戏动作路由器并在更新入口统一解析，借用非空且比会话长寿的 `Window`，
 查询窗口状态并直接设置标题和光标捕获。窗口由 Application 拥有，不限制会话调用其公开操作。
@@ -181,8 +183,11 @@ Application 用临时 `Save` 构造模拟，再将模拟与存档目录传入会
 Application 按 `GameSimulation → GameSession → FrameLoop` 构造并逆序销毁；会话不拥有模拟。
 会话成员按 `WorldSnapshot → WorldPresentation → PlayerView → MusicBrowser → GameUi` 构造并逆序销毁。
 模拟对象拥有世界和线程；表现与 UI 只读主线程快照，音频 context 先于音源存在。
-模型实例关联只保存在表现层，约束见[持久渲染场景](resources.md#持久渲染场景)。角色名单在两次 `load()` 之间固定，
-不支持逐个添加/删除；`load()` 在销毁角色前清空活动对话并重建名单，旧对象借用全部失效。
+模型实例关联只保存在表现层，约束见[持久渲染场景](resources.md#持久渲染场景)。模拟侧规则可用
+`GameWorld::spawn_npc()` 把新角色作为普通成员加入已有队伍，角色 ID 在同一会话内不得重复使用。
+`remove_npc()` 可移除未被玩家控制且不是队长的角色，并清除队伍成员关系、活动对话与临时借用。
+`load()` 在销毁角色前清空活动对话并重建名单，旧对象借用全部失效。
+角色模型数量超过现有帧槽容量时，Application 在提交前等待设备空闲并扩大帧资源。
 游戏内读档在 GPU 空闲后构造候选模拟、会话和帧资源，成功后依次替换帧资源、会话和模拟，
 确保旧会话在旧模拟之前销毁；构造失败保留原有对象。
 世界层重新加载的失败语义及表现层协调要求见[存档与装配](save-data.md)。

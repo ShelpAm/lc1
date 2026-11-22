@@ -1,0 +1,9 @@
+enable_validation: auto
+local_player: 1
+device_filter: ""
+game_config:
+  asset_root: runtime/assets
+  dialog_root: runtime/dialogs
+  save_root: runtime/saves
+  default_save: "01"
+  ui_settings_file: runtime/user-settings.yaml

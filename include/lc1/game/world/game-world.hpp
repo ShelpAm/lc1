@@ -37,7 +37,7 @@ struct WorldPlayer {
 };
 
 // Owns the local simulation. No window, renderer, audio or input-device dependencies.
-// Not an authoritative server or a network replica. The roster is fixed between loads.
+// Owns the roster and its simulation-side character borrows.
 class GameWorld {
   public:
     explicit GameWorld(Save const &save, std::filesystem::path const &dialog_catalog,
@@ -58,13 +58,15 @@ class GameWorld {
     Character &player(PlayerId id);
     Character const &player(PlayerId id) const;
     bool transfer_control(PlayerId id, CharacterId target);
+    Character &spawn_npc(std::uint32_t party_id, CharacterConfig config, scene::Transform pose);
+    bool remove_npc(CharacterId id);
 
     std::map<PlayerId, WorldPlayer> const &players() const;
 
     std::unordered_map<std::uint32_t, std::unique_ptr<Party>> &parties();
     std::unordered_map<std::uint32_t, std::unique_ptr<Party>> const &parties() const;
 
-    // Stable, keyid-ordered borrows; character borrows remain valid until load() or destruction.
+    // Keyid-ordered roster views; invalidated by roster changes.
     std::span<Character *const> characters();
     std::vector<Character const *> const &characters() const;
 
@@ -90,8 +92,9 @@ class GameWorld {
   private:
     void build_world(Save const &save);
     void link_party_members(Save const &save);
+    void refresh_character_roster();
     Character *character_by_id(std::uint32_t keyid, std::string_view what) const;
-    Character *find_interaction_target(Character &actor) const;
+    Character *find_interaction_target(Character &actor, std::span<Character *const> nearby) const;
 
     std::filesystem::path asset_root_;
     WorldSetup setup_;

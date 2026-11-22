@@ -16,6 +16,9 @@
 
 namespace lc1 {
 namespace {
+constexpr float blade_radius = 0.03F;
+constexpr float sweep_sample_metres = 0.025F;
+constexpr float sweep_sample_degrees = 2.0F;
 
 bool finite(glm::vec2 value)
 {
@@ -506,6 +509,18 @@ std::uint64_t Character::hit_sequence() const
     return hit_sequence_;
 }
 
+std::optional<glm::vec2> Character::attack_x_bounds() const
+{
+    if (!attack_sweep_ || dead())
+        return std::nullopt;
+    auto const &sweep = *attack_sweep_;
+    auto const max_sample_padding =
+        (sweep_sample_metres + attack_property_.range * glm::radians(sweep_sample_degrees)) * 0.5F;
+    auto const margin = attack_property_.range + blade_radius + max_sample_padding;
+    return glm::vec2{std::min(sweep.from.x, sweep.to.x) - margin,
+                     std::max(sweep.from.x, sweep.to.x) + margin};
+}
+
 void Character::resolve_attack(std::span<Character *const> targets, Continent const &continent)
 {
     auto const pending = std::exchange(attack_sweep_, std::nullopt);
@@ -524,10 +539,10 @@ void Character::resolve_attack(std::span<Character *const> targets, Continent co
     float const angle =
         (finish - start) * (145.0F / (active_end - windup)) + std::abs(yaw_delta) * (last - first);
     float const travel = glm::length(sweep.to - sweep.from) * (last - first);
-    auto const steps = static_cast<std::size_t>(
-        std::max(1.0F, std::ceil(std::max(angle / 2.0F, travel / 0.025F))));
-    float const radius = 0.03F + (travel + attack_property_.range * glm::radians(angle)) /
-                                     (2.0F * static_cast<float>(steps));
+    auto const steps = static_cast<std::size_t>(std::max(
+        1.0F, std::ceil(std::max(angle / sweep_sample_degrees, travel / sweep_sample_metres))));
+    float const radius = blade_radius + (travel + attack_property_.range * glm::radians(angle)) /
+                                            (2.0F * static_cast<float>(steps));
     WorldCollision const collision{continent};
     for (std::size_t step = 0; step <= steps; ++step) {
         float const progress = static_cast<float>(step) / static_cast<float>(steps);

@@ -85,7 +85,7 @@ Renderer::Renderer(Device const &device, std::vector<vk::Format> const &color_at
 
 FrameResources Renderer::make_frame_resources(std::uint32_t object_capacity) const
 {
-    if (object_capacity > 65534U) {
+    if (object_capacity > max_object_capacity) {
         fail("object capacity exceeds 16-bit temporal surface IDs");
     }
     auto const make_buffer = [&](vk::DeviceSize size) {

@@ -136,17 +136,16 @@ cd build/linux-x86_64/Debug
 ./lc1
 ```
 
-着色器、对话和默认数据路径相对于工作目录解析，Release 同样需要从构建目录运行。
-`--asset-root 路径` 可覆盖资源根目录，`--save-root 路径` 可覆盖默认存档目录
-`runtime/saves/01`。存档行为见[存档文档](docs/save-data.md)。
+### 启动配置
 
-Debug 默认启用 Vulkan 验证和同步验证，Conan 也默认安装对应验证层。
-`with_validation_layers=False` 只控制依赖安装，不会关闭程序的 Debug 验证逻辑。
-在明确不使用验证的诊断场景，可传入 `--no-validation`；该运行结果不能作为验证层检查通过的证据。
+修改 [runtime/config.yaml](runtime/config.yaml) 即可变更启动设置，CMake 会将它复制到构建目录。
+用 `make run ARGS='--config-file /绝对路径/custom.yaml'` 可指定另一份完整配置，`make run-gdb`
+也接受同样的参数。配置文件路径及其中的相对路径都以进程工作目录为基准。`make run` 在构建目录启动，包括 Release。
 
-`--player-id ID` 选择本地玩家绑定，默认 `1`，与角色编号独立。绑定约定见[玩家与多人模拟](docs/players.md)。
-
-`--device 子串` 按名称筛选 GPU。`make run` 和 `make run-gdb` 通过 `ARGS` 转发参数，例如 `make run ARGS='--device Radeon --player-id 1'`。
+- `enable_validation: auto` 在 Debug 开启 Vulkan 验证，在 Release 关闭。设置为 `true` 或 `false`
+  可显式覆盖。Conan 的 `with_validation_layers` 控制验证层的安装。
+- `local_player` 选择[本地玩家绑定](docs/players.md)。`device_filter` 按名称子串筛选 GPU，空字符串匹配所有可用设备。
+- `game_config` 设置资源根目录、对话目录、[存档根目录和启动槽位名](docs/save-data.md)以及 UI 设置文件。
 
 ## Windows 构建
 
@@ -166,10 +165,11 @@ make run PLATFORM=windows-x86_64 BUILD_TYPE=Release
 ```
 
 Make 使用独立的 `build/wine-prefix`，不使用个人的 `~/.wine`。MinGW profile 默认不安装验证层；
-在没有验证层的 Wine 环境中运行 Debug 时，需要显式选择：
+在没有验证层的 Wine 环境中运行 Debug 时，可复制 `runtime/config.yaml`，将副本中的
+`enable_validation` 设为 `false`，再用 Wine 中的路径指定该文件。
 
 ```sh
-make run PLATFORM=windows-x86_64 ARGS=--no-validation
+make run PLATFORM=windows-x86_64 ARGS='--config-file Z:/绝对路径/wine.yaml'
 ```
 
 ### Windows 原生 MSVC
@@ -235,7 +235,7 @@ cmake --preset linux-x86_64-debug -Dlc1_enable_asan=ON
   手动配置对应 `-DSLANGC_EXECUTABLE=/path/to/slangc`，路径会缓存到该构建树。
 - **Debug 提示找不到验证层**：先确认从构建目录加载了 Conan 运行环境，再检查是否安装了验证层依赖。
 - **缺少资源或复制目录失败**：检查 `runtime/assets/` 是否存在且内容齐全。
-  `--asset-root` 影响运行时加载路径，构建时仍会复制源码树中的该目录。
+  `game_config.asset_root` 影响运行时加载路径，构建时仍会复制源码树中的该目录。
 - **CMake 报 preset 重复或引用失效**：检查生成的 `CMakeUserPresets.json`。
   修改 preset 生成规则后，应为其包含的每个平台和构建类型重新执行 Conan 安装。
 - **需要清理**：`make clean` 删除整个 `build/`，包括所有平台产物、Wine prefix

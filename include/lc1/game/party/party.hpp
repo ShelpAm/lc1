@@ -49,6 +49,7 @@ class Party {
     void recruit(Character &recruiter, Character &candidate);
 
   private:
+    friend class GameWorld;
     bool roster_restored_ = false;
     std::uint32_t keyid_;
     std::uint32_t faction_;

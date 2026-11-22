@@ -2,6 +2,7 @@
 
 #include "lc1/error.hpp"
 #include "lc1/game-clock.hpp"
+#include "lc1/utf8-path.hpp"
 #include "lc1/vk/presentation/swapchain-policy.hpp"
 #include "lc1/vk/render/render-graph.hpp"
 
@@ -10,57 +11,90 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
+#include <rfl/yaml.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <array>
-#include <charconv>
+#include <fstream>
 #include <string_view>
+#include <utility>
 
 namespace lc1::app {
 namespace {
 
-class Parser {
-  public:
-    static ApplicationConfig parse(int argc, char const *const *argv)
-    {
-        ApplicationConfig config;
-#ifdef NDEBUG
-        config.enable_validation = false;
-#endif
-        for (int index = 1; index < argc; ++index) {
-            std::string_view const option = argv[index];
-            if (option == "--no-validation") {
-                config.enable_validation = false;
-                continue;
-            }
-            if (option != "--asset-root" && option != "--save-root" && option != "--player-id" &&
-                option != "--device")
-                fail("unknown argument: {}", option);
-
-            if (++index == argc)
-                fail("{} requires a value", option);
-            std::string_view const value = argv[index];
-            if (value.empty() || value.starts_with("--"))
-                fail("{} requires a value", option);
-
-            if (option == "--asset-root")
-                config.asset_root = value;
-            else if (option == "--save-root")
-                config.save_root = value;
-            else if (option == "--device")
-                config.device_filter = value;
-            else {
-                auto const [end, error] = std::from_chars(value.data(), value.data() + value.size(),
-                                                          config.local_player.value);
-                if (error != std::errc{} || end != value.data() + value.size() ||
-                    config.local_player.value == 0)
-                    fail("{} must be a nonzero player id", option);
-            }
-        }
-        return config;
+ApplicationConfig read_config(int argc, char const *const *argv)
+{
+    std::filesystem::path path = "runtime/config.yaml";
+    if (argc > 1) {
+        if (std::string_view{argv[1]} != "--config-file")
+            fail("unknown argument: {}; expected --config-file PATH", argv[1]);
+        if (argc < 3 || std::string_view{argv[2]}.empty() ||
+            std::string_view{argv[2]}.starts_with("--"))
+            fail("--config-file requires a path");
+        if (argc > 3)
+            fail("unexpected argument: {}; expected --config-file PATH", argv[3]);
+        path = argv[2];
     }
-};
+
+    struct ConfigFile {
+        std::string enable_validation;
+        std::int64_t local_player;
+        std::string device_filter;
+
+        struct GameConfig {
+            std::string asset_root;
+            std::string dialog_root;
+            std::string save_root;
+            std::string default_save;
+            std::string ui_settings_file;
+        } game_config;
+    };
+
+    std::ifstream stream{path};
+    if (!stream.is_open())
+        fail("cannot open config file {}", path.string());
+    auto const loaded = rfl::yaml::read<ConfigFile, rfl::NoOptionals, rfl::NoExtraFields>(stream);
+    if (!loaded)
+        fail("cannot read config file {}: {}", path.string(), loaded.error().what());
+    auto const &config = *loaded;
+    if (config.local_player <= 0 || !std::in_range<std::uint32_t>(config.local_player))
+        fail("config file {}: local_player must be a nonzero 32-bit unsigned ID", path.string());
+
+    bool enable_validation;
+    if (config.enable_validation == "auto") {
+#ifdef NDEBUG
+        enable_validation = false;
+#else
+        enable_validation = true;
+#endif
+    }
+    else if (config.enable_validation == "true" || config.enable_validation == "false") {
+        enable_validation = config.enable_validation == "true";
+    }
+    else {
+        fail("config file {}: enable_validation must be auto, true or false", path.string());
+    }
+
+    auto const &game = config.game_config;
+    if (game.asset_root.empty() || game.dialog_root.empty() || game.save_root.empty() ||
+        game.ui_settings_file.empty())
+        fail("config file {}: game_config paths must not be empty", path.string());
+
+    return {
+        .enable_validation = enable_validation,
+        .local_player = PlayerId{static_cast<std::uint32_t>(config.local_player)},
+        .game_config =
+            {
+                .asset_root = path_from_utf8(game.asset_root),
+                .dialog_root = path_from_utf8(game.dialog_root),
+                .initial_save_directory =
+                    Save::slot_directory(path_from_utf8(game.save_root), game.default_save),
+                .ui_settings_file = path_from_utf8(game.ui_settings_file),
+            },
+        .device_filter = config.device_filter,
+    };
+}
 
 constexpr double event_wait_timeout_seconds = 0.1;
 
@@ -149,7 +183,7 @@ PickedDevice pick_physical_device(std::vector<vk::raii::PhysicalDevice> &devices
     // wrapper offers no null-handle comparison.
     if (best_score < 0) {
         if (!device_filter.empty()) {
-            fail("--device \"{}\" matched no usable device", device_filter);
+            fail("device_filter \"{}\" matched no usable device", device_filter);
         }
         fail("no suitable Vulkan 1.4 device found (need a non-CPU device with "
              "ray query, acceleration structures, buffer device address, all requested features, "
@@ -233,7 +267,7 @@ PFN_vkVoidFunction load_imgui_vulkan_function(char const *name, void *user_data)
 } // namespace
 
 Application::Application(int argc, char const *const *argv)
-    : config_(Parser::parse(argc, argv)), window_{1280, 720, "lc1"},
+    : config_(read_config(argc, argv)), window_{1280, 720, "lc1"},
       instance_{make_instance(loader_, window_, config_.enable_validation)},
       surface_{instance_, window_},
       device_{make_device(instance_, surface_, config_.device_filter)},
@@ -243,15 +277,21 @@ Application::Application(int argc, char const *const *argv)
       renderer_{device_,
                 {surface_format_.format},
                 std::min(device_.max_sample_count(), vk::SampleCountFlagBits::e4)},
-      simulation_(std::make_unique<GameSimulation>(
-          Save{config_.save_root}, config_.dialog_root / "catalog.yaml", config_.asset_root)),
-      game_(std::make_unique<GameSession>(
-          device_, config_.asset_root, *simulation_, config_.save_root,
-          output_settings(surface_format_.format), &window_, config_.local_player,
-          renderer_.cloud_settings(), config_.ui_settings_file)),
-      frame_loop_(std::make_unique<FrameLoop<FrameResources>>(device_, [this] {
-          return renderer_.make_frame_resources(game_->world_presentation().object_capacity());
-      }))
+      simulation_{
+          std::make_unique<GameSimulation>(Save{config_.game_config.initial_save_directory},
+                                           config_.game_config.dialog_root / "catalog.yaml",
+                                           config_.game_config.asset_root),
+      },
+      game_{
+          std::make_unique<GameSession>(device_, config_.game_config.asset_root, *simulation_,
+                                        config_.game_config.initial_save_directory,
+                                        output_settings(surface_format_.format), &window_,
+                                        config_.local_player, renderer_.cloud_settings(),
+                                        config_.game_config.ui_settings_file),
+      },
+      frame_object_capacity_(game_->world_presentation().object_capacity()),
+      frame_loop_(std::make_unique<FrameLoop<FrameResources>>(
+          device_, [this] { return renderer_.make_frame_resources(frame_object_capacity_); }))
 {
     spdlog::info("[world] WASD: walk, wheel: zoom, Shift: run, Y: camera lock, Space: "
                  "recenter, M: first-person/oblique view, left click: swing weapon, Esc: quit");
@@ -262,7 +302,8 @@ Application::Application(int argc, char const *const *argv)
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
-    auto const font_path = (config_.asset_root / "fonts/SourceHanSansCN-Regular.otf").string();
+    auto const font_path =
+        (config_.game_config.asset_root / "fonts/SourceHanSansCN-Regular.otf").string();
     // ImGui 1.92 loads glyphs on demand, including Chinese characters from save data.
     if (io.Fonts->AddFontFromFileTTF(font_path.c_str(), 13.0F) == nullptr) {
         ImGui::DestroyContext();
@@ -398,14 +439,15 @@ void Application::load_game(std::filesystem::path const &directory)
     device_.wait_idle();
     try {
         auto simulation = std::make_unique<GameSimulation>(
-            Save{directory}, config_.dialog_root / "catalog.yaml", config_.asset_root);
+            Save{directory}, config_.game_config.dialog_root / "catalog.yaml",
+            config_.game_config.asset_root);
         auto next = std::make_unique<GameSession>(
-            device_, config_.asset_root, *simulation, directory,
+            device_, config_.game_config.asset_root, *simulation, directory,
             game_->world_presentation().output(), &window_, config_.local_player,
-            renderer_.cloud_settings(), config_.ui_settings_file);
-        auto frames = std::make_unique<FrameLoop<FrameResources>>(device_, [&] {
-            return renderer_.make_frame_resources(next->world_presentation().object_capacity());
-        });
+            renderer_.cloud_settings(), config_.game_config.ui_settings_file);
+        auto const capacity = next->world_presentation().object_capacity();
+        auto frames = std::make_unique<FrameLoop<FrameResources>>(
+            device_, [&] { return renderer_.make_frame_resources(capacity); });
         auto const extent = window_.framebuffer_extent();
         if (extent.height != 0)
             next->set_aspect_ratio(static_cast<float>(extent.width) /
@@ -416,6 +458,7 @@ void Application::load_game(std::filesystem::path const &directory)
         game_ = std::move(next);
         simulation_ = std::move(simulation);
         frame_loop_ = std::move(frames);
+        frame_object_capacity_ = capacity;
     }
     catch (Error const &error) {
         spdlog::error("[load] {}", error.diagnostic());
@@ -505,6 +548,16 @@ void Application::run_loop(std::function<bool()> const &stop_requested)
 
         auto const delta_seconds = stopwatch.tick();
         game_->update(delta_seconds, window_.input());
+        auto const required_capacity = game_->world_presentation().object_capacity();
+        if (required_capacity > frame_object_capacity_) {
+            device_.wait_idle();
+            auto const capacity = std::max(
+                required_capacity, std::min(Renderer::max_object_capacity,
+                                            frame_object_capacity_ + frame_object_capacity_ / 4));
+            frame_loop_ = std::make_unique<FrameLoop<FrameResources>>(
+                device_, [&] { return renderer_.make_frame_resources(capacity); });
+            frame_object_capacity_ = capacity;
+        }
 
         ImGui::Render();
 

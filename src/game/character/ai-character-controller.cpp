@@ -53,6 +53,11 @@ void AiCharacterController::set_order(CompanionOrder order)
         state_ = state;
 }
 
+void AiCharacterController::forget_action_target(Character const &character)
+{
+    std::erase(action_targets_, &character);
+}
+
 CharacterIntent AiCharacterController::decide(float delta_seconds)
 {
     auto const &character = this->character();

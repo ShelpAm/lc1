@@ -163,22 +163,20 @@ cd build/linux-x86_64/Debug
 ./lc1
 ```
 
-Shader, dialogue, and default data paths are relative to the working directory.
-Release builds must also run from the build directory. `--asset-root PATH` overrides
-the asset root. `--save-root PATH` overrides the default save directory, `runtime/saves/01`.
-See the [save documentation](docs/save-data.md) (Chinese) for details.
+### Startup configuration
 
-Debug enables Vulkan validation and synchronization validation by default, and
-Conan installs the corresponding layers by default. `with_validation_layers=False`
-only controls dependency installation; it does not disable the application's Debug
-validation behavior. For diagnostics explicitly performed without validation, pass
-`--no-validation`. Such a run is not evidence of passing validation checks.
+Edit [runtime/config.yaml](runtime/config.yaml) to change startup settings. CMake copies
+it to the build tree. Use `make run ARGS='--config-file /absolute/path/custom.yaml'`
+to select a complete alternate file. `make run-gdb` accepts the same argument.
+Relative paths, including the config file path, resolve from the process working
+directory. `make run` uses the build directory, including for Release.
 
-`--player-id ID` selects the local player binding (default `1`), independently of character
-keyids. See [player identities and local multiplayer](docs/players.md) for the binding contract.
-
-`--device SUBSTRING` filters GPUs by device name. Pass options through `make run`
-or `make run-gdb` with `ARGS`, for example `make run ARGS='--device Radeon --player-id 1'`.
+- `enable_validation: auto` enables Vulkan validation in Debug and disables it in Release.
+  Set `true` or `false` to override. Conan's `with_validation_layers` controls layer installation.
+- `local_player` selects the [local player binding](docs/players.md). `device_filter`
+  matches a substring of the GPU name. An empty string allows all usable devices.
+- `game_config` sets the asset root, dialogue root, [save root and initial slot name](docs/save-data.md),
+  and UI settings file.
 
 ## Windows builds
 
@@ -199,11 +197,11 @@ make run PLATFORM=windows-x86_64 BUILD_TYPE=Release
 ```
 
 Make uses a separate `build/wine-prefix` instead of your personal `~/.wine`.
-The MinGW profile does not install validation layers by default. To run Debug in
-a Wine environment without those layers, explicitly opt out:
+The MinGW profile omits validation layers by default. For Wine Debug without layers,
+copy `runtime/config.yaml` to a separate file and set `enable_validation: false`.
 
 ```sh
-make run PLATFORM=windows-x86_64 ARGS=--no-validation
+make run PLATFORM=windows-x86_64 ARGS='--config-file Z:/absolute/path/wine.yaml'
 ```
 
 ### Native Windows with MSVC
@@ -280,7 +278,7 @@ explicitly to restore the previous behavior.
   environment was loaded from the build directory, then check that the layer
   dependency was installed.
 - **Missing assets or a failed directory copy:** check that `runtime/assets/`
-  exists and contains the required files. `--asset-root` affects runtime loading;
+  exists and contains the required files. `game_config.asset_root` affects runtime loading;
   the build still copies that directory from the source tree.
 - **Duplicate presets or missing preset includes:** inspect the generated
   `CMakeUserPresets.json`. After changing preset generation, rerun Conan installation

@@ -18,6 +18,18 @@ namespace {
 constexpr std::string_view villager_model_path = "models/characters/runtime/villager.glb";
 constexpr glm::vec3 villager_patrol_start{-3, 0, 34};
 
+void resolve_character_motion(CharacterConfig &config, std::filesystem::path const &asset_root)
+{
+    config.animation_motion = load_animation_motion(config.model, asset_root);
+    config.attack_animation_duration =
+        config.animation_motion &&
+                (*config.animation_motion)[CharacterAnimation::Attack].duration > 0
+            ? (*config.animation_motion)[CharacterAnimation::Attack].duration
+            : configured_animation_duration(config.model,
+                                            config.model.animation_name(CharacterAnimation::Attack),
+                                            asset_root);
+}
+
 template <typename Map, typename Value>
 void insert_unique(Map &map, std::uint32_t keyid, Value value, std::string_view kind)
 {
@@ -198,14 +210,7 @@ void GameWorld::build_world(Save const &save)
             .model = record.model.value(),
             .animation_motion = {},
         };
-        config.animation_motion = load_animation_motion(config.model, asset_root_);
-        config.attack_animation_duration =
-            config.animation_motion &&
-                    (*config.animation_motion)[CharacterAnimation::Attack].duration > 0
-                ? (*config.animation_motion)[CharacterAnimation::Attack].duration
-                : configured_animation_duration(
-                      config.model, config.model.animation_name(CharacterAnimation::Attack),
-                      asset_root_);
+        resolve_character_motion(config, asset_root_);
         for (auto const &slot : record.equipment)
             config.equipment[slot.first] = equipments_.at(slot.second).get();
         if (record.main_hand)
@@ -249,12 +254,72 @@ void GameWorld::build_world(Save const &save)
     }
 
     link_party_members(save);
+    refresh_character_roster();
+}
+
+void GameWorld::refresh_character_roster()
+{
+    dialog_participants_.clear();
     dialog_participants_.reserve(characters_.size());
     for (auto const &[_, character] : characters_)
         dialog_participants_.push_back(character.get());
     std::ranges::sort(dialog_participants_, {},
                       [](Character const *character) { return character->config().keyid; });
     visible_characters_.assign(dialog_participants_.begin(), dialog_participants_.end());
+}
+
+Character &GameWorld::spawn_npc(std::uint32_t party_id, CharacterConfig config,
+                                scene::Transform pose)
+{
+    auto &party = *parties_.at(party_id);
+    if (config.keyid == 0 || characters_.contains(config.keyid))
+        fail("invalid or duplicate character keyid {}", config.keyid);
+    config.party = &party;
+    resolve_character_motion(config, asset_root_);
+    auto character = std::make_unique<Character>(setup_.continent, pose, std::move(config));
+    auto &npc = *character;
+    auto controller = std::make_unique<AiCharacterController>(
+        dialogs_, [this](CharacterId id) -> Character & { return this->character(id); });
+    npc.set_controller(controller.get());
+    npc.set_interactable(std::make_unique<InteractableCharacter>(&npc, &dialogs_));
+    controllers_.reserve(controllers_.size() + 1);
+    party.members_.reserve(party.members_.size() + 1);
+    dialog_participants_.reserve(characters_.size() + 1);
+    visible_characters_.reserve(characters_.size() + 1);
+    characters_.emplace(npc.id().value, std::move(character));
+    controllers_.push_back(std::move(controller));
+    party.members_.push_back(npc.id());
+    refresh_character_roster();
+    return npc;
+}
+
+bool GameWorld::remove_npc(CharacterId id)
+{
+    auto const found = characters_.find(id.value);
+    if (found == characters_.end())
+        return false;
+    auto &npc = *found->second;
+    auto &party = *npc.config().party;
+    if (party.leader() == id || std::ranges::any_of(players_, [&](auto const &entry) {
+            return entry.second.character == &npc;
+        }))
+        return false;
+    dialogs_.interrupt(npc);
+    for (auto &[player_id, player] : players_)
+        if (player.interaction_target == &npc)
+            player.interaction_target = nullptr;
+    for (auto const &controller : controllers_)
+        if (auto *ai = dynamic_cast<AiCharacterController *>(controller.get()))
+            ai->forget_action_target(npc);
+    std::erase_if(controllers_,
+                  [&](auto const &controller) { return controller.get() == npc.controller(); });
+    std::erase(party.members_, id);
+    std::erase(party.captives_, id);
+    if (example_ == &npc)
+        example_ = nullptr;
+    characters_.erase(found);
+    refresh_character_roster();
+    return true;
 }
 
 SerializedWorld GameWorld::snapshot() const
@@ -316,7 +381,8 @@ Character *GameWorld::character_by_id(std::uint32_t keyid, std::string_view what
     return character->second.get();
 }
 
-Character *GameWorld::find_interaction_target(Character &actor) const
+Character *GameWorld::find_interaction_target(Character &actor,
+                                              std::span<Character *const> nearby) const
 {
     constexpr float min_alignment = 0.70710678F;
 
@@ -324,9 +390,7 @@ Character *GameWorld::find_interaction_target(Character &actor) const
     float best_alignment = -1.0F;
     float best_distance_squared = 0.0F;
 
-    for (auto const &[id, character] : characters_) {
-        auto *candidate = character.get();
-
+    for (auto *candidate : nearby) {
         if (candidate == &actor)
             continue;
 
@@ -358,7 +422,7 @@ Character *GameWorld::find_interaction_target(Character &actor) const
             best == nullptr || alignment > best_alignment ||
             (alignment == best_alignment && distance_squared < best_distance_squared) ||
             (alignment == best_alignment && distance_squared == best_distance_squared &&
-             id < best->config().keyid);
+             candidate->id() < best->id());
 
         if (better) {
             best = candidate;
@@ -383,8 +447,25 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
         if (character->companion_order() == CompanionOrder::Follow)
             character->update(delta_seconds, setup_.continent);
 
+    auto by_x = dialog_participants_;
+    auto const x = [](Character const *character) { return character->position().x; };
+    std::ranges::sort(by_x, {}, x);
+    auto const nearby = [&](float lower, float upper) {
+        auto const first = std::ranges::lower_bound(by_x, lower, {}, x);
+        auto const last = std::ranges::upper_bound(first, by_x.end(), upper, {}, x);
+        return std::span{first, last};
+    };
+    float max_half_width = 0;
+    for (auto const *character : by_x)
+        max_half_width = std::max(max_half_width, character->half_width());
+    std::vector<Character *> attack_candidates;
     for (auto *character : dialog_participants_)
-        character->resolve_attack(dialog_participants_, setup_.continent);
+        if (auto const bounds = character->attack_x_bounds()) {
+            auto const candidates = nearby(bounds->x - max_half_width, bounds->y + max_half_width);
+            attack_candidates.assign(candidates.begin(), candidates.end());
+            std::ranges::sort(attack_candidates, {}, &Character::id);
+            character->resolve_attack(attack_candidates, setup_.continent);
+        }
     for (auto *character : dialog_participants_)
         if (character->dead() || character->reacting_to_hit())
             dialogs_.interrupt(*character);
@@ -431,7 +512,9 @@ void GameWorld::update(float delta_seconds, std::map<PlayerId, PlayerControls> c
             }
             input.equipment.reset();
         }
-        player.interaction_target = find_interaction_target(actor);
+        auto const range = dialogs_.catalog().settings().start_distance;
+        player.interaction_target = find_interaction_target(
+            actor, nearby(actor.position().x - range, actor.position().x + range));
         if (auto *dialog = dialogs_.find(actor)) {
             if (input.interact)
                 dialogs_.interrupt(actor);

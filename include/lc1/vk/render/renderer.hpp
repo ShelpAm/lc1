@@ -49,6 +49,7 @@ class FpsCamera;
 class Renderer {
   public:
     static constexpr vk::Format hdr_format = vk::Format::eR16G16B16A16Sfloat;
+    static constexpr std::uint32_t max_object_capacity = 65534;
 
     // Color/depth images are allocated lazily from the target extent in record.
     Renderer(Device const &device, std::vector<vk::Format> const &color_attachment_formats,

@@ -179,6 +179,7 @@ class Character {
 
     // Called once after all characters move; consumes this tick's melee sweep.
     void resolve_attack(std::span<Character *const> targets, Continent const &continent);
+    std::optional<glm::vec2> attack_x_bounds() const;
 
   private:
     // Resolves the requested actions before physics. Called only by update().

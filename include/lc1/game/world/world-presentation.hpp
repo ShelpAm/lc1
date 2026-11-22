@@ -84,11 +84,14 @@ class WorldPresentation {
     void update_lighting();
     void update_instances();
     void update_particles(float delta_seconds);
+    void sync_character_models();
 
     // Main-thread snapshot and immutable continent borrows; both outlive this presentation.
     WorldSnapshot const *world_;
     Continent const *continent_;
     PlayerId observer_;
+    Device const *device_;
+    std::filesystem::path asset_root_;
 
     struct WeaponModel {
         scene::SceneModel *model;

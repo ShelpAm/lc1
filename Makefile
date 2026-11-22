@@ -90,9 +90,7 @@ build: $(CONAN_TOOLCHAIN) $(if $(SLANGC),configure,$(BUILD_DIR)/CMakeCache.txt)
 #
 # The Windows side has the mirror-image problem: profiles/mingw64 deliberately does not
 # build the layers (see conanfile.py), and a plain wine prefix has none either, so a
-# Debug exe gets as far as instance creation and stops. The caller can pass
-# --no-validation via ARGS:
-# silently disabling the safety net on every wine run is how it stops being one.
+# Debug exe needs a config with enable_validation: false in that environment.
 run: build
 	@case "$(PLATFORM)" in \
 	linux-x86_64) \
@@ -103,7 +101,7 @@ run: build
 			echo "run: creating $(WINE_PREFIX) (first time only)"; \
 			$(WINE_ENV) wineboot -u >/dev/null 2>&1; \
 		fi; \
-		echo "run: if this stops at 'layer not available', use make run PLATFORM=$(PLATFORM) ARGS=--no-validation"; \
+		echo "run: if validation layers are unavailable, select a config with enable_validation: false via --config-file"; \
 		cd $(BUILD_DIR) && $(WINE_ENV) wine ./lc1.exe $(ARGS) ;; \
 	*) \
 		echo "run: unknown platform $(PLATFORM)"; exit 1 ;; \
