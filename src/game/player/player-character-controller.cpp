@@ -94,12 +94,12 @@ PlayerControls PlayerCharacterController::read_input(GameInputRouter const &inpu
 CharacterIntent PlayerCharacterController::decide(float)
 {
     auto const &character = this->character();
-    auto const &[look_delta, keyboard_enabled, mouse_enabled, oblique, view_changed,
-                 restored_first_person_angles, view_heading, third_person_follow] = input_->view;
+    auto const &[look_delta, keyboard_enabled, mouse_enabled, mode, view_changed,
+                 restored_first_person_angles, view_heading] = input_->view;
     auto const movement = input_->movement;
     bool const enabled = keyboard_enabled || mouse_enabled;
     CharacterIntent intent;
-    if (!oblique && !third_person_follow) {
+    if (mode == ViewMode::FirstPerson) {
         if (enabled || view_changed || look_delta != glm::vec2{})
             intent = first_person(character, movement, look_delta,
                                   view_changed ? restored_first_person_angles : std::nullopt);

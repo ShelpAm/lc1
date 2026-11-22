@@ -282,7 +282,9 @@ add_library(lc1_game STATIC
     src/game/character/ai-character-controller.cpp
     src/game/player/player-character-controller.cpp
     src/game/player/player-view.cpp
-    src/game/camera/map-camera-controller.cpp
+    src/game/camera/first-person-camera-controller.cpp
+    src/game/camera/oblique-camera-controller.cpp
+    src/game/camera/third-person-camera-controller.cpp
 
     src/game/continent/continent.cpp
     src/game/continent/prototype.cpp

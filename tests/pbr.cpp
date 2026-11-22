@@ -22,7 +22,7 @@
 #include "lc1/vk/render/graphics-state.hpp"
 #include "lc1/vk/render/renderer.hpp"
 
-#include "lc1/game/camera/map-camera-controller.hpp"
+#include "lc1/game/camera/oblique-camera-controller.hpp"
 #include "lc1/game/continent/view.hpp"
 
 #include "lc1/platform/window.hpp"
@@ -1580,7 +1580,7 @@ void showcase_test(lc1::Device const &device)
     auto frame = renderer.make_frame_resources(static_cast<std::uint32_t>(draws.size()));
     lc1::scene::FpsCamera camera;
     camera.set_zfar(800);
-    lc1::MapCameraController camera_controller{continent.spawn()};
+    lc1::ObliqueCameraController camera_controller{continent.spawn()};
     camera_controller.apply(camera);
     std::vector lights{lc1::scene::to_light(
         lc1::scene::DirectionalLight{.base = {.color = {1, 0.95F, 0.9F}, .intensity = 0.3F},

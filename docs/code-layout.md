@@ -55,7 +55,7 @@
 | `GameWorld` | 按存档标识和内容版本加载并拥有大陆、势力、装备、武器、队伍、角色、角色控制器和 `DialogSystem`；装配世界、推进规则、生成存档快照；不依赖 Window、ImGui、音频或 Vulkan |
 | `GameSimulation` | 独占 `GameWorld`，以 60 Hz 固定步长推进规则；接收输入消息、发布不可变快照并处理存档快照请求 |
 | `WorldPresentation` | 读取主线程的 `WorldSnapshot` 和只读大陆和对话目录，拥有地形/角色/武器 GPU 资源、字体、持久 Scene 与音频 context/listener；更新场景实例、灯光并生成世界文字 |
-| `PlayerView` | 拥有视角模式、记忆观察角和相机；准备视角输入，读取角色快照与模型挂点更新相机 |
+| `PlayerView` | 管理视角切换和输入交接，持有相机并分派给当前视角的控制器 |
 | `GameUi` | 菜单、调试面板、保存反馈及屏幕文字；返回命名保存、读档请求和音量变化，由会话执行 |
 | `MusicBrowser` | 音乐目录、文件浏览 UI、播放状态与音源；借用 `WorldPresentation` 的音频 context |
 | `GameSession` | 读取输入、按焦点/context/ImGui capture 门控、协调各阶段、向 Application 提交命名保存及读档请求、直接设置窗口标题和光标捕获，并向 Application 提供退出状态和表现数据 |
@@ -100,10 +100,12 @@ Application 通过 `GameSession::world()`、`world_presentation()`、`player_vie
 Application 轮询事件、开始 ImGui 帧，然后调用一次 `GameSession::update()`：
 
 1. 会话用原始 `InputState` 更新自己拥有的 `GameInputRouter`，每次会话更新只解析一次动作。
-2. 根据菜单、窗口焦点、context 和 ImGui capture 计算输入门控，调用 `PlayerView::update_view_mode()` 处理视角切换、锁定与回中。
+2. 会话根据菜单、窗口焦点、context 和 ImGui capture 计算输入门控，并从动作路由器读取视角切换和锁定的按下状态、回中的持续状态。
+   `PlayerView::update_view_mode()` 接收已通过门控的 `CameraActions`，按当前视角应用这些动作。
 3. `PlayerView` 在切换帧丢弃旧光标模式下累计的鼠标位移，避免切入第一人称时镜头跳动。
 4. `PlayerView::prepare_input()` 准备视角、观察增量和输入门控；会话用 `PlayerCharacterController::read_input()`
    把角色控制、交互和对话选项统一复制成不借用设备的 `PlayerControls`，提交给模拟线程。
+   第三人称移动和随后的相机更新使用同一个由本帧观察角计算的水平朝向。
 5. 会话在本帧开始获取一次表现快照，保存到自己的 `WorldSnapshot`；UI、相机、表现和 Application
    都读取这一份状态，不访问模拟线程的角色、控制器、队伍或对话对象。
 6. `PlayerView::update_pointer()` 在鼠标门控允许时处理滚轮与边缘平移；`WorldPresentation::update()`

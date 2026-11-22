@@ -146,7 +146,7 @@ Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取�
 控制流程是 `PlayerCharacterController / AiCharacterController -> CharacterIntent -> Character`。
 控制器只表达“想做什么”，不直接移动角色、扣状态或决定最终速度。
 
-`PlayerView` 在主线程拥有视角状态、记忆观察角和相机，读取 `CharacterPose` 值副本。
+`PlayerView` 在主线程管理视角切换并持有相机，读取 `CharacterPose` 值副本。
 它准备 `PlayerCharacterInput`，主线程通过 `PlayerCharacterController::read_input()`
 把 `GameInputRouter` 的动作复制为 `PlayerControls`。输入消息不借用路由器、窗口或相机。
 模拟线程把消息写入已绑定的输入值，玩家控制器在 `Character::update()` 中读取它：
@@ -155,7 +155,9 @@ Follow/Wait 通过现有 AI 的 `set_order()` 切换，跟随时从队伍读取�
 - 第三人称：WASD 按相机水平方向解释，角色朝移动方向转身。
 - Sprint 为持续状态，Jump、SwingWeapon 和 Nod 为一次性请求；Interact 和对话选项由世界处理。
 
-相机锁定、回中、缩放和边缘平移留在主线程的 `PlayerView`/`MapCameraController`。
+`PlayerView` 负责模式切换和模式间的观察角交接，并让当前控制器更新同一台 `FpsCamera`。
+`ObliqueCameraController` 管理斜俯视的跟随、锁定、回中优先级和缩放，`ThirdPersonCameraController` 管理绕转角和移动朝向，
+`FirstPersonCameraController` 保存切回第一人称时要恢复的观察角，并根据角色姿态和可选的 `Eyes` 挂点计算镜头。
 M 切换只改变视角状态，身体/观察角由下一个模拟 tick 的 intent 更新；
 切换帧丢弃观察位移。主线程从已完成 tick 的快照跟随角色，不直接修改模拟中的玩家。
 `GameWorld::update()` 对所有角色统一调用 `Character::update(elapsed, continent)`；

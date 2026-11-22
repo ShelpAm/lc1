@@ -2,7 +2,7 @@
 #include "character-input.hpp"
 #include "player-input.hpp"
 
-#include "lc1/game/camera/map-camera-controller.hpp"
+#include "lc1/game/camera/oblique-camera-controller.hpp"
 #include "lc1/game/character/character-model.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/character/model-config.hpp"
@@ -64,7 +64,10 @@ void update_view(float delta_seconds, lc1::PlayerView &view, lc1::Continent cons
         {lc1::GameInputContext::Gameplay, lc1::GameAction::RecenterCamera, lc1::Key::Home});
     lc1::GameInputRouter input{bindings, lc1::GameInputContext::Gameplay};
     input.update(devices);
-    view.update_view_mode(input, true, player);
+    view.update_view_mode({.toggle_view = input.pressed(lc1::GameAction::ToggleCameraView),
+                           .toggle_lock = input.pressed(lc1::GameAction::ToggleCameraLock),
+                           .recenter_held = input.held(lc1::GameAction::RecenterCamera)},
+                          player);
     auto const intent = resolve_player_input(view, player, input, look_delta, true, true);
     apply_character_intent(player, delta_seconds, world, intent);
     view.update_camera(delta_seconds, player);
@@ -181,11 +184,11 @@ void disabled_input_preserves_pose()
             devices.on_key(key, true);
         lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
         input.update(devices);
-        view.update_view_mode(input, false, player);
+        view.update_view_mode({}, player);
         auto const intent = resolve_player_input(view, player, input, {500, 500}, false, false);
         apply_character_intent(player, 0.1F, world, intent);
         view.update_camera(0.1F, player);
-        check(view.oblique() == oblique, "disabled keyboard cannot switch views");
+        check(view.oblique() == oblique, "an empty camera action frame does not switch views");
         check(near(player.position(), position) && near(player.look_direction(), direction),
               "UI/focus gating prevents player movement and mouse look in either view");
         check(near(view.camera().position(), camera),
@@ -213,12 +216,12 @@ void independent_capture_gates()
     devices.on_key(lc1::Key::F, true);
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     input.update(devices);
-    view.update_view_mode(input, false, player);
+    view.update_view_mode({}, player);
     auto const mouse_only = resolve_player_input(view, player, input, {200, -100}, false, true);
     check(mouse_only.move == glm::vec2{} && !mouse_only.sprint && !mouse_only.jump &&
               mouse_only.body_yaw && near(*mouse_only.body_yaw, -10),
           "keyboard capture blocks actions while allowing mouse look");
-    view.update_view_mode(input, true, player);
+    view.update_view_mode({.recenter_held = true}, player);
     auto const keyboard_only = resolve_player_input(view, player, input, {200, -100}, true, false);
     check(keyboard_only.move != glm::vec2{} && keyboard_only.sprint && keyboard_only.jump &&
               keyboard_only.body_yaw && near(*keyboard_only.body_yaw, 0),
@@ -267,7 +270,7 @@ void pointer_pan_and_recenter_priority()
 
 void long_frame_camera_pan()
 {
-    lc1::MapCameraController controller{{0, 0, 0}};
+    lc1::ObliqueCameraController controller{{0, 0, 0}};
     controller.toggle_lock();
     auto const before = controller.center();
     controller.pan(0.5F, {1, 0}, {{-1000, -1000}, {1000, 1000}});
@@ -374,6 +377,12 @@ void third_person_follow()
                   "non-forward movement turns the body away from camera forward");
         }
     }
+    auto const previous_heading = view.camera().heading();
+    update_view(0.1F, view, world, player, {lc1::Key::W}, {1800.0F, 0.0F});
+    check(near(glm::dot(previous_heading, view.camera().heading()), 0.0F),
+          "mouse input rotates the follow camera by 90 degrees");
+    check(near(glm::dot(player.heading(), view.camera().heading()), 1.0F),
+          "forward movement uses the follow camera heading from the same frame");
     view.toggle(player);
     check(view.oblique(), "third person cycles back to oblique");
 }

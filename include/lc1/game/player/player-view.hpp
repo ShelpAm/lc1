@@ -1,7 +1,8 @@
 #pragma once
 
-#include "lc1/game/actions.hpp"
-#include "lc1/game/camera/map-camera-controller.hpp"
+#include "lc1/game/camera/first-person-camera-controller.hpp"
+#include "lc1/game/camera/oblique-camera-controller.hpp"
+#include "lc1/game/camera/third-person-camera-controller.hpp"
 #include "lc1/game/character/character-pose.hpp"
 #include "lc1/game/player/player-character-controller.hpp"
 #include "lc1/scene/camera.hpp"
@@ -10,15 +11,24 @@
 
 namespace lc1 {
 
-// Both views share one character. GameSession supplies input gates; GameSession
+class InputState;
+
+struct CameraActions {
+    bool toggle_view = false;
+    bool toggle_lock = false;
+    bool recenter_held = false;
+};
+
+// All views share one character. GameSession supplies input gates; GameSession
 // applies cursor capture when the view changes. This class owns no window or input router.
 class PlayerView {
   public:
     PlayerView(Continent const &continent, glm::vec3 player_position);
+
     void toggle(CharacterPose const &player);
+
     // Handles view switching, lock and recenter before prepare_input() each frame.
-    void update_view_mode(GameInputRouter const &input, bool keyboard_enabled,
-                          CharacterPose const &player);
+    void update_view_mode(CameraActions actions, CharacterPose const &player);
     // Prepares view-dependent input before copying it to the simulation.
     // Discards look motion on a view switch before cursor capture changes.
     void prepare_input(glm::vec2 look_delta, bool keyboard_enabled, bool mouse_enabled);
@@ -38,17 +48,13 @@ class PlayerView {
     scene::FpsCamera const &camera() const;
 
   private:
-    void follow_first_person(glm::vec3 eye_position, glm::vec3 look_direction);
-
     Continent const *continent_; // Immutable borrow; the game simulation owns the continent.
-    MapCameraController map_camera_;
+    ObliqueCameraController oblique_camera_;
+    FirstPersonCameraController first_person_camera_;
+    ThirdPersonCameraController third_person_camera_;
     scene::FpsCamera camera_;
-    bool oblique_ = true;
-    bool third_person_ = false;
-    glm::vec2 follow_angles_{};
-    glm::vec2 first_person_angles_{};
+    ViewMode mode_ = ViewMode::Oblique;
     bool view_changed_ = false;
-    bool recenter_ = false;
     PlayerCharacterInput character_input_;
 };
 

@@ -79,8 +79,13 @@ void GameSession::update(float delta_seconds, InputState const &input_state)
     bool const keyboard_enabled = controls_enabled && !imgui_io.WantCaptureKeyboard;
     bool const mouse_enabled = controls_enabled && !imgui_io.WantCaptureMouse;
 
-    player_view_.update_view_mode(input_router_, keyboard_enabled,
-                                  snapshot_.player(connection_.player_id()).pose);
+    player_view_.update_view_mode(
+        {
+            .toggle_view = keyboard_enabled && input_router_.pressed(GameAction::ToggleCameraView),
+            .toggle_lock = keyboard_enabled && input_router_.pressed(GameAction::ToggleCameraLock),
+            .recenter_held = keyboard_enabled && input_router_.held(GameAction::RecenterCamera),
+        },
+        snapshot_.player(connection_.player_id()).pose);
     bool const keyboard_save_requested =
         keyboard_enabled && input_router_.pressed(GameAction::SaveGame);
 

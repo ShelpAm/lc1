@@ -171,7 +171,7 @@ void one_shot_inputs()
     lc1::PlayerControls input;
     input.view.keyboard_enabled = true;
     input.view.mouse_enabled = true;
-    input.view.oblique = false;
+    input.view.mode = lc1::ViewMode::FirstPerson;
     input.view.look_delta = {20, -10};
     input.jump = true;
     input.swing_weapon = true;

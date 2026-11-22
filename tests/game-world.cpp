@@ -707,7 +707,7 @@ void control_physics_camera_order()
     devices.on_key(lc1::Key::Space, true);
     lc1::GameInputRouter input{lc1::default_game_bindings(), lc1::GameInputContext::Gameplay};
     input.update(devices);
-    view.update_view_mode(input, true, world.player(lc1::PlayerId{1}));
+    view.update_view_mode({.recenter_held = true}, world.player(lc1::PlayerId{1}));
     lc1::PlayerControls controls;
     lc1::PlayerCharacterController player_controller{controls};
     world.player(lc1::PlayerId{1}).set_controller(&player_controller);
@@ -728,7 +728,7 @@ void control_physics_camera_order()
     devices.on_key(lc1::Key::W, true);
     devices.on_key(lc1::Key::D, true);
     input.update(devices);
-    view.update_view_mode(input, false, world.player(lc1::PlayerId{1}));
+    view.update_view_mode({}, world.player(lc1::PlayerId{1}));
     view.prepare_input({500, 500}, false, false);
     controls = lc1::PlayerCharacterController::read_input(input, view.character_input());
     world.update(0, {});

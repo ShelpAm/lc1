@@ -1,7 +1,7 @@
 #include "lc1/game/continent/continent.hpp"
 #include "character-input.hpp"
 #include "character-lookup.hpp"
-#include "lc1/game/camera/map-camera-controller.hpp"
+#include "lc1/game/camera/oblique-camera-controller.hpp"
 #include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
 #include "lc1/game/continent/patrol-house.hpp"
@@ -462,7 +462,7 @@ void perspective_camera_zoom()
     glm::vec3 const player{0, 0, 0};
     lc1::scene::FpsCamera camera;
     camera.set_zfar(800.0F);
-    lc1::MapCameraController controller{player};
+    lc1::ObliqueCameraController controller{player};
     controller.apply(camera);
     auto project = [&](glm::vec3 point) {
         glm::vec4 const clip = camera.view_projection_matrix() * glm::vec4{point, 1.0F};
@@ -514,6 +514,19 @@ void perspective_camera_zoom()
     check(near(controller.view_height(), 16.0F), "zoom respects the minimum framing limit");
     check(project(center).z > 0.0F && project(center).z < 1.0F && camera.position().y > player.y,
           "minimum zoom keeps the target visible and camera above the ground");
+
+    controller.set_height_limits(30.0F, 40.0F);
+    controller.apply(camera);
+    check(near(camera.position().y - center.y, 30.0F),
+          "setting the range immediately clamps the displayed camera height");
+    controller.zoom(-100.0F);
+    controller.update(0.1F, camera, player);
+    check(near(camera.position().y - center.y, 40.0F),
+          "zooming out respects the configured maximum height");
+    controller.zoom(100.0F);
+    controller.update(0.1F, camera, player);
+    check(near(camera.position().y - center.y, 30.0F),
+          "zooming in respects the configured minimum height");
 }
 
 void camera_lock_and_edge_pan()
@@ -521,7 +534,7 @@ void camera_lock_and_edge_pan()
     lc1::GroundBounds const bounds{{-100, -100}, {100, 100}};
     glm::vec3 const player{0, 0, 0};
     lc1::scene::FpsCamera camera;
-    lc1::MapCameraController controller{player};
+    lc1::ObliqueCameraController controller{player};
     auto same = [](glm::vec3 a, glm::vec3 b) { return glm::length(a - b) < 0.001F; };
     controller.pan(0.1F, {-1, 0}, bounds);
     controller.update(0.1F, camera, {3, 0, 4});
@@ -547,8 +560,8 @@ void camera_lock_and_edge_pan()
     controller.update(0.1F, camera, {12, 0, 10});
     check(controller.locked() && same(controller.center(), {12, 0.9F, 10}),
           "locking again immediately follows the player");
-    lc1::MapCameraController side{player};
-    lc1::MapCameraController corner{player};
+    lc1::ObliqueCameraController side{player};
+    lc1::ObliqueCameraController corner{player};
     side.toggle_lock();
     corner.toggle_lock();
     auto const start = side.center();

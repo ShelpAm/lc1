@@ -12,16 +12,21 @@ namespace lc1 {
 
 class Character;
 
+enum class ViewMode : std::uint8_t {
+    Oblique,
+    FirstPerson,
+    ThirdPerson,
+};
+
 // One local player's frame input, prepared before character updates.
 struct PlayerCharacterInput {
     glm::vec2 look_delta{};
     bool keyboard_enabled = false;
     bool mouse_enabled = false;
-    bool oblique = true;
+    ViewMode mode = ViewMode::Oblique;
     bool view_changed = false;
     std::optional<glm::vec2> restored_first_person_angles;
     glm::vec3 view_heading{0, 0, -1};
-    bool third_person_follow = false;
 };
 
 struct EquipmentRequest {
