@@ -13,10 +13,16 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace lc1 {
 
 class Device;
+
+struct MeshUploadBatch {
+    vk::raii::CommandBuffer const &commands;
+    std::vector<GpuBuffer> &staging;
+};
 
 // Something drawable: vertex data on the GPU plus how many vertices to draw.
 // A resource, loaded once and shared -- a hundred soldiers are a hundred
@@ -27,7 +33,8 @@ class GpuMesh {
     // So it goes through a staging buffer: the CPU writes a host-visible copy, and
     // the GPU copies that into the device-local one.
     template <std::unsigned_integral T>
-    GpuMesh(Device const &device, std::span<Vertex const> vertices, std::span<T const> indices);
+    GpuMesh(Device const &device, std::span<Vertex const> vertices, std::span<T const> indices,
+            MeshUploadBatch *batch = nullptr);
 
     template <std::ranges::contiguous_range Container>
         requires std::unsigned_integral<std::ranges::range_value_t<Container>>
@@ -57,7 +64,6 @@ class GpuMesh {
 
   private:
     vk::AccelerationStructureGeometryKHR acceleration_geometry() const;
-    void build_acceleration_structure(Device const &device);
 
     GpuBuffer vertices_;
     std::optional<GpuBuffer> vertex_staging_;
@@ -72,7 +78,7 @@ class GpuMesh {
 
 template <std::unsigned_integral T>
 inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
-                        std::span<T const> indices)
+                        std::span<T const> indices, MeshUploadBatch *batch)
     : vertices_{device, vertices.size_bytes(),
                 vk::BufferUsageFlagBits2::eVertexBuffer | vk::BufferUsageFlagBits2::eTransferDst |
                     vk::BufferUsageFlagBits2::eShaderDeviceAddress |
@@ -97,8 +103,14 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
                               vma::AllocationCreateFlagBits::eHostAccessSequentialWrite};
     staging_indices.upload(std::as_bytes(indices));
 
-    one_time_submit(device, [this, &staging_vertices, &vertices, &staging_indices,
-                             &indices](vk::raii::CommandBuffer const &command_buffer) {
+    if (vertex_count_ == 0 || index_count_ == 0 || index_count_ % 3 != 0 ||
+        (index_type_ != vk::IndexType::eUint16 && index_type_ != vk::IndexType::eUint32))
+        fail("ray query meshes require nonempty indexed triangles with uint16/uint32 indices");
+    auto const geometry = acceleration_geometry();
+    acceleration_structure_.emplace(device, vk::AccelerationStructureTypeKHR::eBottomLevel,
+                                    geometry, index_count_ / 3);
+
+    auto const record = [&](vk::raii::CommandBuffer const &command_buffer) {
         command_buffer.copyBuffer(*staging_vertices.raii(), *vertices_.raii(),
                                   vk::BufferCopy{.size = vertices.size_bytes()});
 
@@ -137,9 +149,16 @@ inline GpuMesh::GpuMesh(Device const &device, std::span<Vertex const> vertices,
             .size = vk::WholeSize,
         };
         command_buffer.pipelineBarrier2(vk::DependencyInfo{}.setBufferMemoryBarriers(barrier2));
-    });
-
-    build_acceleration_structure(device);
+        acceleration_structure_->build(command_buffer, geometry, index_count_ / 3);
+    };
+    if (batch) {
+        record(batch->commands);
+        batch->staging.push_back(std::move(staging_vertices));
+        batch->staging.push_back(std::move(staging_indices));
+    }
+    else {
+        one_time_submit(device, record);
+    }
 
     spdlog::debug("[GpuMesh] loaded {} vertices, {} indices", vertex_count_, index_count_);
 }

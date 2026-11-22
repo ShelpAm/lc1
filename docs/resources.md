@@ -178,7 +178,8 @@ Scene 的 DrawItem 保存本帧变形顶点的不可变快照。Renderer 在各�
 `Skinned geometry` pass 在同一次帧提交中上传顶点并重建 BLAS，随后重建 TLAS；
 光栅、ray-query 阴影和 DDGI 读取相同的变形几何，不使用绑定姿态阴影，也不逐帧等待队列空闲。
 阴影历史使用原始资产身份，避免不同帧槽缓冲导致全场景拓扑失效；变形接收面本身拒绝历史。
-当前是 CPU 蒙皮加 GPU 上传/BLAS rebuild，尚无 GPU 蒙皮、动画混合或 root motion。
+当前使用 CPU 蒙皮与 GPU 上传。每帧重建的角色 BLAS 采用 `PreferFastBuild`，静态几何仍以追踪性能优先。
+尚无 GPU 蒙皮、动画混合或 root motion。
 
 兰博接入资源由 `python scripts/prepare-rumble.py` 从原始 `models/rumble/source.glb` 生成；
 保留内嵌材质、骨架、权重与所选的待机、跑步、攻击、死亡和玩笑动画。

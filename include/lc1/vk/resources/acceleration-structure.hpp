@@ -10,7 +10,9 @@ class AccelerationStructure {
   public:
     AccelerationStructure(Device const &device, vk::AccelerationStructureTypeKHR type,
                           vk::AccelerationStructureGeometryKHR const &geometry,
-                          std::uint32_t capacity);
+                          std::uint32_t capacity,
+                          vk::BuildAccelerationStructureFlagsKHR flags =
+                              vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
     AccelerationStructure(AccelerationStructure const &) = delete;
     AccelerationStructure &operator=(AccelerationStructure const &) = delete;
     AccelerationStructure(AccelerationStructure &&) = default;
@@ -26,6 +28,7 @@ class AccelerationStructure {
 
   private:
     vk::AccelerationStructureTypeKHR type_;
+    vk::BuildAccelerationStructureFlagsKHR flags_;
     std::uint32_t capacity_;
     vk::AccelerationStructureBuildSizesInfoKHR sizes_;
     GpuBuffer storage_;

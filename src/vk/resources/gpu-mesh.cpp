@@ -20,7 +20,8 @@ GpuMesh::GpuMesh(Device const &device, std::size_t vertex_count,
                            vma::AllocationCreateFlagBits::eHostAccessSequentialWrite);
     index_staging_->upload(std::as_bytes(indices));
     acceleration_structure_.emplace(device, vk::AccelerationStructureTypeKHR::eBottomLevel,
-                                    acceleration_geometry(), index_count_ / 3);
+                                    acceleration_geometry(), index_count_ / 3,
+                                    vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastBuild);
 }
 
 vk::AccelerationStructureGeometryKHR GpuMesh::acceleration_geometry() const
@@ -40,19 +41,6 @@ vk::AccelerationStructureGeometryKHR GpuMesh::acceleration_geometry() const
     };
     geometry.geometry.triangles = triangles;
     return geometry;
-}
-
-void GpuMesh::build_acceleration_structure(Device const &device)
-{
-    if (vertex_count_ == 0 || index_count_ == 0 || index_count_ % 3 != 0 ||
-        (index_type_ != vk::IndexType::eUint16 && index_type_ != vk::IndexType::eUint32))
-        fail("ray query meshes require nonempty indexed triangles with uint16/uint32 indices");
-    auto const geometry = acceleration_geometry();
-    acceleration_structure_.emplace(device, vk::AccelerationStructureTypeKHR::eBottomLevel,
-                                    geometry, index_count_ / 3);
-    one_time_submit(device, [&](vk::raii::CommandBuffer const &commands) {
-        acceleration_structure_->build(commands, geometry, index_count_ / 3);
-    });
 }
 
 void GpuMesh::update_vertices(Device const &device, vk::raii::CommandBuffer const &commands,

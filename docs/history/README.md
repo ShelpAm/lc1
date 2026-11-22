@@ -8,6 +8,7 @@
 | [PBR 实施计划](pbr.md) | 了解早期材质、descriptor set 与分阶段实施方案 | [光照](../lighting.md)、[shader object](../shader-objects.md) |
 | [引擎语义审查](engine-semantics-review.md) | 了解当时发现的问题、建议和后续批注；不是当前待办列表 | [代码边界](../code-layout.md)、相关源码 |
 | [主场景性能定位](render-performance.md) | 查看记录配置下的测量与方法；数值不外推至当前版本 | 重新按目标场景测量 |
+| [村庄蒙皮测量](village-skinning-2026-11-22.md) | CPU 蒙皮、上传和 BLAS／TLAS 成本 | [骨骼蒙皮](../resources.md#骨骼蒙皮) |
 | [RenderGraph 验证记录](render-graph-validation-2026-10-09.md) | 保留一次 Linux GPU 验证及未完成项目 | [RenderGraph](../render-graph.md) |
 
 - [Shader object 渲染：历史验证](shader-objects-validation.md)；现行说明：[shader-objects](../shader-objects.md)。

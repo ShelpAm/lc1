@@ -4,12 +4,12 @@
 namespace lc1 {
 namespace {
 vk::AccelerationStructureBuildGeometryInfoKHR
-build_info(vk::AccelerationStructureTypeKHR type,
+build_info(vk::AccelerationStructureTypeKHR type, vk::BuildAccelerationStructureFlagsKHR flags,
            vk::AccelerationStructureGeometryKHR const &geometry)
 {
     vk::AccelerationStructureBuildGeometryInfoKHR info{
         .type = type,
-        .flags = vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
+        .flags = flags,
         .mode = vk::BuildAccelerationStructureModeKHR::eBuild,
     };
     info.setGeometries(geometry);
@@ -27,18 +27,22 @@ vk::DeviceSize scratch_alignment(Device const &device)
 
 vk::AccelerationStructureBuildSizesInfoKHR
 build_sizes(Device const &device, vk::AccelerationStructureTypeKHR type,
+            vk::BuildAccelerationStructureFlagsKHR flags,
             vk::AccelerationStructureGeometryKHR const &geometry, std::uint32_t capacity)
 {
     return device.raii().getAccelerationStructureBuildSizesKHR(
-        vk::AccelerationStructureBuildTypeKHR::eDevice, build_info(type, geometry), capacity);
+        vk::AccelerationStructureBuildTypeKHR::eDevice, build_info(type, flags, geometry),
+        capacity);
 }
 } // namespace
 
 AccelerationStructure::AccelerationStructure(Device const &device,
                                              vk::AccelerationStructureTypeKHR type,
                                              vk::AccelerationStructureGeometryKHR const &geometry,
-                                             std::uint32_t capacity)
-    : type_{type}, capacity_{capacity}, sizes_{build_sizes(device, type, geometry, capacity)},
+                                             std::uint32_t capacity,
+                                             vk::BuildAccelerationStructureFlagsKHR flags)
+    : type_{type}, flags_{flags}, capacity_{capacity},
+      sizes_{build_sizes(device, type, flags, geometry, capacity)},
       storage_{device, sizes_.accelerationStructureSize,
                vk::BufferUsageFlagBits2::eAccelerationStructureStorageKHR |
                    vk::BufferUsageFlagBits2::eShaderDeviceAddress},
@@ -61,7 +65,7 @@ void AccelerationStructure::build(vk::raii::CommandBuffer const &commands,
 {
     if (primitive_count > capacity_)
         fail("acceleration structure build exceeds capacity");
-    auto info = build_info(type_, geometry);
+    auto info = build_info(type_, flags_, geometry);
     info.dstAccelerationStructure = *handle_;
     info.scratchData.deviceAddress = scratch_address_;
     vk::AccelerationStructureBuildRangeInfoKHR const range{.primitiveCount = primitive_count};
