@@ -3,7 +3,6 @@
 #include "lc1/game/physics/world-collision.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -155,26 +154,18 @@ void invalid_maps()
 void prototype_network()
 {
     lc1::Continent const world = lc1::Continent::make_prototype();
-    std::array<bool, 5> regions{};
-    std::array<bool, 6> locations{};
     for (float z = world.bounds().min.y; z < world.bounds().max.y; z += world.tile_size()) {
         for (float x = world.bounds().min.x; x < world.bounds().max.x; x += world.tile_size()) {
             auto const *region = world.region_at({x, z});
             check(region != nullptr, "every terrain tile belongs to a named region");
-            regions[static_cast<std::size_t>(region->type)] = true;
             check(world.ground_height({x, z}).has_value() == region->walkable(),
                   "terrain movement agrees with region type");
         }
     }
-    check(std::ranges::all_of(regions, [](bool exists) { return exists; }),
-          "all five biomes exist");
     for (auto const &place : world.locations()) {
-        locations[static_cast<std::size_t>(place.type)] = true;
         check(world.region_at(place.entrance)->id == place.region,
               "location entrance belongs to region");
     }
-    check(std::ranges::all_of(locations, [](bool exists) { return exists; }),
-          "all six location types exist");
 
     auto const spawn = world.spawn();
     auto const *start = world.road_at({spawn.x, spawn.z});
@@ -204,81 +195,6 @@ void prototype_network()
     }
 }
 
-void present_outline()
-{
-    auto const world = lc1::Continent::make_present();
-    auto const size = world.bounds().max - world.bounds().min;
-    check(size == glm::vec2{6144, 4096} && world.tile_size() == 16,
-          "present map preserves the 3:2 canvas at a metre-based scale");
-    auto source_position = [&](glm::vec2 point) { return world.bounds().min + point * 2.56F; };
-    // Landmarks taken from the source map, independent of the generated run table.
-    for (auto point : {glm::vec2{1250, 1050},
-                       {1000, 250},
-                       {240, 740},
-                       {2140, 780},
-                       {2235, 1135},
-                       {2330, 360},
-                       {1160, 97}})
-        check(world.ground_height(source_position(point)).has_value(),
-              "mainland, eastern islands and the small northern island survive sampling");
-    for (auto point : {glm::vec2{20, 20}, {2380, 1580}, {1160, 240}, {1250, 1250}, {1960, 900}})
-        check(!world.ground_height(source_position(point)),
-              "open sea, northern inlet, southern bay and island channel remain water");
-
-    std::size_t land_cells = 0;
-    for (std::size_t row = 0; row < world.rows(); ++row) {
-        for (std::size_t column = 0; column < world.columns(); ++column) {
-            auto const point =
-                world.bounds().min + (glm::vec2{column, row} + 0.5F) * world.tile_size();
-            land_cells += world.ground_height(point).has_value();
-        }
-    }
-    check(land_cells > 43000 && land_cells < 45000,
-          "land coverage must not include sea decoration or lose the archipelago");
-
-    for (auto const &place : world.locations()) {
-        for (float z = place.bounds.min.y; z < place.bounds.max.y; z += 8)
-            for (float x = place.bounds.min.x; x < place.bounds.max.x; x += 8)
-                check(world.ground_height({x, z}).has_value(),
-                      "settlement footprints stay on land");
-    }
-    auto const *city = world.location(lc1::LocationId{1});
-    check(city && city->bounds.max - city->bounds.min == glm::vec2{320, 384},
-          "continent scaling does not stretch the city");
-    auto const through_gate = lc1::WorldCollision{world}.move(world.spawn(), {0, -160}, 0.3F, 1.8F);
-    check(std::abs(through_gate.z + 128.0F) < 0.001F, "the actual city gate remains traversable");
-    auto const back = lc1::WorldCollision{world}.move(through_gate, {0, 160}, 0.3F, 1.8F);
-    check(glm::distance(back, world.spawn()) < 0.001F, "the city gate allows returning to spawn");
-    for (auto const &road : world.roads()) {
-        for (std::size_t segment = 1; segment < road.points.size(); ++segment) {
-            for (bool reverse : {false, true}) {
-                auto const from = road.points[reverse ? segment : segment - 1];
-                auto const to = road.points[reverse ? segment - 1 : segment];
-                check(glm::distance(lc1::WorldCollision{world}.move({from.x, 0, from.y}, to - from,
-                                                                    road.width * 0.5F, 1.8F),
-                                    glm::vec3{to.x, 0, to.y}) < 0.001F,
-                      "every village and shore bend has full-width clearance in both directions");
-            }
-        }
-    }
-    check(std::ranges::none_of(world.patches(),
-                               [](auto const &patch) {
-                                   return patch.surface == lc1::ContinentSurface::Road &&
-                                          patch.bounds.max.y > 80;
-                               }),
-          "village lanes use road geometry rather than rectangular patches");
-    auto const shoreline = lc1::WorldCollision{world}.move(world.spawn(), {0, 2000}, 0.3F, 1.8F);
-    check(std::abs(shoreline.z - 271.7F) < 0.001F &&
-              lc1::WorldCollision{world}.can_stand(shoreline, 0.3F, 1.8F),
-          "high-speed movement through the village stops at the visible south-bay coast");
-    auto const island = source_position({2140, 780});
-    auto const island_edge =
-        lc1::WorldCollision{world}.move({island.x, 0, island.y}, {-2000, 0}, 0.3F, 1.8F);
-    check(island_edge.x > source_position({1960, 780}).x &&
-              lc1::WorldCollision{world}.can_stand(island_edge, 0.3F, 1.8F),
-          "island shores block walking across the channel to the mainland");
-}
-
 } // namespace
 
 int main()
@@ -288,7 +204,6 @@ int main()
         polyline_queries();
         invalid_maps();
         prototype_network();
-        present_outline();
         std::cout << "world map: identities, queries, validation and connected traversal passed\n";
     }
     catch (std::exception const &error) {

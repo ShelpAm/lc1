@@ -80,6 +80,83 @@ lc1::Continent make_world()
     return lc1::Continent{make_world_data()};
 }
 
+void villager_activity()
+{
+    using lc1::CharacterAnimation;
+    auto const world = make_world();
+    lc1::MeleeWeapon weapon{1001, {.attack = 10, .range = 1.5F}};
+    lc1::AnimationMotion motion{.attack_start = 0.25F, .attack_end = 0.5F};
+    auto &clips = motion.clips;
+    clips[static_cast<std::size_t>(CharacterAnimation::Idle)] = {.name = {}, .duration = 1};
+    clips[static_cast<std::size_t>(CharacterAnimation::Walk)] = {
+        .name = {}, .duration = 1, .speed_from = 2, .speed_to = 2};
+    clips[static_cast<std::size_t>(CharacterAnimation::Sprint)] = {
+        .name = {}, .duration = 1, .speed_from = 4, .speed_to = 4};
+    clips[static_cast<std::size_t>(CharacterAnimation::WalkStart)] = {.name = {},
+                                                                      .duration = 0.5F,
+                                                                      .speed_to = 2,
+                                                                      .next =
+                                                                          CharacterAnimation::Walk,
+                                                                      .next_phase = 0.5F};
+    clips[static_cast<std::size_t>(CharacterAnimation::WalkToSprint)] = {
+        .name = {},
+        .duration = 0.5F,
+        .speed_from = 2,
+        .speed_to = 4,
+        .next = CharacterAnimation::Sprint};
+    clips[static_cast<std::size_t>(CharacterAnimation::TurnLeft90)] = {
+        .name = {}, .duration = 0.5F, .turn = 90};
+    clips[static_cast<std::size_t>(CharacterAnimation::Attack)] = {.name = {}, .duration = 1};
+    clips[static_cast<std::size_t>(CharacterAnimation::HitReact)] = {.name = {}, .duration = 1};
+    clips[static_cast<std::size_t>(CharacterAnimation::Death)] = {.name = {}, .duration = 2};
+    lc1::CharacterConfig config{};
+    config.main_hand = &weapon;
+    config.animation_motion = motion;
+    config.attack_animation_duration = motion[CharacterAnimation::Attack].duration;
+    lc1::Character villager{world, {.position = world.spawn()}, config};
+    auto const expect_clip = [&](CharacterAnimation clip, float seconds, std::string_view message) {
+        auto const animation = villager.timed_animation();
+        check(animation && animation->clip == clip && near(animation->seconds, seconds), message);
+    };
+
+    auto const spawn = villager.position();
+    lc1::CharacterIntent turn{};
+    turn.body_direction = glm::vec3{-1, 0, 0};
+    apply_character_intent(villager, 0.25F, world, turn);
+    expect_clip(CharacterAnimation::TurnLeft90, 0.25F, "in-place turn follows the clip clock");
+    check(near(villager.body_yaw(), 45) && near(villager.position(), spawn),
+          "a half-complete turn rotates without translating");
+    apply_character_intent(villager, 0.25F, world, turn);
+
+    lc1::CharacterIntent movement{};
+    movement.move = {-1, 0};
+    movement.face_movement = true;
+    apply_character_intent(villager, 0.25F, world, movement);
+    expect_clip(CharacterAnimation::WalkStart, 0.25F, "idle transitions through walk start");
+    apply_character_intent(villager, 0.25F, world, movement);
+    expect_clip(CharacterAnimation::Walk, 0.5F, "walk starts at its configured phase");
+    movement.sprint = true;
+    apply_character_intent(villager, 0.75F, world, movement);
+    expect_clip(CharacterAnimation::WalkToSprint, 0.25F,
+                "sprint starts at the next cycle boundary");
+    apply_character_intent(villager, 0.25F, world, movement);
+    expect_clip(CharacterAnimation::Sprint, 0, "sprint transition completes");
+
+    lc1::CharacterIntent swing{};
+    swing.swing_weapon = true;
+    apply_character_intent(villager, 0, world, swing);
+    expect_clip(CharacterAnimation::Attack, 0, "a swing overrides locomotion");
+    villager.take_damage(1);
+    auto const hit_position = villager.position();
+    apply_character_intent(villager, 0.5F, world, movement);
+    expect_clip(CharacterAnimation::HitReact, 0.5F, "a hit interrupts the swing");
+    check(near(villager.position(), hit_position), "hit reaction locks locomotion");
+    villager.take_damage(villager.config().max_health());
+    apply_character_intent(villager, 3, world, movement);
+    expect_clip(CharacterAnimation::Death, motion[CharacterAnimation::Death].duration,
+                "death keeps its final frame");
+}
+
 void crouching()
 {
     auto data = make_world_data();
@@ -1437,9 +1514,13 @@ void leg_height_proportions()
 
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
     try {
+        if (argc == 2 && std::string_view{argv[1]} == "--villager-activity") {
+            villager_activity();
+            return EXIT_SUCCESS;
+        }
         debug_flight();
         prone_toggle();
         remiel_point_input();

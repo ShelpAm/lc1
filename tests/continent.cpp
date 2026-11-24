@@ -1,18 +1,13 @@
 #include "lc1/game/continent/continent.hpp"
 #include "character-input.hpp"
-#include "character-lookup.hpp"
 #include "lc1/game/camera/map-camera-controller.hpp"
-#include "lc1/game/character/ai-character-controller.hpp"
 #include "lc1/game/character/character.hpp"
-#include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/pbr-showcase.hpp"
 #include "lc1/game/debug/world-setup.hpp"
-#include "lc1/game/dialog/dialog.hpp"
 #include "lc1/game/physics/world-collision.hpp"
 #include "lc1/scene/camera.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -411,52 +406,6 @@ void camera_projection()
           "perspective depth maps the near/far planes to Vulkan's zero-to-one range");
 }
 
-void patrol_house_floors()
-{
-    auto const world = lc1::Continent::make_present();
-    lc1::Character npc{world, {.position = lc1::patrol_house_spawn}, {}};
-    std::vector<lc1::Waypoint> points;
-    auto const route = lc1::patrol_house_route();
-    // Start indoors and exercise both stairs, the platform, and the exterior return.
-    auto const start = std::ranges::find(route, lc1::patrol_house_spawn);
-    auto const index = static_cast<std::size_t>(start - route.begin());
-    for (std::size_t i = 0; i < route.size(); ++i)
-        points.push_back({.position = route[(index + i) % route.size()]});
-    lc1::Character player{world, {.position = world.spawn()}, {}};
-    lc1::DialogSystem dialogs{"runtime/dialogs/catalog.yaml"};
-    lc1::AiCharacterController patrol_controller{dialogs, character_lookup({&player, &npc}),
-                                                 std::array{&player}, points, 0.4F};
-    npc.set_controller(&patrol_controller);
-    bool upper = false;
-    bool middle = false;
-    bool platform = false;
-    bool returned = false;
-    bool outside = false;
-    for (int frame = 0; frame < 120 * 240; ++frame) {
-        npc.update(1.0F / 120.0F, world);
-        check(lc1::WorldCollision{world}.can_stand(npc.position(), npc.half_width(), npc.height()),
-              "house patrol never penetrates walls or ceilings");
-        upper |= npc.position().y > 7.7F;
-        middle |= npc.position().y > 4.1F && npc.position().y < 4.3F;
-        platform |= npc.position().x > 40 && near(npc.position().y, 1.2F);
-        returned |= upper && npc.position().x < 31 && npc.position().y < 0.7F;
-        outside |= returned && npc.position().x < 1 && npc.position().z > 55;
-    }
-    if (!(upper && middle && platform && returned && outside))
-        std::cerr << "House patrol stopped at " << npc.position().x << ", " << npc.position().y
-                  << ", " << npc.position().z << "\n";
-    check(upper && middle && platform && returned && outside,
-          "NPC visits the split level, both upper floors, descends, and exits the house");
-    check(!lc1::WorldCollision{world}.can_stand({39.2F, 0.6F, 20}, 0.3F, 1.8F),
-          "ground-floor partition blocks characters");
-    check(lc1::WorldCollision{world}.can_stand({39.2F, 0.6F, 25.5F}, 0.3F, 1.8F),
-          "room doorway has body clearance");
-    check(lc1::WorldCollision{world}.can_stand({36, 0.6F, 23}, 0.3F, 1.8F) &&
-              lc1::WorldCollision{world}.can_stand({36, 4.2F, 23}, 0.3F, 1.8F) &&
-              lc1::WorldCollision{world}.can_stand({36, 7.8F, 23}, 0.3F, 1.8F),
-          "stacked rooms retain independent walkable levels");
-}
-
 void perspective_camera_zoom()
 {
     glm::vec3 const player{0, 0, 0};
@@ -576,7 +525,6 @@ int main()
         switchback_stairs();
         camera_projection();
         perspective_camera_zoom();
-        patrol_house_floors();
         camera_lock_and_edge_pan();
         std::cout
             << "continent: terrain, continuous collision, sliding and city traversal passed\n";

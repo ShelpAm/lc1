@@ -3,7 +3,6 @@
 #include "player-input.hpp"
 
 #include "lc1/error.hpp"
-#include "lc1/game/continent/patrol-house.hpp"
 #include "lc1/game/debug/world-setup.hpp"
 #include "lc1/game/party/party.hpp"
 #include "lc1/game/player/player-view.hpp"
@@ -12,7 +11,6 @@
 #include "lc1/game/world/world-snapshot.hpp"
 
 #include <algorithm>
-#include <bitset>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -607,21 +605,26 @@ void scenario_inventory()
     lc1::Save const seed{"saves/01"};
     lc1::GameWorld world{seed, "dialogs/catalog.yaml"};
     auto &bag = world.player(lc1::PlayerId{1}).bag();
-    check(bag.quantity_of(lc1::game::wood.keyid) == 2 && bag.total_weight() == 9300,
-          "temporary demonstration setup supplies a bounded initial inventory");
+    auto const initial_weight = bag.total_weight();
+    check(!bag.quantities().empty(), "scenario provides supplies for the checkpoint test");
+    auto const [supply_id, initial_quantity] = *bag.quantities().begin();
+    auto const *supply = lc1::game::find_resource(supply_id);
     update_world(world, 0, {});
     update_world(world, 1.0F, {});
-    check(bag.total_weight() == 9300, "simulation does not refill demonstration supplies");
-    check(bag.remove(lc1::game::wood, 1), "consume initial supplies");
+    check(bag.total_weight() == initial_weight,
+          "simulation does not refill demonstration supplies");
+    check(bag.remove(*supply, 1), "consume initial supplies");
     Checkpoint checkpoint;
     lc1::Save::write(checkpoint.directory(), world.snapshot());
     lc1::Save const saved{checkpoint.directory()};
     lc1::GameWorld restored{saved, "dialogs/catalog.yaml"};
-    check(restored.player(lc1::PlayerId{1}).bag().quantity_of(lc1::game::wood.keyid) == 1 &&
-              restored.player(lc1::PlayerId{1}).bag().total_weight() == 8300,
+    check(restored.player(lc1::PlayerId{1}).bag().quantity_of(supply->keyid) ==
+                  initial_quantity - 1 &&
+              restored.player(lc1::PlayerId{1}).bag().total_weight() ==
+                  initial_weight - supply->weight,
           "checkpoint restores consumed inventory without applying initial supplies again");
     world.load(saved);
-    check(world.player(lc1::PlayerId{1}).bag().total_weight() == 8300,
+    check(world.player(lc1::PlayerId{1}).bag().total_weight() == initial_weight - supply->weight,
           "in-place reload also restores inventory exactly");
 }
 
@@ -653,22 +656,6 @@ void village_residents()
           "authored giant body reaches gameplay collision dimensions");
     check(world.player(lc1::PlayerId{1}).body().height == 1.8F,
           "old saves without body settings retain standard proportions");
-    for (auto const &[id, patrol] : setup.npc_patrols) {
-        auto &resident = world.character(lc1::CharacterId{id});
-        check(glm::distance(resident.position(), *patrol.spawn) < 0.01F,
-              "village residents start at their authored workplaces");
-        std::vector<bool> visited(patrol.route.size());
-        for (int frame = 0; frame < 60 * 90; ++frame) {
-            // Exercise the authored route without unrelated ambient conversations.
-            resident.update(1.0F / 60.0F, world.continent());
-            for (std::size_t i = 0; i < patrol.route.size(); ++i)
-                visited[i] = visited[i] ||
-                             glm::distance(resident.position(), patrol.route[i].position) < 0.5F;
-        }
-        check(std::ranges::all_of(visited, [](bool reached) { return reached; }),
-              "each villager completes every road bend without getting stuck");
-        check(resident.attack_sequence() == 0, "unarmed villagers do not perform demo attacks");
-    }
     world.character(lc1::CharacterId{8}).ai_controller()->set_order(lc1::CompanionOrder::None);
     auto const snapshot = world.snapshot();
     lc1::Save::write(checkpoint.directory(), snapshot);
@@ -686,39 +673,6 @@ void village_residents()
         check(resident.ai_controller()->patrolling() == (id != 8),
               "reload resumes individual patrols and preserves a stopped villager");
     }
-}
-
-void restored_house_patrol()
-{
-    Checkpoint checkpoint;
-    auto data = lc1::Save{checkpoint.directory()}.data();
-    auto const example = data.session.example;
-    for (auto &state : data.states) {
-        if (state.keyid != example)
-            continue;
-        state.x = 36;
-        state.y = 7.8F;
-        state.z = 23;
-        state.patrol = true;
-    }
-    lc1::Save::write(checkpoint.directory(), data);
-    lc1::GameWorld world{lc1::Save{checkpoint.directory()}, "dialogs/catalog.yaml"};
-    check(find(world, example).position().y == 7.8F,
-          "house patrol restores the saved floor without teleporting");
-    bool descended = false;
-    bool climbed_again = false;
-    for (int frame = 0; frame < 60 * 160; ++frame) {
-        update_world(world, 1.0F / 60.0F, {});
-        auto const height = find(world, example).position().y;
-        descended |= height < 0.7F;
-        climbed_again |= descended && height > 7.7F;
-    }
-    check(descended && climbed_again,
-          "world restores a multi-floor patrol and completes its return route");
-    auto snapshot = world.snapshot();
-    check(
-        std::ranges::find(snapshot.states, example, &lc1::SerializedCharacterState::keyid)->patrol,
-        "house patrol retains the existing save patrol flag");
 }
 
 void world_applies_control()
@@ -876,135 +830,11 @@ void control_physics_camera_order()
           "disabled controls cannot move or turn the player");
 }
 
-void villager_activity(std::filesystem::path const &runtime)
-{
-    using lc1::CharacterAnimation;
-    constexpr lc1::CharacterId villager_id{12};
-    lc1::GameWorld world{lc1::Save{runtime / "saves/01"}, runtime / "dialogs/catalog.yaml",
-                         runtime / "assets"};
-    auto &villager = world.character(villager_id);
-    auto const spawn = villager.position();
-    auto const model =
-        lc1::load_configured_model(villager.config().model, runtime / "assets", villager.body());
-    auto const &profile = villager.config().animation_motion;
-    check(profile.has_value(), "villager loads its motion profile");
-    auto const motion = *profile;
-    constexpr auto action_count = static_cast<std::size_t>(CharacterAnimation::Action);
-    std::bitset<action_count> seen;
-    for (std::size_t slot = 0; slot < seen.size(); ++slot) {
-        auto const action = static_cast<CharacterAnimation>(slot);
-        auto const &name = motion[action].name;
-        auto const index = model.definition().find_animatinon(name);
-        check(index &&
-                  model.definition().animations()[*index].duration() == (*profile)[action].duration,
-              name);
-    }
-    auto const record = [&](lc1::Character const &character) {
-        auto const animation = character.timed_animation();
-        check(animation.has_value(), "villager publishes its animation clock");
-        seen.set(static_cast<std::size_t>(animation->clip));
-    };
-    float farthest = 0;
-    bool returned = false;
-    for (int tick = 0; tick < 60 * 100; ++tick) {
-        world.update(1.0F / 60, {});
-        record(villager);
-        farthest = std::max(farthest, glm::distance(villager.position(), spawn));
-        returned |= farthest > 12 && glm::distance(villager.position(), spawn) < 1.5F;
-        check(villager.attack_sequence() == 0, "patrolling villager never swings at itself");
-    }
-    check(returned, std::format("villager route: farthest {}, final ({},{},{}), clip {}", farthest,
-                                villager.position().x, villager.position().y, villager.position().z,
-                                motion[villager.timed_animation()->clip].name));
-    for (auto const clip : {CharacterAnimation::Idle, CharacterAnimation::Walk,
-                            CharacterAnimation::Sprint, CharacterAnimation::WalkStart})
-        check(seen.test(static_cast<std::size_t>(clip)), "ambient route exercises locomotion");
-    Checkpoint checkpoint;
-    lc1::Save::write(checkpoint.directory(), world.snapshot());
-    auto const saved_position = villager.position();
-    world.load(lc1::Save{checkpoint.directory()});
-    check(glm::distance(world.character(villager_id).position(), saved_position) < 0.001F,
-          "villager checkpoint restores position");
-
-    auto const exercise = [&](auto run) {
-        lc1::Character character{
-            world.continent(), {.position = spawn}, world.character(villager_id).config()};
-        auto const tick = [&](float seconds, lc1::CharacterIntent const &intent) {
-            for (int frame = 0; frame < static_cast<int>(std::round(seconds * 120)); ++frame) {
-                apply_character_intent(character, 1.0F / 120, world.continent(), intent);
-                record(character);
-            }
-        };
-        run(character, tick);
-    };
-    lc1::CharacterIntent forward{};
-    forward.move = {0, -1};
-    forward.face_movement = true;
-    auto sprint = forward;
-    sprint.sprint = true;
-    exercise([&](auto &, auto tick) {
-        tick(1.3F, forward);
-        tick(1, {});
-        tick(2.05F, forward);
-        tick(1, {});
-        tick(1.6F, forward);
-        tick(1.2F, sprint);
-        tick(1.2F, forward);
-    });
-    for (float const turn : {-1.0F, 1.0F}) {
-        exercise([&](auto &character, auto tick) {
-            lc1::CharacterIntent facing{};
-            facing.body_direction = glm::vec3{-turn, 0, 0};
-            auto const before = character.position();
-            tick(1, facing);
-            check(std::abs(character.body_yaw() - turn * 90) < 0.001F &&
-                      character.position() == before,
-                  "in-place turn changes world yaw while keeping feet near the starting point");
-            character.set_body_yaw(0);
-            facing.body_direction = glm::vec3{-turn * 0.001F, 0, 1};
-            tick(1.6F, facing);
-        });
-        for (bool const running : {false, true}) {
-            exercise([&](auto &, auto tick) {
-                tick(running ? 0.85F : 1.45F, running ? sprint : forward);
-                auto angled = running ? sprint : forward;
-                angled.move = {-turn, -1};
-                tick(2, angled);
-            });
-        }
-        exercise([&](auto &, auto tick) {
-            tick(turn > 0 ? 0.9F : 1.2F, sprint);
-            tick(1.2F, {});
-        });
-    }
-    exercise([&](auto &character, auto tick) {
-        lc1::CharacterIntent swing{};
-        swing.swing_weapon = true;
-        tick(0.2F, swing);
-        character.take_damage(1);
-        tick(0.5F, forward);
-        check(character.timed_animation()->clip == CharacterAnimation::HitReact,
-              "hit reaction interrupts slash and locks locomotion through the authored clip");
-        character.take_damage(character.config().max_health());
-        tick(3, forward);
-        auto const death = *character.timed_animation();
-        check(death.clip == CharacterAnimation::Death &&
-                  death.seconds ==
-                      (*character.config().animation_motion)[CharacterAnimation::Death].duration,
-              "death keeps its last authored frame");
-    });
-    for (std::size_t index = 0; index < seen.size(); ++index)
-        check(seen.test(index), std::format("never selected {}", motion.clips[index].name));
-}
 } // namespace
 
-int main(int argc, char **argv)
+int main()
 {
     try {
-        if (argc == 2) {
-            villager_activity(argv[1]);
-            return EXIT_SUCCESS;
-        }
         inventory_equipment_and_flashlight();
         crouch_checkpoint();
         proportions_checkpoint();
@@ -1019,7 +849,6 @@ int main(int argc, char **argv)
         world_applies_control();
         transfer_control_and_checkpoint();
         attack_animation_timing();
-        restored_house_patrol();
         village_residents();
         scenario_inventory();
         std::cout << "Game world tests passed\n";

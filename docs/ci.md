@@ -29,8 +29,7 @@ LFS 对象。Linux 下载命令通过单次 `safe.directory` 配置信任当前�
 资源版本管理规则见[资源管理](resources.md#资源版本管理git-lfs)。
 
 所有任务都通过 Conan 安装依赖，构建完整程序与 Slang 着色器。
-Linux Clang、GCC 和 Windows MSVC 设置 `BUILD_TESTING=ON`，构建后运行现有五组
-CPU 单元测试：`world_map`、`continent`、`character`、`tangent_space`、`player_view`。
+Linux Clang、GCC 和 Windows MSVC 设置 `BUILD_TESTING=ON`，构建后运行 CTest。
 MinGW 交叉编译设置 `BUILD_TESTING=OFF`，仅检查程序和着色器构建。
 所有 CI 构建通过 `-o:h "lc1/*:with_validation_layers=False"` 关闭 VVL 依赖，
 避免编译当前任务用不到的验证层。本地 Debug 默认仍然包含 VVL；未来 GPU 渲染测试
@@ -60,6 +59,5 @@ Slang 使用完整的 2026.18.3 官方发行包。Conan 包缓存按平台、工
 每组构建使用独立 runner 和构建目录，不共享 CMake 缓存。
 相同分支的新运行取消旧运行；矩阵设置 `fail-fast: false`，一组失败不会取消其他组。
 
-`runtime/assets/` 未纳入 Git，因此 CI 创建空目录以满足构建时的资源复制步骤。
-CPU 测试使用程序生成的数据，不创建窗口或 Vulkan 设备。CI 不启动游戏，也不执行
-需要真实 GPU 的渲染集成测试；不验证外部资源完整性或 Vulkan 验证层输出。
+CPU 测试使用测试夹具、运行时配置或上面列出的测试字体，不创建窗口或 Vulkan 设备。
+`villager_activity` 使用固定的运动配置验证动画状态推进。CI 不启动游戏，也不执行需要真实 GPU 的渲染集成测试。

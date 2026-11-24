@@ -483,9 +483,7 @@ if(BUILD_TESTING)
     lc1_enable_warnings(lc1_game_world_tests)
     add_test(NAME game_world COMMAND lc1_game_world_tests
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/tests/fixtures")
-    add_test(NAME villager_activity COMMAND lc1_game_world_tests "${CMAKE_CURRENT_BINARY_DIR}/runtime"
-        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/tests/fixtures")
-    add_dependencies(lc1_game_world_tests copy_assets copy_saves copy_dialogs)
+    add_test(NAME villager_activity COMMAND lc1_character_tests --villager-activity)
     add_executable(lc1_player_view_tests tests/player-view.cpp)
     target_link_libraries(lc1_player_view_tests PRIVATE lc1_game)
     lc1_enable_warnings(lc1_player_view_tests)
